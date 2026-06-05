@@ -48,3 +48,7 @@ config.toml
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Claude Code: machine-specific local settings (shared config like
+# .claude/launch.json and .claude/settings.json is committed)
+.claude/settings.local.json
