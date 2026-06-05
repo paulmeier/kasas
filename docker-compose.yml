@@ -35,6 +35,8 @@ services:
       # KASAS_SIMPLEFIN_ACCESS_URL: "https://user:pass@bridge.simplefin.org/simplefin"
       # Built-in MCP server (mounted at /mcp).
       KASAS_MCP_ENABLED: "true"
+      # Read-only web dashboard (served at /).
+      KASAS_DASHBOARD_ENABLED: "true"
     # Uncomment when using the Postgres backend so kasas waits for the database:
     # depends_on:
     #   postgres:

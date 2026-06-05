@@ -22,6 +22,7 @@ type Config struct {
 	Vault     Vault
 	Secrets   Secrets
 	MCP       MCP
+	Dashboard Dashboard
 }
 
 // Server holds HTTP server settings.
@@ -81,6 +82,11 @@ type MCP struct {
 	Enabled bool
 }
 
+// Dashboard toggles the built-in read-only web dashboard (served at /).
+type Dashboard struct {
+	Enabled bool
+}
+
 // Load reads configuration from the given file (optional) and the environment.
 // A missing config file is not an error; defaults and env vars are used.
 func Load(path string) (*Config, error) {
@@ -106,6 +112,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("vault.access_url_key", "simplefin_access_url")
 	v.SetDefault("secrets.file", "/data/secrets.json")
 	v.SetDefault("mcp.enabled", true)
+	v.SetDefault("dashboard.enabled", true)
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -149,8 +156,9 @@ func Load(path string) (*Config, error) {
 			Path:         v.GetString("vault.path"),
 			AccessURLKey: v.GetString("vault.access_url_key"),
 		},
-		Secrets: Secrets{File: v.GetString("secrets.file")},
-		MCP:     MCP{Enabled: v.GetBool("mcp.enabled")},
+		Secrets:   Secrets{File: v.GetString("secrets.file")},
+		MCP:       MCP{Enabled: v.GetBool("mcp.enabled")},
+		Dashboard: Dashboard{Enabled: v.GetBool("dashboard.enabled")},
 	}
 
 	if err := cfg.validate(); err != nil {

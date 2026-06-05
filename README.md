@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="internal/dashboard/web/logo.png" alt="kasas" width="160">
+</p>
+
 # kasas
 
 [![CI](https://github.com/paulmeier/kasas/actions/workflows/ci.yml/badge.svg)](https://github.com/paulmeier/kasas/actions/workflows/ci.yml)
@@ -13,8 +17,12 @@ REST API and a built-in [MCP](https://modelcontextprotocol.io/) server.
   pure-Go Postgres (`jackc/pgx`).
 - **SQLite or Postgres** — zero-dependency on embedded SQLite by default, or
   point it at a Postgres server with one config change. Same binary either way.
-- **One small container** (`scratch` base — ~8 MB pulled, ~20 MB on disk for
-  linux/amd64) with a bind-mounted SQLite file.
+- **Read-only web dashboard** at `/` — an account overview + a filterable,
+  paginated transactions table, built with [go-app](https://go-app.dev) (Go →
+  WebAssembly, embedded in the binary; no Node/JS build).
+- **One small container** (`scratch` base — ~12 MB pulled, ~24 MB on disk for
+  linux/amd64; the embedded WASM dashboard adds ~5 MB) with a bind-mounted
+  SQLite file.
 - **No external dependencies.** Optionally store the SimpleFIN access URL in
   HashiCorp Vault; otherwise it lives in a local `0600` file.
 - **Prometheus metrics** at `/metrics`, structured `slog` logging, graceful
@@ -126,6 +134,17 @@ docker compose --profile postgres up -d
 > Switching backends does not migrate existing data between them; each backend
 > keeps its own database.
 
+## Dashboard
+
+When `dashboard.enabled` is true (the default), kasas serves a lightweight,
+**read-only** web UI at the root path (`/`): a balance card per account, and a
+transactions table (date, account, payee/description, color-coded amount,
+pending badge) with an account filter and "load more" paging. It's a
+[go-app](https://go-app.dev) PWA — the UI is written in Go, compiled to
+WebAssembly, embedded in the binary (served gzipped, ~3 MB), and reads from the
+same-origin REST API. Turn it off with `KASAS_DASHBOARD_ENABLED=false` (the WASM
+is still embedded; the route is just not served).
+
 ## REST API
 
 All responses are JSON. Timestamps are RFC 3339 (UTC); money fields are exact
@@ -232,7 +251,9 @@ KASAS_TEST_POSTGRES_DSN="postgres://postgres:postgres@localhost:5432/kasas?sslmo
 
 ```
 cmd/kasas/          main entrypoint and subcommands
+cmd/kasas-wasm/     dashboard WebAssembly client entrypoint (GOOS=js GOARCH=wasm)
 internal/api/       chi routes, REST handlers, MCP server
+internal/dashboard/ go-app dashboard UI + handler (served at /)
 internal/config/    viper configuration
 internal/db/        SQLite sqlc output + Store interface + Postgres adapter
 internal/db/pg/      Postgres sqlc output

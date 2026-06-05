@@ -2,6 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN     := bin/kasas
 IMAGE   ?= kasas:latest
+SEED_EXTRA ?= 0
 
 # Use the locally installed sqlc, falling back to `go run` if it isn't on PATH.
 SQLC ?= $(shell command -v sqlc 2>/dev/null || echo go run github.com/sqlc-dev/sqlc/cmd/sqlc)
@@ -17,13 +18,28 @@ tidy:
 generate: ## Regenerate sqlc code from queries/ and migrations/
 	$(SQLC) generate
 
+.PHONY: wasm
+wasm: ## Build + gzip the dashboard WebAssembly client (embedded by the server)
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags "-s -w" \
+		-o internal/dashboard/web/app.wasm ./cmd/kasas-wasm
+	gzip -9 -f internal/dashboard/web/app.wasm
+
 .PHONY: build
-build: ## Build a static binary into bin/
+build: wasm ## Build a static binary into bin/ (builds the WASM first)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/kasas
 
 .PHONY: run
-run: ## Run the server locally (uses ./config.toml if present)
+run: wasm ## Run the server locally (uses ./config.toml if present)
 	go run ./cmd/kasas -config config.toml serve
+
+.PHONY: seed
+seed: ## Seed the configured DB with demo data (re-runnable; SEED_EXTRA=N for more)
+	go run ./scripts/seed -config config.toml -extra $(SEED_EXTRA)
+
+.PHONY: seed-reset
+seed-reset: ## Wipe ./data and re-seed from a clean slate (local SQLite dev)
+	rm -rf ./data
+	$(MAKE) seed
 
 .PHONY: test
 test: ## Run the test suite

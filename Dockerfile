@@ -15,6 +15,11 @@ RUN go mod download
 
 COPY . .
 
+# Build the dashboard WebAssembly client and gzip it so the server can embed it.
+RUN GOOS=js GOARCH=wasm go build -trimpath -ldflags "-s -w" \
+    -o internal/dashboard/web/app.wasm ./cmd/kasas-wasm \
+    && gzip -9 -f internal/dashboard/web/app.wasm
+
 ARG VERSION=dev
 # CGO is disabled: modernc.org/sqlite is pure Go, so the result is a fully
 # static binary that runs on scratch.

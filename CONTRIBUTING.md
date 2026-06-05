@@ -88,6 +88,21 @@ go run ./cmd/kasas serve
 Other subcommands: `migrate` (apply migrations and exit), `sync` (one sync),
 `mcp` (MCP over stdio), `healthcheck`.
 
+### Seeding demo data
+
+Without a real SimpleFIN bridge, populate the configured database with realistic
+demo accounts and transactions so the dashboard and API have something to show:
+
+```sh
+make seed                # upsert demo data into the DB named by config.toml (re-runnable)
+make seed-reset          # wipe ./data and seed from a clean slate (local SQLite)
+make seed SEED_EXTRA=60  # add 60 extra synthetic transactions (exercise "Load more")
+```
+
+The seeder (`scripts/seed`) is a small Go program: it reads `config.toml`,
+applies migrations, and upserts fixtures (transaction dates are relative to now,
+so the data always looks current). It works against SQLite or Postgres.
+
 ## Database changes (migrations + sqlc)
 
 Schema lives in `migrations/sqlite/` and `migrations/postgres/` (goose); queries
@@ -103,6 +118,23 @@ Keep the two migration dialects equivalent, and write queries with
 Postgres columns so the generated structs match SQLite's (e.g. `bigint` for
 integers) — the Postgres adapter in `internal/db/postgres_store.go` relies on it
 and will fail to compile if they drift.
+
+## Dashboard (WebAssembly)
+
+The read-only web dashboard (`internal/dashboard`) is a [go-app](https://go-app.dev)
+PWA. Its UI is compiled to WebAssembly from `cmd/kasas-wasm` and embedded
+(gzipped) into the server binary:
+
+```sh
+make wasm     # GOOS=js GOARCH=wasm build -> internal/dashboard/web/app.wasm.gz
+make build    # builds the WASM first, then the server (which embeds it)
+make run      # likewise, then runs the server
+```
+
+The built `app.wasm.gz` is git-ignored. `go build ./...` and the tests still
+work without it (the embed tolerates an absent WASM), but the dashboard won't
+load until you `make wasm`. Edit the components in `internal/dashboard/*.go`,
+re-run `make wasm`, and refresh.
 
 ## Testing
 

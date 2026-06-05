@@ -31,6 +31,10 @@ go.work.sum
 /bin/
 /kasas
 
+# kasas: built dashboard WebAssembly (produced by `make wasm`)
+/internal/dashboard/web/app.wasm
+/internal/dashboard/web/app.wasm.gz
+
 # kasas: local database, secrets, and config (never commit these)
 /data/
 /pgdata/
