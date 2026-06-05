@@ -141,6 +141,54 @@ func (s *Server) handleGetTransaction(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, toTransactionDTO(txn))
 }
 
+// updateTagsRequest is the body of PUT /transactions/{id}/tags. It replaces the
+// transaction's entire tag set with the (normalized) tags provided.
+type updateTagsRequest struct {
+	Tags []string `json:"tags"`
+}
+
+func (s *Server) handleUpdateTransactionTags(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req updateTagsRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)) // 16 KiB is plenty
+	if err := dec.Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	tags := normalizeTags(req.Tags)
+	encoded, err := encodeTags(tags)
+	if err != nil {
+		s.serverError(w, "encode tags", err)
+		return
+	}
+
+	n, err := s.store.UpdateTransactionTags(r.Context(), db.UpdateTransactionTagsParams{
+		ID:   id,
+		Tags: encoded,
+	})
+	if err != nil {
+		s.serverError(w, "update transaction tags", err)
+		return
+	}
+	if n == 0 {
+		s.writeError(w, http.StatusNotFound, "transaction not found")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "tags": tags})
+}
+
+func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
+	sets, err := s.store.ListDistinctTagSets(r.Context())
+	if err != nil {
+		s.serverError(w, "list tags", err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"tags": distinctTags(sets)})
+}
+
 func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 	latest, err := s.store.LatestSyncLog(r.Context())
 	if errors.Is(err, sql.ErrNoRows) {

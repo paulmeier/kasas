@@ -21,7 +21,7 @@ func (q *Queries) CountTransactions(ctx context.Context) (int64, error) {
 }
 
 const getTransaction = `-- name: GetTransaction :one
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, tags FROM transactions
 WHERE id = ?1
 `
 
@@ -38,6 +38,7 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 		&i.Payee,
 		&i.Memo,
 		&i.SyncedAt,
+		&i.Tags,
 	)
 	return i, err
 }
@@ -86,8 +87,40 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 	return result.RowsAffected()
 }
 
+const listDistinctTagSets = `-- name: ListDistinctTagSets :many
+SELECT DISTINCT tags FROM transactions WHERE tags <> '[]' ORDER BY tags
+`
+
+// Returns each distinct JSON tags array currently in use. The API explodes and
+// de-duplicates the individual tags in Go, which keeps this query portable
+// across SQLite and Postgres (no JSON functions or dialect-specific aggregation).
+// ORDER BY makes the row order deterministic, so the spelling the API keeps for
+// a case-insensitively duplicated tag is stable.
+func (q *Queries) ListDistinctTagSets(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listDistinctTagSets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var tags string
+		if err := rows.Scan(&tags); err != nil {
+			return nil, err
+		}
+		items = append(items, tags)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, tags FROM transactions
 WHERE (date >= ?1 OR ?1 = 0)
   AND (date <= ?2 OR ?2 = 0)
 ORDER BY date DESC, id
@@ -128,6 +161,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Payee,
 			&i.Memo,
 			&i.SyncedAt,
+			&i.Tags,
 		); err != nil {
 			return nil, err
 		}
@@ -143,7 +177,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, tags FROM transactions
 WHERE account_id = ?1
   AND (date >= ?2 OR ?2 = 0)
   AND (date <= ?3 OR ?3 = 0)
@@ -184,6 +218,7 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 			&i.Payee,
 			&i.Memo,
 			&i.SyncedAt,
+			&i.Tags,
 		); err != nil {
 			return nil, err
 		}
@@ -196,4 +231,25 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateTransactionTags = `-- name: UpdateTransactionTags :execrows
+UPDATE transactions SET tags = ?1 WHERE id = ?2
+`
+
+type UpdateTransactionTagsParams struct {
+	Tags string `json:"tags"`
+	ID   string `json:"id"`
+}
+
+// Replaces the whole tag set for one transaction. tags is a JSON array of
+// strings; the API normalizes it before storing. :execrows lets the caller
+// detect a missing id (0 rows affected). The poller never touches tags, so this
+// is the only writer.
+func (q *Queries) UpdateTransactionTags(ctx context.Context, arg UpdateTransactionTagsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTransactionTags, arg.Tags, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

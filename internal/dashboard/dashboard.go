@@ -1,6 +1,8 @@
-// Package dashboard is a read-only, browser-side (WebAssembly) UI for browsing
-// synced kasas accounts and transactions, built with go-app. It fetches data
-// from the same-origin REST API and is served by Handler.
+// Package dashboard is a browser-side (WebAssembly) UI for browsing synced kasas
+// accounts and transactions, built with go-app. It fetches data from the
+// same-origin REST API and is served by Handler. Browsing is read-only, with one
+// exception: each transaction's tags can be edited inline (add/remove, with
+// typeahead suggestions), which it persists via PUT /api/v1/transactions/{id}/tags.
 package dashboard
 
 import (
@@ -58,6 +60,16 @@ type dashboardView struct {
 	loading         bool
 	errMsg          string
 
+	// Tag editing state. allTags is the global tag vocabulary (from
+	// /api/v1/tags) that powers the typeahead. Only one row's add-tag input is
+	// active at a time: tagEditID is that row's transaction id ("" = none) and
+	// tagDraft mirrors the input's text so suggestions can be filtered. The add
+	// input is uncontrolled (its DOM value is the source of truth and is cleared
+	// imperatively), so tagDraft is only used to decide what to suggest.
+	allTags   []string
+	tagDraft  string
+	tagEditID string
+
 	// Sort + client-side pagination state. The dashboard fetches the whole
 	// transaction set for the current account filter (txns), then sorts and
 	// pages it in the browser so header clicks and page changes are instant.
@@ -84,6 +96,7 @@ func (v *dashboardView) OnMount(ctx app.Context) {
 	v.pageSize = defaultPageSize
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
+	v.loadTags(ctx)
 	v.loadUpdateStatus(ctx)
 	v.loadVersion(ctx)
 }
@@ -148,6 +161,268 @@ func (v *dashboardView) onAccountChange(ctx app.Context, _ app.Event) {
 	v.selectedAccount = val
 	v.reloadTransactions(ctx)
 }
+
+// loadTags fetches the global tag vocabulary for the typeahead. Best-effort: if
+// it fails the suggestions are simply empty until the next successful load.
+func (v *dashboardView) loadTags(ctx app.Context) {
+	ctx.Async(func() {
+		tags, err := v.client.tags(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			if err != nil {
+				return
+			}
+			v.allTags = tags
+			ctx.Update()
+		})
+	})
+}
+
+// txnIndex returns the index of the transaction with the given id, or -1. The
+// set is small (one filter's worth), so a linear scan is fine.
+func (v *dashboardView) txnIndex(id string) int {
+	for i := range v.txns {
+		if v.txns[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// addTag adds a typed/picked tag to a transaction. Matching is case-insensitive,
+// so a tag already present (in any casing) is a no-op. The input is cleared and
+// re-focused afterward (via clearTagInput) so the user can keep adding tags.
+func (v *dashboardView) addTag(ctx app.Context, id, raw string) {
+	tag := strings.TrimSpace(raw)
+	if i := v.txnIndex(id); tag != "" && i >= 0 && !containsFold(v.txns[i].Tags, tag) {
+		next := append(append([]string{}, v.txns[i].Tags...), tag)
+		v.saveTags(ctx, id, next)
+	}
+	// Clear + refocus last, so the focus lands after the chip-insert re-render.
+	v.clearTagInput(ctx, id)
+}
+
+// containsFold reports whether tags contains s, comparing case-insensitively.
+func containsFold(tags []string, s string) bool {
+	for _, t := range tags {
+		if strings.EqualFold(t, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// removeTag drops a tag from a transaction (case-insensitive match).
+func (v *dashboardView) removeTag(ctx app.Context, id, tag string) {
+	i := v.txnIndex(id)
+	if i < 0 {
+		return
+	}
+	next := make([]string, 0, len(v.txns[i].Tags))
+	for _, existing := range v.txns[i].Tags {
+		if !strings.EqualFold(existing, tag) {
+			next = append(next, existing)
+		}
+	}
+	v.saveTags(ctx, id, next)
+}
+
+// saveTags optimistically applies the new tag set to the row, then persists it.
+// On failure it reverts and surfaces the error; on success it adopts the
+// server-normalized set and folds any new tags into the suggestion vocabulary.
+func (v *dashboardView) saveTags(ctx app.Context, id string, next []string) {
+	i := v.txnIndex(id)
+	if i < 0 {
+		return
+	}
+	prev := v.txns[i].Tags
+	v.txns[i].Tags = next
+	v.mergeVocab(next)
+	ctx.Update()
+
+	ctx.Async(func() {
+		saved, err := v.client.setTags(context.Background(), id, next)
+		ctx.Dispatch(func(ctx app.Context) {
+			j := v.txnIndex(id)
+			if err != nil {
+				if j >= 0 {
+					v.txns[j].Tags = prev // revert the optimistic update
+				}
+				v.errMsg = "Failed to save tags: " + err.Error()
+				ctx.Update()
+				return
+			}
+			// Adopt the server-normalized set, but only re-render when it
+			// actually differs from the optimistic one. Skipping the no-op render
+			// avoids recreating the add-tag input and stealing its focus while the
+			// user is still tagging the row.
+			if j >= 0 && !equalTags(v.txns[j].Tags, saved) {
+				v.txns[j].Tags = saved
+				v.mergeVocab(saved)
+				ctx.Update()
+				return
+			}
+			v.mergeVocab(saved)
+		})
+	})
+}
+
+// equalTags reports whether two tag slices are identical (order-sensitive).
+func equalTags(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// mergeVocab folds tags into allTags (case-insensitive), keeping it sorted, so
+// freshly created tags are immediately suggestable without a refetch.
+func (v *dashboardView) mergeVocab(tags []string) {
+	for _, tag := range tags {
+		found := false
+		for _, existing := range v.allTags {
+			if strings.EqualFold(existing, tag) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			v.allTags = append(v.allTags, tag)
+		}
+	}
+	sort.Slice(v.allTags, func(i, j int) bool {
+		return strings.ToLower(v.allTags[i]) < strings.ToLower(v.allTags[j])
+	})
+}
+
+// clearTagInput resets the draft and clears the row's uncontrolled add-tag input
+// imperatively. go-app v10 drops empty value attributes, so a controlled
+// Value("") would not clear the field — set the DOM value directly instead.
+// After the re-render (which can recreate the input node and drop focus), it
+// re-focuses the input so the user can keep adding tags and a later click-away
+// still closes the editor via blur.
+func (v *dashboardView) clearTagInput(ctx app.Context, id string) {
+	v.tagDraft = ""
+	v.focusTagInput(ctx, id, true)
+	ctx.Update()
+	// Re-assert focus after the re-render. With the chips in their own container
+	// the input node is reused (so focus is usually preserved already), but this
+	// keeps it robust if go-app recreates it.
+	ctx.Defer(func(ctx app.Context) {
+		if v.tagEditID == id {
+			v.focusTagInput(ctx, id, false)
+		}
+	})
+}
+
+// focusTagInput focuses a row's add-tag input by id, optionally clearing its
+// value first. No-op when the element is absent (e.g. not currently editing).
+func (v *dashboardView) focusTagInput(_ app.Context, id string, clear bool) {
+	doc := app.Window().Get("document")
+	if !doc.Truthy() {
+		return
+	}
+	el := doc.Call("getElementById", tagInputID(id))
+	if !el.Truthy() {
+		return
+	}
+	if clear {
+		el.Set("value", "")
+	}
+	el.Call("focus")
+}
+
+// onTagsCellClick opens the add-tag editor for a row when its Tags cell is
+// clicked in empty space, then focuses the freshly-rendered input. Clicks on the
+// cell's interactive children (remove × buttons, the input, suggestion buttons)
+// are ignored so they keep their own behavior.
+func (v *dashboardView) onTagsCellClick(ctx app.Context, t transaction, e app.Event) {
+	if target := e.Get("target"); target.Truthy() {
+		switch target.Get("tagName").String() {
+		case "BUTTON", "INPUT":
+			return
+		}
+	}
+	if v.tagEditID == t.ID {
+		return // already editing this row
+	}
+	v.tagEditID = t.ID
+	v.tagDraft = ""
+	ctx.Update()
+	// Focus after the input has been rendered into the DOM.
+	ctx.Defer(func(ctx app.Context) {
+		if v.tagEditID == t.ID {
+			v.focusTagInput(ctx, t.ID, false)
+		}
+	})
+}
+
+func (v *dashboardView) onTagInput(ctx app.Context, id string) {
+	v.tagEditID = id
+	v.tagDraft = ctx.JSSrc().Get("value").String()
+	ctx.Update()
+}
+
+func (v *dashboardView) onTagKeyDown(ctx app.Context, e app.Event, id string) {
+	switch e.Get("key").String() {
+	case "Enter":
+		e.PreventDefault()
+		v.addTag(ctx, id, ctx.JSSrc().Get("value").String())
+	case "Escape":
+		// Closing the editor removes the input, which drops focus.
+		v.tagEditID = ""
+		v.tagDraft = ""
+		ctx.Update()
+	}
+}
+
+// onTagBlur hides the suggestions when the input loses focus. Suggestion picks
+// use mousedown + preventDefault, which keeps the input focused, so blur does
+// not fire on a pick and the click is not lost.
+func (v *dashboardView) onTagBlur(ctx app.Context) {
+	v.tagEditID = ""
+	v.tagDraft = ""
+	ctx.Update()
+}
+
+// filterTagSuggestions returns vocabulary tags matching the draft
+// (case-insensitive substring), excluding those already applied to the row. The
+// list is capped so the dropdown stays compact.
+func filterTagSuggestions(all []string, draft string, applied []string) []string {
+	const maxSuggestions = 8
+	d := strings.ToLower(strings.TrimSpace(draft))
+	if d == "" {
+		return nil
+	}
+	isApplied := func(tag string) bool {
+		for _, a := range applied {
+			if strings.EqualFold(a, tag) {
+				return true
+			}
+		}
+		return false
+	}
+	var out []string
+	for _, tag := range all {
+		if isApplied(tag) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(tag), d) {
+			out = append(out, tag)
+			if len(out) >= maxSuggestions {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// tagInputID is the stable DOM id of a row's add-tag input, used to clear it.
+func tagInputID(txnID string) string { return "tag-input-" + txnID }
 
 func (v *dashboardView) onPageSizeChange(ctx app.Context, _ app.Event) {
 	n, err := strconv.Atoi(ctx.JSSrc().Get("value").String())
@@ -513,6 +788,9 @@ func (v *dashboardView) renderTable() app.UI {
 				v.sortHeader("Account", sortByAccount, ""),
 				v.sortHeader("Description", sortByDescription, ""),
 				v.sortHeader("Amount", sortByAmount, "right"),
+				// Tags is intentionally a plain header: it has no sortColumn and
+				// is not built with sortHeader, so it is never sortable.
+				app.Th().Class("tags-col").Text("Tags"),
 				app.Th().Text(""),
 			),
 		),
@@ -557,7 +835,76 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 		app.Td().Text(v.accountName(t.AccountID)),
 		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
+		v.renderTagsCell(t),
 		app.Td().Body(v.pendingBadge(t.Pending)),
+	)
+}
+
+// renderTagsCell renders the Tags cell: each current tag as a chip with a remove
+// (×) button. The add-tag input is hidden until the cell is clicked (see
+// onTagsCellClick) — so untagged rows are just empty, clickable space rather than
+// a wall of "add tag…" boxes. While editing, typing shows a typeahead dropdown.
+func (v *dashboardView) renderTagsCell(t transaction) app.UI {
+	editing := v.tagEditID == t.ID
+
+	chips := make([]app.UI, 0, len(t.Tags))
+	for _, tag := range t.Tags {
+		tag := tag // capture for the closure
+		chips = append(chips, app.Span().Class("tag-chip").Body(
+			app.Span().Class("tag-label").Text(tag),
+			app.Button().Type("button").Class("tag-remove").Title("Remove "+tag).Text("×").
+				OnClick(func(ctx app.Context, _ app.Event) { v.removeTag(ctx, t.ID, tag) }),
+		))
+	}
+
+	// Chips live in their own container so adding/removing one never touches the
+	// add-tag input that follows it. Keeping the input at a stable DOM position
+	// lets go-app reuse the node across re-renders, which preserves its focus
+	// while the user keeps tagging the row.
+	body := []app.UI{app.Div().Class("tag-chips").Body(chips...)}
+	if editing {
+		body = append(body, app.Input().
+			ID(tagInputID(t.ID)).
+			Class("tag-input").
+			Type("text").
+			Placeholder("add tag…").
+			OnInput(func(ctx app.Context, _ app.Event) { v.onTagInput(ctx, t.ID) }).
+			OnKeyDown(func(ctx app.Context, e app.Event) { v.onTagKeyDown(ctx, e, t.ID) }).
+			OnBlur(func(ctx app.Context, _ app.Event) { v.onTagBlur(ctx) }))
+		if sugg := v.renderTagSuggestions(t); sugg != nil {
+			body = append(body, sugg)
+		}
+	}
+
+	// The whole cell is the click target that opens the editor; "editable"
+	// styles the empty space as clickable when not already editing.
+	cls := "tags-cell"
+	if !editing {
+		cls += " editable"
+	}
+	return app.Td().Class(cls).
+		OnClick(func(ctx app.Context, e app.Event) { v.onTagsCellClick(ctx, t, e) }).
+		Body(body...)
+}
+
+// renderTagSuggestions renders the typeahead dropdown for the active row, or nil
+// when there is nothing to suggest. Picks fire on mousedown with preventDefault
+// so the click is not swallowed by the input's blur (which would otherwise hide
+// the dropdown first).
+func (v *dashboardView) renderTagSuggestions(t transaction) app.UI {
+	matches := filterTagSuggestions(v.allTags, v.tagDraft, t.Tags)
+	if len(matches) == 0 {
+		return nil
+	}
+	return app.Div().Class("tag-suggestions").Body(
+		app.Range(matches).Slice(func(i int) app.UI {
+			tag := matches[i]
+			return app.Button().Type("button").Class("tag-suggestion").Text(tag).
+				OnMouseDown(func(ctx app.Context, e app.Event) {
+					e.PreventDefault()
+					v.addTag(ctx, t.ID, tag)
+				})
+		}),
 	)
 }
 

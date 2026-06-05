@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,6 +32,7 @@ type transaction struct {
 	Date        time.Time `json:"date"`
 	Description string    `json:"description"`
 	Payee       string    `json:"payee"`
+	Tags        []string  `json:"tags"`
 }
 
 type updateStatus struct {
@@ -106,6 +108,59 @@ func (c *apiClient) allTransactions(ctx context.Context, accountID string) ([]tr
 		}
 	}
 	return all, nil
+}
+
+// tags fetches the global tag vocabulary (distinct tags across all accounts),
+// used to drive the typeahead suggestions.
+func (c *apiClient) tags(ctx context.Context) ([]string, error) {
+	var out struct {
+		Tags []string `json:"tags"`
+	}
+	if err := c.get(ctx, "/api/v1/tags", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Tags, nil
+}
+
+// setTags replaces a transaction's entire tag set and returns the
+// server-normalized result (trimmed, de-duplicated), which the caller adopts as
+// the canonical value.
+func (c *apiClient) setTags(ctx context.Context, id string, tags []string) ([]string, error) {
+	if tags == nil {
+		tags = []string{}
+	}
+	body, err := json.Marshal(map[string][]string{"tags": tags})
+	if err != nil {
+		return nil, err
+	}
+	u := c.base + "/api/v1/transactions/" + url.PathEscape(id) + "/tags"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error != "" {
+			return nil, fmt.Errorf("%s", e.Error)
+		}
+		return nil, fmt.Errorf("PUT tags: status %d", resp.StatusCode)
+	}
+	var out struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Tags, nil
 }
 
 func (c *apiClient) updateStatus(ctx context.Context) (updateStatus, error) {

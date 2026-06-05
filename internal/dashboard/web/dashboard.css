@@ -127,6 +127,106 @@ html, body {
 .status, .error { padding: 24px 4px; color: var(--muted); }
 .error { color: var(--neg); }
 
+/* --- Tags column (editable, not sortable) --- */
+.txns th.tags-col { white-space: nowrap; }
+.txns td.tags-cell {
+  position: relative; /* anchor for the absolutely-positioned suggestions */
+  min-width: 180px;
+}
+.txns td.tags-cell.editable { cursor: text; }
+.tag-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  vertical-align: middle;
+}
+.tag-chips:not(:empty) { margin-right: 6px; }
+/* Hint that an empty Tags cell is clickable, but only on row hover so untagged
+   rows are otherwise just empty space. */
+.txns tbody tr:hover td.tags-cell.editable .tag-chips:empty::after {
+  content: "+ tag";
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.5;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(110, 168, 254, 0.12);
+  border: 1px solid rgba(110, 168, 254, 0.35);
+  color: var(--text);
+  vertical-align: middle;
+}
+.tag-label { line-height: 1.4; }
+.tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tag-remove:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
+
+.tag-input {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 13px;
+  width: 88px;
+  vertical-align: middle;
+}
+.tag-input::placeholder { color: var(--muted); opacity: 0.7; }
+.tag-input:hover { border-color: var(--border); }
+.tag-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.tag-suggestions {
+  position: absolute;
+  z-index: 20;
+  left: 8px;
+  top: 100%;
+  margin-top: 2px;
+  min-width: 140px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.tag-suggestion {
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tag-suggestion:hover { background: var(--accent); color: #0f1115; }
+
 .pagination {
   display: flex;
   align-items: center;

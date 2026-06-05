@@ -36,6 +36,7 @@ type TransactionDTO struct {
 	Payee       string    `json:"payee"`
 	Memo        string    `json:"memo"`
 	SyncedAt    time.Time `json:"synced_at"`
+	Tags        []string  `json:"tags"`
 }
 
 // SyncDTO is the JSON representation of a sync_log entry.
@@ -78,6 +79,7 @@ func toTransactionDTO(t db.Transaction) TransactionDTO {
 		Payee:       t.Payee,
 		Memo:        t.Memo,
 		SyncedAt:    unixTime(t.SyncedAt),
+		Tags:        decodeTags(t.Tags),
 	}
 }
 

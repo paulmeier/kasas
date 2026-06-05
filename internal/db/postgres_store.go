@@ -74,6 +74,14 @@ func (a pgQuerier) InsertTransaction(ctx context.Context, arg InsertTransactionP
 	return a.q.InsertTransaction(ctx, pg.InsertTransactionParams(arg))
 }
 
+func (a pgQuerier) UpdateTransactionTags(ctx context.Context, arg UpdateTransactionTagsParams) (int64, error) {
+	return a.q.UpdateTransactionTags(ctx, pg.UpdateTransactionTagsParams(arg))
+}
+
+func (a pgQuerier) ListDistinctTagSets(ctx context.Context) ([]string, error) {
+	return a.q.ListDistinctTagSets(ctx)
+}
+
 func (a pgQuerier) LatestSyncLog(ctx context.Context) (SyncLog, error) {
 	row, err := a.q.LatestSyncLog(ctx)
 	return SyncLog(row), err

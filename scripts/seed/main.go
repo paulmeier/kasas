@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -148,6 +149,17 @@ func seed(ctx context.Context, store db.Store, extra int) (accounts, inserted in
 		tx("a5", "acct-card", "-45.60", "Rideshare", "Uber", false, 12),
 	}
 
+	// A few demo tags so the dashboard's editable Tags column has content to
+	// show. Applied after insert (the poller/insert path never sets tags).
+	demoTags := map[string][]string{
+		"c1": {"coffee"},
+		"c2": {"groceries", "food"},
+		"c4": {"gas", "car"},
+		"c6": {"rent", "housing"},
+		"a2": {"food", "dining"},
+		"a3": {"subscriptions"},
+	}
+
 	// Optional synthetic transactions, deterministic so re-runs are stable.
 	if extra > 0 {
 		payees := []string{"Target", "Costco", "Starbucks", "Apple", "Uber", "Walgreens", "Best Buy", "Trader Joe's", "Chevron", "Delta"}
@@ -183,6 +195,15 @@ func seed(ctx context.Context, store db.Store, extra int) (accounts, inserted in
 				return err
 			}
 			inserted += int(n)
+		}
+		for id, tags := range demoTags {
+			enc, err := json.Marshal(tags)
+			if err != nil {
+				return err
+			}
+			if _, err := q.UpdateTransactionTags(ctx, db.UpdateTransactionTagsParams{ID: id, Tags: string(enc)}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

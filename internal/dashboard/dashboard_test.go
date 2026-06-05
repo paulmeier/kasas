@@ -177,6 +177,91 @@ func TestSortHeaderMarksActiveColumn(t *testing.T) {
 	}
 }
 
+// TestTagsColumnNotSortable verifies the Tags column is a plain header: the four
+// data columns (Date, Account, Description, Amount) remain sortable, but Tags is
+// not built with sortHeader and carries no sortable affordance.
+func TestTagsColumnNotSortable(t *testing.T) {
+	v := &dashboardView{
+		txns:     []transaction{{ID: "tx-1", Amount: "1.00", Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
+		pageSize: 10,
+	}
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderTable())
+	html := buf.String()
+
+	if !strings.Contains(html, "tags-col") || !strings.Contains(html, "Tags") {
+		t.Fatalf("Tags column header missing.\nHTML:\n%s", html)
+	}
+	// Exactly four headers are sortable; Tags must not be among them.
+	if got := strings.Count(html, "sortable"); got != 4 {
+		t.Fatalf("expected 4 sortable headers, got %d.\nHTML:\n%s", got, html)
+	}
+	if strings.Contains(html, "tags-col sortable") || strings.Contains(html, "sortable tags-col") {
+		t.Fatalf("Tags header must not be sortable.\nHTML:\n%s", html)
+	}
+}
+
+func TestFilterTagSuggestions(t *testing.T) {
+	all := []string{"coffee", "food", "Groceries", "rent"}
+
+	t.Run("case-insensitive substring match", func(t *testing.T) {
+		if got := filterTagSuggestions(all, "OO", nil); !reflect.DeepEqual(got, []string{"food"}) {
+			t.Fatalf("got %q, want [food]", got)
+		}
+	})
+	t.Run("excludes already-applied tags (case-insensitive)", func(t *testing.T) {
+		// "r" matches both "Groceries" and "rent"; rent is applied, so it drops.
+		if got := filterTagSuggestions(all, "r", []string{"RENT"}); !reflect.DeepEqual(got, []string{"Groceries"}) {
+			t.Fatalf("got %q, want [Groceries]", got)
+		}
+	})
+	t.Run("blank draft yields no suggestions", func(t *testing.T) {
+		if got := filterTagSuggestions(all, "   ", nil); got != nil {
+			t.Fatalf("got %q, want nil", got)
+		}
+	})
+	t.Run("caps the list", func(t *testing.T) {
+		many := make([]string, 12)
+		for i := range many {
+			many[i] = fmt.Sprintf("tag%02d", i)
+		}
+		if got := filterTagSuggestions(many, "tag", nil); len(got) != 8 {
+			t.Fatalf("len = %d, want 8 (capped)", len(got))
+		}
+	})
+}
+
+// TestRenderTagsCellChips checks the cell renders a chip with a remove button per
+// tag, and that the add-tag input is hidden until the cell is being edited (it
+// appears on click, not on every row).
+func TestRenderTagsCellChips(t *testing.T) {
+	v := &dashboardView{}
+
+	// Not editing: chips + remove buttons, marked editable, but no input.
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderTagsCell(transaction{ID: "tx-1", Tags: []string{"food", "rent"}}))
+	html := buf.String()
+	for _, want := range []string{"tag-chip", "tag-remove", "food", "rent", "editable"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("tags cell missing %q.\nHTML:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, "tag-input") {
+		t.Fatalf("add-tag input should not render until the cell is clicked.\nHTML:\n%s", html)
+	}
+
+	// Editing this row: the id-stamped input appears (for focus + clear).
+	v.tagEditID = "tx-1"
+	buf.Reset()
+	app.PrintHTML(&buf, v.renderTagsCell(transaction{ID: "tx-1", Tags: []string{"food"}}))
+	html = buf.String()
+	for _, want := range []string{"tag-input", `id="tag-input-tx-1"`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("editing cell missing %q.\nHTML:\n%s", want, html)
+		}
+	}
+}
+
 func amounts(txns []transaction) []string {
 	out := make([]string, len(txns))
 	for i, t := range txns {
