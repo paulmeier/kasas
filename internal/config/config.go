@@ -23,6 +23,7 @@ type Config struct {
 	Secrets   Secrets
 	MCP       MCP
 	Dashboard Dashboard
+	Update    Update
 }
 
 // Server holds HTTP server settings.
@@ -87,6 +88,16 @@ type Dashboard struct {
 	Enabled bool
 }
 
+// Update controls the periodic check for newer releases. It only logs a notice
+// when a newer version is published; upgrading is done explicitly via the
+// `kasas self-update` command. Docker deployments should disable it and update
+// by pulling a new image instead.
+type Update struct {
+	Check      bool   // periodically check GitHub for a newer release
+	AllowApply bool   // allow the dashboard/API to trigger an in-place self-update
+	Repository string // "owner/name" GitHub repo to check
+}
+
 // Load reads configuration from the given file (optional) and the environment.
 // A missing config file is not an error; defaults and env vars are used.
 func Load(path string) (*Config, error) {
@@ -113,6 +124,9 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("secrets.file", "/data/secrets.json")
 	v.SetDefault("mcp.enabled", true)
 	v.SetDefault("dashboard.enabled", true)
+	v.SetDefault("update.check", true)
+	v.SetDefault("update.allow_apply", true)
+	v.SetDefault("update.repository", "paulmeier/kasas")
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -159,6 +173,11 @@ func Load(path string) (*Config, error) {
 		Secrets:   Secrets{File: v.GetString("secrets.file")},
 		MCP:       MCP{Enabled: v.GetBool("mcp.enabled")},
 		Dashboard: Dashboard{Enabled: v.GetBool("dashboard.enabled")},
+		Update: Update{
+			Check:      v.GetBool("update.check"),
+			AllowApply: v.GetBool("update.allow_apply"),
+			Repository: v.GetString("update.repository"),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -190,6 +209,9 @@ func (c *Config) validate() error {
 	case "json", "text":
 	default:
 		return fmt.Errorf("log.format must be json or text, got %q", c.Log.Format)
+	}
+	if c.Update.Check && !strings.Contains(c.Update.Repository, "/") {
+		return fmt.Errorf("update.repository must be in owner/name form, got %q", c.Update.Repository)
 	}
 	return nil
 }

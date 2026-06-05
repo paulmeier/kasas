@@ -31,6 +31,21 @@ type transaction struct {
 	Payee       string    `json:"payee"`
 }
 
+type updateStatus struct {
+	Current   string `json:"current"`
+	Latest    string `json:"latest"`
+	Available bool   `json:"update_available"`
+	URL       string `json:"release_url"`
+	CanApply  bool   `json:"can_apply"`
+}
+
+type applyResult struct {
+	Updated    bool   `json:"updated"`
+	Version    string `json:"version"`
+	Restarting bool   `json:"restarting"`
+	Message    string `json:"message"`
+}
+
 // apiClient calls the same-origin kasas REST API from the browser. In WASM,
 // net/http is backed by the Fetch API.
 type apiClient struct {
@@ -66,6 +81,45 @@ func (c *apiClient) transactions(ctx context.Context, accountID string, limit, o
 		return nil, err
 	}
 	return out.Transactions, nil
+}
+
+func (c *apiClient) updateStatus(ctx context.Context) (updateStatus, error) {
+	var out updateStatus
+	if err := c.get(ctx, "/api/v1/update", nil, &out); err != nil {
+		return updateStatus{}, err
+	}
+	return out, nil
+}
+
+// applyUpdate triggers the server-side self-update. It can take a while (the
+// server downloads and verifies a release), so it uses a longer timeout than
+// the default client and surfaces the server's error message on failure.
+func (c *apiClient) applyUpdate(ctx context.Context) (applyResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/update", nil)
+	if err != nil {
+		return applyResult{}, err
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return applyResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error != "" {
+			return applyResult{}, fmt.Errorf("%s", e.Error)
+		}
+		return applyResult{}, fmt.Errorf("update request failed: status %d", resp.StatusCode)
+	}
+	var out applyResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return applyResult{}, err
+	}
+	return out, nil
 }
 
 func (c *apiClient) get(ctx context.Context, path string, q url.Values, dst any) error {

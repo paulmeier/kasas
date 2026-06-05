@@ -12,6 +12,7 @@
 //	migrate      apply database migrations and exit
 //	mcp          serve the MCP server over stdio (for desktop MCP clients)
 //	healthcheck  probe the local /healthz endpoint (used by Docker HEALTHCHECK)
+//	self-update  download and install the latest release (use -check to dry-run)
 //	version      print the version and exit
 package main
 
@@ -39,6 +40,7 @@ import (
 	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/poller"
+	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/vault"
 	"github.com/paulmeier/kasas/migrations"
 )
@@ -73,6 +75,10 @@ func run(command, configPath string) error {
 
 	if command == "healthcheck" {
 		return healthcheck(cfg.Server.Addr)
+	}
+
+	if command == "self-update" {
+		return selfUpdate(flag.Args()[1:], cfg.Update, logger)
 	}
 
 	database, err := openDB(cfg.Database)
@@ -114,18 +120,34 @@ func run(command, configPath string) error {
 		dashboardHandler = dashboard.Handler(dashboard.Options{Version: version})
 	}
 
-	srv := api.New(api.Options{
+	var updateChecker *selfupdate.Checker
+	if cfg.Update.Check {
+		updateChecker = selfupdate.NewChecker(selfupdate.Options{
+			Repo:           cfg.Update.Repository,
+			CurrentVersion: version,
+		})
+	}
+
+	apiOpts := api.Options{
 		Store:      store,
 		Syncer:     p,
 		Logger:     logger,
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
 		Dashboard:  dashboardHandler,
-	})
+	}
+	// Assign the interface field only when non-nil to avoid a typed-nil that
+	// would read as non-nil inside the Server.
+	if updateChecker != nil {
+		apiOpts.UpdateChecker = updateChecker
+		apiOpts.AllowApply = cfg.Update.AllowApply
+		apiOpts.Restart = restartIntoNewBinary(logger)
+	}
+	srv := api.New(apiOpts)
 
 	switch command {
 	case "", "serve":
-		return serve(cfg, logger, p, srv)
+		return serve(cfg, logger, p, srv, updateChecker)
 	case "migrate":
 		logger.Info("migrations applied")
 		return nil
@@ -135,15 +157,19 @@ func run(command, configPath string) error {
 	case "mcp":
 		return srv.RunMCPStdio(context.Background())
 	default:
-		return fmt.Errorf("unknown command %q (want one of: serve, sync, migrate, mcp, healthcheck, version)", command)
+		return fmt.Errorf("unknown command %q (want one of: serve, sync, migrate, mcp, healthcheck, self-update, version)", command)
 	}
 }
 
 // serve runs the HTTP server plus the background sync scheduler until an
 // interrupt or SIGTERM is received, then shuts down gracefully.
-func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server) error {
+func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if updateChecker != nil {
+		go updateChecker.Run(ctx, logger, 24*time.Hour)
+	}
 
 	if cfg.Sync.Enabled {
 		if err := p.Start(ctx); err != nil {
@@ -188,6 +214,71 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// selfUpdate checks GitHub for a newer release and, unless -check is passed,
+// downloads and installs it over the running binary.
+func selfUpdate(args []string, cfg config.Update, logger *slog.Logger) error {
+	fs := flag.NewFlagSet("self-update", flag.ContinueOnError)
+	checkOnly := fs.Bool("check", false, "report whether an update is available without installing it")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	rel, err := selfupdate.CheckLatest(ctx, selfupdate.Options{Repo: cfg.Repository, CurrentVersion: version})
+	if err != nil {
+		return fmt.Errorf("check latest release: %w", err)
+	}
+
+	// self-update moves between published releases; a dev/source build can't be
+	// version-compared, so report rather than guess (and never clobber it).
+	if !selfupdate.IsRelease(version) {
+		fmt.Printf("current build %q is not a released version; latest release is %s\n%s\n", version, rel.Version, rel.URL)
+		return nil
+	}
+
+	if !rel.IsNewerThan(version) {
+		fmt.Printf("kasas %s is up to date (latest release: %s)\n", version, rel.Version)
+		return nil
+	}
+	if *checkOnly {
+		fmt.Printf("update available: %s -> %s\n%s\n", version, rel.Version, rel.URL)
+		return nil
+	}
+
+	fmt.Printf("updating kasas %s -> %s ...\n", version, rel.Version)
+	if err := selfupdate.Apply(ctx, rel, selfupdate.ApplyOptions{Logger: logger}); err != nil {
+		return fmt.Errorf("install update: %w", err)
+	}
+	fmt.Printf("updated to %s; restart kasas to run the new version\n", rel.Version)
+	return nil
+}
+
+// restartIntoNewBinary returns a hook the API calls after a dashboard-triggered
+// self-update: it re-execs the (now replaced) binary so the new version runs
+// without an external supervisor. The re-exec is delayed briefly so the HTTP
+// response reaches the browser first; on failure the old process keeps serving.
+func restartIntoNewBinary(logger *slog.Logger) func() {
+	return func() {
+		go func() {
+			time.Sleep(750 * time.Millisecond) // let the apply response flush
+			exe, err := os.Executable()
+			if err != nil {
+				logger.Error("auto-restart failed: locate executable", "error", err)
+				return
+			}
+			if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+				exe = resolved
+			}
+			logger.Info("restarting into updated binary", "path", exe)
+			if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+				logger.Error("auto-restart failed; restart kasas manually to run the new version", "error", err)
+			}
+		}()
+	}
 }
 
 // healthcheck performs a GET against the local /healthz endpoint. It backs the

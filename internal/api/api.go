@@ -14,11 +14,19 @@ import (
 
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/poller"
+	"github.com/paulmeier/kasas/internal/selfupdate"
 )
 
 // Syncer triggers an on-demand sync.
 type Syncer interface {
 	Sync(ctx context.Context) (poller.SyncResult, error)
+}
+
+// UpdateChecker reports the running build's status against the latest release
+// and provides that release for an apply. Implemented by *selfupdate.Checker.
+type UpdateChecker interface {
+	Status(ctx context.Context) selfupdate.Status
+	LatestRelease(ctx context.Context) (*selfupdate.Release, error)
 }
 
 // Server wires the HTTP handlers to their dependencies.
@@ -29,6 +37,9 @@ type Server struct {
 	version    string
 	mcpEnabled bool
 	dashboard  http.Handler
+	updates    UpdateChecker // nil when update checking is disabled
+	allowApply bool
+	restart    func()
 }
 
 // Options configures a Server.
@@ -40,6 +51,14 @@ type Options struct {
 	MCPEnabled bool
 	// Dashboard, when non-nil, serves the web UI as the catch-all route.
 	Dashboard http.Handler
+	// UpdateChecker, when non-nil, enables GET /api/v1/update (status for the
+	// dashboard banner). When AllowApply is also set, POST /api/v1/update lets
+	// the UI trigger an in-place self-update.
+	UpdateChecker UpdateChecker
+	AllowApply    bool
+	// Restart, when set, is invoked after a successful UI-triggered update to
+	// re-exec the new binary. nil leaves the (old) process running.
+	Restart func()
 }
 
 // New constructs a Server.
@@ -55,6 +74,9 @@ func New(opts Options) *Server {
 		version:    opts.Version,
 		mcpEnabled: opts.MCPEnabled,
 		dashboard:  opts.Dashboard,
+		updates:    opts.UpdateChecker,
+		allowApply: opts.AllowApply,
+		restart:    opts.Restart,
 	}
 }
 
@@ -89,6 +111,14 @@ func (s *Server) Router() http.Handler {
 		r.Get("/sync", s.handleSyncStatus)
 		r.Get("/sync/history", s.handleSyncHistory)
 		r.Post("/sync", s.handleTriggerSync)
+
+		// Update status for the dashboard banner, and (optionally) apply.
+		if s.updates != nil {
+			r.Get("/update", s.handleUpdateStatus)
+			if s.allowApply {
+				r.Post("/update", s.handleApplyUpdate)
+			}
+		}
 	})
 
 	// Built-in MCP server over streamable HTTP.

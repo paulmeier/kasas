@@ -63,3 +63,18 @@ enabled = true
 [dashboard]
 # Serve the read-only web dashboard at the root path (/).
 enabled = true
+
+[update]
+# Periodically (once a day, while `serve` runs) check GitHub for a newer release.
+# When on, kasas logs a notice and the dashboard shows an "update available"
+# banner. The check itself never modifies the binary. Disable for Docker
+# deployments (update by pulling a new image) or to suppress the outbound check.
+check = true
+# Allow the dashboard banner's "Update & restart" button (and POST /api/v1/update)
+# to download, verify, install, and re-exec a new release in place. The API has
+# no auth, so this lets anyone who can reach it replace the running binary — keep
+# kasas on a trusted network (e.g. Tailscale). Set false to keep the informational
+# banner but require the `kasas self-update` CLI to actually upgrade.
+allow_apply = true
+# GitHub repository (owner/name) to check for releases and self-update assets.
+repository = "paulmeier/kasas"
