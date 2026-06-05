@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/paulmeier/kasas/compare/v1.4.0...v1.5.0) (2026-06-05)
+
+
+### Features
+
+* add editable transaction tags with typeahead ([4caae80](https://github.com/paulmeier/kasas/commit/4caae80f9de02c8236a4534d5c1a142024d72b88))
+* add editable transaction tags with typeahead ([04bf337](https://github.com/paulmeier/kasas/commit/04bf337974265585b9dd137080909900ccb3fd04))
+
 ## [1.4.0](https://github.com/paulmeier/kasas/compare/v1.3.1...v1.4.0) (2026-06-05)
 
 
