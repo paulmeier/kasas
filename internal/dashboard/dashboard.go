@@ -6,6 +6,7 @@ package dashboard
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
@@ -35,12 +36,19 @@ type dashboardView struct {
 	loadingMore     bool
 	hasMore         bool
 	errMsg          string
+
+	// Update banner state.
+	update    updateStatus
+	updating  bool
+	updateMsg string // post-apply message (covers the restart window)
+	updateErr string
 }
 
 func (v *dashboardView) OnMount(ctx app.Context) {
 	v.client = newAPIClient(originURL())
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
+	v.loadUpdateStatus(ctx)
 }
 
 func originURL() string {
@@ -115,8 +123,77 @@ func (v *dashboardView) onLoadMore(ctx app.Context, _ app.Event) {
 	v.fetchTransactions(ctx, true)
 }
 
+// loadUpdateStatus fetches the update banner state. It is best-effort: when the
+// update check is disabled (404) or the request fails, the banner stays hidden.
+func (v *dashboardView) loadUpdateStatus(ctx app.Context) {
+	ctx.Async(func() {
+		st, err := v.client.updateStatus(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			if err != nil {
+				return
+			}
+			v.update = st
+			ctx.Update()
+		})
+	})
+}
+
+func (v *dashboardView) onApplyUpdate(ctx app.Context, _ app.Event) {
+	if v.updating {
+		return
+	}
+	v.updating = true
+	v.updateErr = ""
+	ctx.Update()
+	ctx.Async(func() {
+		res, err := v.client.applyUpdate(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			v.updating = false
+			if err != nil {
+				v.updateErr = err.Error()
+				ctx.Update()
+				return
+			}
+			v.updateMsg = res.Message
+			v.update.Available = false
+			ctx.Update()
+			if res.Restarting {
+				v.waitForRestart(ctx, res.Version)
+			}
+		})
+	})
+}
+
+// waitForRestart polls until the server comes back reporting the new version,
+// then reloads the page so the browser picks up the matching UI build.
+func (v *dashboardView) waitForRestart(ctx app.Context, target string) {
+	ctx.Async(func() {
+		deadline := time.Now().Add(60 * time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(2 * time.Second)
+			st, err := v.client.updateStatus(context.Background())
+			if err == nil && st.Current == target {
+				ctx.Dispatch(func(ctx app.Context) {
+					app.Window().Get("location").Call("reload")
+				})
+				return
+			}
+		}
+		ctx.Dispatch(func(ctx app.Context) {
+			v.updateMsg = "Updated to " + target + ". Reload the page to use the new version."
+			ctx.Update()
+		})
+	})
+}
+
+func (v *dashboardView) onDismissUpdateErr(ctx app.Context, _ app.Event) {
+	v.updateErr = ""
+	ctx.Update()
+}
+
 func (v *dashboardView) Render() app.UI {
 	return app.Main().Class("page").Body(
+		v.renderUpdateBanner(),
 		app.Header().Class("topbar").Body(
 			app.Img().Class("logo").Src("/web/logo.png").Alt("kasas logo"),
 			app.H1().Class("brand").Text("kasas"),
@@ -128,6 +205,47 @@ func (v *dashboardView) Render() app.UI {
 		v.renderTable(),
 		v.renderLoadMore(),
 	)
+}
+
+// renderUpdateBanner shows a lightweight notice at the top of the dashboard when
+// a newer release is available, with an optional "Update & restart" button.
+func (v *dashboardView) renderUpdateBanner() app.UI {
+	switch {
+	case v.updateErr != "":
+		return app.Div().Class("update-banner err").Body(
+			app.Span().Class("update-text").Text("Update failed: "+v.updateErr),
+			app.Button().Class("btn").Text("Dismiss").OnClick(v.onDismissUpdateErr),
+		)
+	case v.updateMsg != "":
+		// Post-apply / restarting message.
+		return app.Div().Class("update-banner").Body(
+			app.Span().Class("update-text").Text(v.updateMsg),
+		)
+	case !v.update.Available:
+		return app.Text("")
+	}
+
+	body := []app.UI{
+		app.Span().Class("update-text").Body(
+			app.Text("A new version of kasas is available: "),
+			app.Span().Class("update-version").Text(v.update.Current+" → "+v.update.Latest),
+		),
+	}
+	if v.update.URL != "" {
+		body = append(body, app.A().Class("update-link").Href(v.update.URL).Target("_blank").Text("release notes"))
+	}
+	if v.update.CanApply {
+		label := "Update & restart"
+		if v.updating {
+			label = "Updating…"
+		}
+		body = append(body, app.Button().
+			Class("btn btn-update").
+			Text(label).
+			OnClick(v.onApplyUpdate).
+			Disabled(v.updating))
+	}
+	return app.Div().Class("update-banner").Body(body...)
 }
 
 func (v *dashboardView) renderAccounts() app.UI {

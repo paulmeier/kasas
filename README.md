@@ -106,6 +106,8 @@ variables. Env vars are prefixed `KASAS_`, with sections joined by underscores
 | `sync.lookback_days` | `KASAS_SYNC_LOOKBACK_DAYS` | `90` | History window; `0` = all |
 | `vault.enabled` | `KASAS_VAULT_ENABLED` | `false` | Use Vault for the access URL |
 | `mcp.enabled` | `KASAS_MCP_ENABLED` | `true` | Mount the MCP server at `/mcp` |
+| `update.check` | `KASAS_UPDATE_CHECK` | `true` | Daily check for a newer release (logs + dashboard banner) |
+| `update.allow_apply` | `KASAS_UPDATE_ALLOW_APPLY` | `true` | Let the dashboard/API trigger an in-place self-update |
 
 ## Storage backends
 
@@ -133,6 +135,49 @@ docker compose --profile postgres up -d
 
 > Switching backends does not migrate existing data between them; each backend
 > keeps its own database.
+
+## Updating
+
+**Docker** — pull the new image and recreate the container:
+
+```sh
+docker pull ghcr.io/paulmeier/kasas:latest
+docker compose up -d
+```
+
+**Binary** — every release publishes static binaries (linux/darwin × amd64/arm64)
+with SHA-256 checksums to [GitHub Releases](https://github.com/paulmeier/kasas/releases).
+The binary can update itself in place:
+
+```sh
+kasas self-update          # download, verify, and replace the running binary
+kasas self-update -check   # report whether a newer release exists; install nothing
+```
+
+`self-update` fetches the latest release, downloads the asset matching your
+OS/arch, verifies it against the published `.sha256` (refusing to proceed on a
+mismatch or a missing checksum), and atomically replaces the binary. You need
+write access to its directory; restart the service afterwards to run the new
+version.
+
+While `serve` runs, kasas also checks **once a day** for a newer release and logs
+a notice — it never self-modifies. Disable the check with `KASAS_UPDATE_CHECK=false`
+(recommended for Docker, where you update by pulling a new image). Builds without
+a release version (e.g. `dev`) skip the check entirely.
+
+**From the dashboard** — when a newer release is available, the dashboard shows a
+banner at the top with an **"Update & restart"** button. Clicking it calls
+`POST /api/v1/update`, which performs the same download → verify → replace as the
+CLI and then **re-execs the new binary in place** (no external supervisor needed);
+the page reloads onto the new version once it's back. The button is backed by the
+same `update.allow_apply` switch:
+
+> **Security:** the dashboard and API are unauthenticated, so with `allow_apply`
+> on, anyone who can reach kasas can replace the running binary (with a
+> checksum-verified GitHub release) and restart it. Keep kasas on a trusted
+> network — e.g. [Tailscale](https://tailscale.com) — or set
+> `KASAS_UPDATE_ALLOW_APPLY=false` to keep the informational banner while
+> requiring the `kasas self-update` CLI to actually upgrade.
 
 ## Dashboard
 
@@ -164,6 +209,8 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/sync` | Latest sync status |
 | `GET /api/v1/sync/history` | Recent sync runs (`?limit=`) |
 | `POST /api/v1/sync` | Trigger a sync (runs async, returns `202`) |
+| `GET /api/v1/update` | Update status (when `update.check` is on) |
+| `POST /api/v1/update` | Install the latest release in place (when `update.allow_apply` is on) |
 
 List endpoints accept `?limit=` (default 100, max 1000), `?offset=`, and
 `?since=`/`?until=` (a `YYYY-MM-DD` date, RFC 3339, or unix seconds).
