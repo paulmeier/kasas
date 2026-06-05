@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -143,6 +145,29 @@ func (c *apiClient) applyUpdate(ctx context.Context) (applyResult, error) {
 		return applyResult{}, err
 	}
 	return out, nil
+}
+
+// buildVersion fetches the server's build version string (the go-app
+// service-worker cache key: "<binary-version>-<wasmhash>"). It is plain text
+// rather than JSON, served from the dashboard handler at /web/version.
+func (c *apiClient) buildVersion(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/web/version", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET /web/version: status %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 func (c *apiClient) get(ctx context.Context, path string, q url.Values, dst any) error {
