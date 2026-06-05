@@ -1,0 +1,29 @@
+version: "2"
+sql:
+  # SQLite backend (default). Generated into internal/db (package db), which
+  # also holds the canonical model types and the Store/Querier interfaces.
+  - engine: "sqlite"
+    schema: "migrations/sqlite"
+    queries: "queries"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+
+  # Postgres backend. Generated into internal/db/pg (package pg). The schema is
+  # designed so its model/param structs are structurally identical to the
+  # SQLite ones, which the pgstore adapter relies on.
+  - engine: "postgresql"
+    schema: "migrations/postgres"
+    queries: "queries"
+    gen:
+      go:
+        package: "pg"
+        out: "internal/db/pg"
+        sql_package: "database/sql"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true

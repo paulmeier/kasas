@@ -1,0 +1,59 @@
+services:
+  kasas:
+    build:
+      context: .
+      args:
+        VERSION: dev
+    image: kasas:latest
+    container_name: kasas
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # On Unraid this is typically /mnt/user/appdata/kasas. The directory must
+      # be writable by the container user (UID 65532); see the README.
+      - ./data:/data
+    environment:
+      KASAS_SERVER_ADDR: ":8080"
+      KASAS_LOG_LEVEL: "info"
+      KASAS_LOG_FORMAT: "json"
+      # --- Storage backend (default: SQLite) ---
+      KASAS_DATABASE_DRIVER: "sqlite"
+      KASAS_DATABASE_PATH: "/data/kasas.db"
+      KASAS_SECRETS_FILE: "/data/secrets.json"
+      # To use Postgres instead, set the driver and DSN (and start the postgres
+      # service below with: docker compose --profile postgres up -d):
+      # KASAS_DATABASE_DRIVER: "postgres"
+      # KASAS_DATABASE_DSN: "postgres://kasas:kasas@postgres:5432/kasas?sslmode=disable"
+      # Sync schedule.
+      KASAS_SYNC_ENABLED: "true"
+      KASAS_SYNC_INTERVAL: "6h"
+      KASAS_SYNC_LOOKBACK_DAYS: "90"
+      # Provide ONE of the following on first run. The resolved access URL is
+      # then persisted to the secret store and reused.
+      KASAS_SIMPLEFIN_SETUP_TOKEN: "${KASAS_SIMPLEFIN_SETUP_TOKEN:-}"
+      # KASAS_SIMPLEFIN_ACCESS_URL: "https://user:pass@bridge.simplefin.org/simplefin"
+      # Built-in MCP server (mounted at /mcp).
+      KASAS_MCP_ENABLED: "true"
+    # Uncomment when using the Postgres backend so kasas waits for the database:
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
+
+  # Optional Postgres backend. Opt in with:  docker compose --profile postgres up -d
+  postgres:
+    image: postgres:16-alpine
+    container_name: kasas-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kasas
+      POSTGRES_PASSWORD: kasas
+      POSTGRES_DB: kasas
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kasas -d kasas"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

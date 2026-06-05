@@ -1,0 +1,28 @@
+# VCS / CI
+.git
+.github
+.gitignore
+
+# Local data & secrets — never bake these into an image
+data/
+*.db
+*.db-*
+*.sqlite
+secrets.json
+config.toml
+.env
+
+# Build output
+/kasas
+dist/
+bin/
+
+# Editor/OS noise
+.idea/
+.vscode/
+.DS_Store
+
+# Docs not needed at build time
+*.md
+LICENSE
+docker-compose.yml
