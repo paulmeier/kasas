@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/paulmeier/kasas/compare/v1.1.0...v1.2.0) (2026-06-05)
+
+
+### Features
+
+* add binary self-update (CLI, daily check, and dashboard banner) ([2be4cdf](https://github.com/paulmeier/kasas/commit/2be4cdfb083035c7cb1f51860e7ea9c92598f091))
+* binary self-update (CLI + dashboard banner) ([9c2c00a](https://github.com/paulmeier/kasas/commit/9c2c00a9e13ca0756aa277310987acd7bdc55231))
+
 ## [1.1.0](https://github.com/paulmeier/kasas/compare/v1.0.0...v1.1.0) (2026-06-05)
 
 
