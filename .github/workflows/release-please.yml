@@ -21,6 +21,9 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          # A PAT (vs the default GITHUB_TOKEN) makes the release PR trigger CI,
+          # so its checks run. Falls back to GITHUB_TOKEN if the secret is unset.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
