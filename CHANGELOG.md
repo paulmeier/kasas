@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/paulmeier/kasas/compare/v1.2.1...v1.3.0) (2026-06-05)
+
+
+### Features
+
+* **dashboard:** sortable columns, page-size selector, and pagination ([37138cd](https://github.com/paulmeier/kasas/commit/37138cd0a0ce635a5518e7bcaaba906342c2e492))
+* **dashboard:** sortable columns, page-size selector, and pagination ([cbde367](https://github.com/paulmeier/kasas/commit/cbde367c16421dc91c943ed3444d95c92aed41b0))
+
 ## [1.2.1](https://github.com/paulmeier/kasas/compare/v1.2.0...v1.2.1) (2026-06-05)
 
 
