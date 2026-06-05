@@ -21,6 +21,12 @@ type Querier interface {
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
+	// Returns each distinct JSON tags array currently in use. The API explodes and
+	// de-duplicates the individual tags in Go, which keeps this query portable
+	// across SQLite and Postgres (no JSON functions or dialect-specific aggregation).
+	// ORDER BY makes the row order deterministic, so the spelling the API keeps for
+	// a case-insensitively duplicated tag is stable.
+	ListDistinctTagSets(ctx context.Context) ([]string, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListSyncLogs(ctx context.Context, rowLimit int64) ([]SyncLog, error)
 	// A bound of 0 disables that side of the date filter (so 0/0 returns all).
@@ -28,6 +34,11 @@ type Querier interface {
 	// the bound parameters from the `date` column.
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
 	ListTransactionsByAccount(ctx context.Context, arg ListTransactionsByAccountParams) ([]Transaction, error)
+	// Replaces the whole tag set for one transaction. tags is a JSON array of
+	// strings; the API normalizes it before storing. :execrows lets the caller
+	// detect a missing id (0 rows affected). The poller never touches tags, so this
+	// is the only writer.
+	UpdateTransactionTags(ctx context.Context, arg UpdateTransactionTagsParams) (int64, error)
 	UpsertAccount(ctx context.Context, arg UpsertAccountParams) error
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error
 }

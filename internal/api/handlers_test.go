@@ -1,12 +1,14 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -73,6 +75,28 @@ func getJSON(t *testing.T, srv *httptest.Server, path string, out any) int {
 	require.NoError(t, err)
 	if out != nil && len(body) > 0 {
 		require.NoError(t, json.Unmarshal(body, out), "body: %s", body)
+	}
+	return resp.StatusCode
+}
+
+func putJSON(t *testing.T, srv *httptest.Server, path string, body, out any) int {
+	t.Helper()
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		require.NoError(t, err)
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(http.MethodPut, srv.URL+path, rdr)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	if out != nil && len(respBody) > 0 {
+		require.NoError(t, json.Unmarshal(respBody, out), "body: %s", respBody)
 	}
 	return resp.StatusCode
 }
@@ -201,6 +225,93 @@ func TestGetTransaction(t *testing.T) {
 	assert.Equal(t, "gift", txn.Memo)
 
 	assert.Equal(t, http.StatusNotFound, getJSON(t, srv, "/api/v1/transactions/nope", nil))
+}
+
+func TestTransactionTags(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	t.Run("put normalizes and echoes back", func(t *testing.T) {
+		var out struct {
+			ID   string   `json:"id"`
+			Tags []string `json:"tags"`
+		}
+		// Whitespace, an empty entry, and a case-insensitive duplicate.
+		body := map[string][]string{"tags": {" Groceries ", "groceries", "food", ""}}
+		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/tags", body, &out))
+		assert.Equal(t, "tx-2", out.ID)
+		assert.Equal(t, []string{"Groceries", "food"}, out.Tags)
+	})
+
+	t.Run("tags surface on get and list", func(t *testing.T) {
+		var txn api.TransactionDTO
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-2", &txn))
+		assert.Equal(t, []string{"Groceries", "food"}, txn.Tags)
+
+		var list struct {
+			Transactions []api.TransactionDTO `json:"transactions"`
+		}
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions", &list))
+		for _, tr := range list.Transactions {
+			if tr.ID == "tx-2" {
+				assert.Equal(t, []string{"Groceries", "food"}, tr.Tags)
+			} else {
+				// Untagged transactions are [] (never null).
+				assert.NotNil(t, tr.Tags)
+				assert.Empty(t, tr.Tags)
+			}
+		}
+	})
+
+	t.Run("put replaces the whole set and can clear", func(t *testing.T) {
+		var out struct {
+			Tags []string `json:"tags"`
+		}
+		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/tags",
+			map[string][]string{"tags": {"rent"}}, &out))
+		assert.Equal(t, []string{"rent"}, out.Tags)
+
+		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/tags",
+			map[string][]string{"tags": {}}, &out))
+		assert.Empty(t, out.Tags)
+	})
+
+	t.Run("unknown id is 404", func(t *testing.T) {
+		assert.Equal(t, http.StatusNotFound, putJSON(t, srv, "/api/v1/transactions/nope/tags",
+			map[string][]string{"tags": {"x"}}, nil))
+	})
+
+	t.Run("malformed body is 400", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/transactions/tx-1/tags",
+			strings.NewReader("{not json"))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+func TestListTags(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	var out struct {
+		Tags []string `json:"tags"`
+	}
+	// No tags yet -> empty (but non-null) list.
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &out))
+	assert.NotNil(t, out.Tags)
+	assert.Empty(t, out.Tags)
+
+	// Tag two transactions; the vocabulary is the sorted, de-duplicated union.
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/tags",
+		map[string][]string{"tags": {"coffee", "food"}}, nil))
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/tags",
+		map[string][]string{"tags": {"coffee", "rent"}}, nil))
+
+	out.Tags = nil
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &out))
+	assert.Equal(t, []string{"coffee", "food", "rent"}, out.Tags)
 }
 
 func TestSyncStatusAndHistory(t *testing.T) {

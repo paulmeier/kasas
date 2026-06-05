@@ -35,3 +35,18 @@ WHERE id = sqlc.arg(id);
 
 -- name: CountTransactions :one
 SELECT COUNT(*) FROM transactions;
+
+-- name: UpdateTransactionTags :execrows
+-- Replaces the whole tag set for one transaction. tags is a JSON array of
+-- strings; the API normalizes it before storing. :execrows lets the caller
+-- detect a missing id (0 rows affected). The poller never touches tags, so this
+-- is the only writer.
+UPDATE transactions SET tags = sqlc.arg(tags) WHERE id = sqlc.arg(id);
+
+-- name: ListDistinctTagSets :many
+-- Returns each distinct JSON tags array currently in use. The API explodes and
+-- de-duplicates the individual tags in Go, which keeps this query portable
+-- across SQLite and Postgres (no JSON functions or dialect-specific aggregation).
+-- ORDER BY makes the row order deterministic, so the spelling the API keeps for
+-- a case-insensitively duplicated tag is stable.
+SELECT DISTINCT tags FROM transactions WHERE tags <> '[]' ORDER BY tags;
