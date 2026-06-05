@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/paulmeier/kasas/compare/v1.2.0...v1.2.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **dashboard:** account filter reset wrongly shows "No transactions" ([9018d5c](https://github.com/paulmeier/kasas/commit/9018d5c00fddd9b12a567d8f28a060ef4a1701dd))
+* **dashboard:** account filter reset wrongly shows "No transactions" ([56437e4](https://github.com/paulmeier/kasas/commit/56437e414fed322ec4489971c790a9ce72a71e5b))
+
 ## [1.2.0](https://github.com/paulmeier/kasas/compare/v1.1.0...v1.2.0) (2026-06-05)
 
 
