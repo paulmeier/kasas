@@ -3,7 +3,9 @@ package dashboard
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"io"
 	"io/fs"
 	"net/http"
@@ -48,7 +50,7 @@ func Handler(opts Options) http.Handler {
 		BackgroundColor: "#0f1115",
 		ThemeColor:      "#0f1115",
 		LoadingLabel:    "loading kasas… {progress}%",
-		Version:         opts.Version,
+		Version:         dashboardVersion(opts.Version, webFS),
 		Styles:          []string{"/web/dashboard.css"},
 		Icon: app.Icon{
 			Default: "/web/logo.png", // favicon + PWA icon
@@ -66,6 +68,35 @@ func Handler(opts Options) http.Handler {
 	mux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.FS(static))))
 	mux.Handle("/", goapp)
 	return mux
+}
+
+// dashboardVersion derives go-app's cache-busting Version. go-app names its
+// service-worker cache "app-<Version>" and only refetches assets when Version
+// changes. Releases bump the base version, but local builds report a static
+// "dev", so a bare version string would leave the service worker serving a
+// stale app.wasm (and thus an old UI) after every rebuild. Mixing in a short
+// hash of the embedded wasm's *content* makes the cache key change exactly when
+// the UI bytes change — busting the cache on every meaningful rebuild while
+// staying stable across identical builds. Falls back to the bare base when the
+// wasm has not been built yet (the gz is absent until `make wasm`).
+func dashboardVersion(base string, fsys fs.FS) string {
+	if base == "" {
+		base = "dev"
+	}
+	gz, err := fs.ReadFile(fsys, "web/app.wasm.gz")
+	if err != nil {
+		return base
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(gz))
+	if err != nil {
+		return base
+	}
+	defer zr.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, zr); err != nil {
+		return base
+	}
+	return base + "-" + hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // serveWasm serves the embedded, pre-gzipped WASM. Browsers always accept gzip;
