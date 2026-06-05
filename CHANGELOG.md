@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1](https://github.com/paulmeier/kasas/compare/v1.3.0...v1.3.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* **dashboard:** bust the service-worker cache when the UI changes ([6bf3456](https://github.com/paulmeier/kasas/commit/6bf34561b693fefd3829416fdc4e8bc9b9cb7b4c))
+* **dashboard:** bust the service-worker cache when the UI changes ([23ab33b](https://github.com/paulmeier/kasas/commit/23ab33b2b02f2a31210ea3f7a6968c147c9e9269))
+
 ## [1.3.0](https://github.com/paulmeier/kasas/compare/v1.2.1...v1.3.0) (2026-06-05)
 
 
