@@ -13,6 +13,13 @@ import (
 
 const pageSize = 50
 
+// allAccountsValue is the <option> value for the "All accounts" choice. It must
+// be non-empty: go-app drops empty-string value attributes (see
+// attributes.Set), and an <option> with no value attribute reports its text
+// ("All accounts") as its value, which would then be sent as a bogus
+// account_id filter. We map this sentinel back to "" (no filter) on change.
+const allAccountsValue = "__all__"
+
 // Routes registers the client-side routes. The WASM entrypoint calls this
 // before app.RunWhenOnBrowser.
 func Routes() {
@@ -111,7 +118,11 @@ func (v *dashboardView) fetchTransactions(ctx app.Context, more bool) {
 }
 
 func (v *dashboardView) onAccountChange(ctx app.Context, _ app.Event) {
-	v.selectedAccount = ctx.JSSrc().Get("value").String()
+	val := ctx.JSSrc().Get("value").String()
+	if val == allAccountsValue {
+		val = ""
+	}
+	v.selectedAccount = val
 	v.reloadTransactions(ctx)
 }
 
@@ -264,7 +275,7 @@ func (v *dashboardView) renderControls() app.UI {
 	return app.Div().Class("controls").Body(
 		app.Label().Class("control-label").Text("Account"),
 		app.Select().Class("account-select").OnChange(v.onAccountChange).Body(
-			app.Option().Value("").Text("All accounts").Selected(v.selectedAccount == ""),
+			app.Option().Value(allAccountsValue).Text("All accounts").Selected(v.selectedAccount == ""),
 			app.Range(v.accounts).Slice(func(i int) app.UI {
 				a := v.accounts[i]
 				return app.Option().Value(a.ID).Text(a.Name).Selected(v.selectedAccount == a.ID)
