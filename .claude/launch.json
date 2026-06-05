@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kasas",
+      "runtimeExecutable": "./bin/kasas",
+      "runtimeArgs": ["-config", "config.toml", "serve"],
+      "port": 8080
+    }
+  ]
+}
