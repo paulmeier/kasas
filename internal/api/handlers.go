@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -181,12 +182,61 @@ func (s *Server) handleUpdateTransactionTags(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
-	sets, err := s.store.ListDistinctTagSets(r.Context())
+	rows, err := s.store.ListTaggedTransactions(r.Context())
 	if err != nil {
 		s.serverError(w, "list tags", err)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"tags": distinctTags(sets)})
+	sets := make([]string, len(rows))
+	for i, row := range rows {
+		sets[i] = row.Tags
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"tags": tagCounts(sets)})
+}
+
+// handleDeleteTag removes a tag from the vocabulary by stripping it from every
+// transaction that carries it (case-insensitive). With tags stored as JSON
+// arrays on transactions, deleting a tag IS removing it everywhere; there is no
+// separate tags table. It is idempotent: an unknown tag affects 0 rows and still
+// returns 200.
+func (s *Server) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(chi.URLParam(r, "name"))
+	if name == "" {
+		s.writeError(w, http.StatusBadRequest, "tag name required")
+		return
+	}
+
+	var removed int
+	err := s.store.RunInTx(r.Context(), func(q db.Querier) error {
+		rows, err := q.ListTaggedTransactions(r.Context())
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			tags := decodeTags(row.Tags)
+			if !containsFold(tags, name) {
+				continue
+			}
+			encoded, err := encodeTags(removeFold(tags, name))
+			if err != nil {
+				return err
+			}
+			if _, err := q.UpdateTransactionTags(r.Context(), db.UpdateTransactionTagsParams{
+				ID:   row.ID,
+				Tags: encoded,
+			}); err != nil {
+				return err
+			}
+			removed++
+		}
+		return nil
+	})
+	if err != nil {
+		s.serverError(w, "delete tag", err)
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]any{"name": name, "removed_from": removed})
 }
 
 func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {

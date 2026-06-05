@@ -68,29 +68,67 @@ func normalizeTags(in []string) []string {
 	return out
 }
 
-// distinctTags explodes the stored JSON tag arrays into a single vocabulary,
-// de-duplicated case-insensitively (first spelling wins) and sorted
-// case-insensitively. It powers the dashboard's typeahead.
-func distinctTags(sets []string) []string {
-	seen := make(map[string]string) // lower-cased key -> display spelling
+// tagCounts explodes the stored JSON tag arrays into the global tag vocabulary,
+// each annotated with the number of transactions that carry it. Each input
+// string is one transaction's tags array, so a tag's count is the number of
+// arrays it appears in. Tags are de-duplicated case-insensitively (first
+// spelling wins) and the result is sorted case-insensitively. It powers the Tags
+// page (names + counts) and the dashboard typeahead (names only).
+func tagCounts(sets []string) []TagDTO {
+	type entry struct {
+		name  string
+		count int
+	}
+	seen := make(map[string]*entry) // lower-cased key -> display + count
 	for _, set := range sets {
+		// A transaction counts once per distinct tag it carries, guarding against
+		// a stored array that somehow repeats a tag.
+		counted := make(map[string]bool)
 		for _, t := range decodeTags(set) {
 			t = strings.TrimSpace(t)
 			if t == "" {
 				continue
 			}
 			key := strings.ToLower(t)
-			if _, ok := seen[key]; !ok {
-				seen[key] = t
+			e, ok := seen[key]
+			if !ok {
+				e = &entry{name: t}
+				seen[key] = e
+			}
+			if !counted[key] {
+				counted[key] = true
+				e.count++
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for _, display := range seen {
-		out = append(out, display)
+	out := make([]TagDTO, 0, len(seen))
+	for _, e := range seen {
+		out = append(out, TagDTO{Name: e.name, TransactionCount: e.count})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+	return out
+}
+
+// containsFold reports whether tags contains s, comparing case-insensitively.
+func containsFold(tags []string, s string) bool {
+	for _, t := range tags {
+		if strings.EqualFold(t, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// removeFold returns tags with every case-insensitive match of s removed,
+// preserving the order and spelling of the remaining tags.
+func removeFold(tags []string, s string) []string {
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		if !strings.EqualFold(t, s) {
+			out = append(out, t)
+		}
+	}
 	return out
 }

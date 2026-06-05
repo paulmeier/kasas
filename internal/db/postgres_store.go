@@ -78,8 +78,11 @@ func (a pgQuerier) UpdateTransactionTags(ctx context.Context, arg UpdateTransact
 	return a.q.UpdateTransactionTags(ctx, pg.UpdateTransactionTagsParams(arg))
 }
 
-func (a pgQuerier) ListDistinctTagSets(ctx context.Context) ([]string, error) {
-	return a.q.ListDistinctTagSets(ctx)
+func (a pgQuerier) ListTaggedTransactions(ctx context.Context) ([]ListTaggedTransactionsRow, error) {
+	rows, err := a.q.ListTaggedTransactions(ctx)
+	return mapSlice(rows, func(r pg.ListTaggedTransactionsRow) ListTaggedTransactionsRow {
+		return ListTaggedTransactionsRow(r)
+	}), err
 }
 
 func (a pgQuerier) LatestSyncLog(ctx context.Context) (SyncLog, error) {

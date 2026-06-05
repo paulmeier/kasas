@@ -110,16 +110,69 @@ func (c *apiClient) allTransactions(ctx context.Context, accountID string) ([]tr
 	return all, nil
 }
 
-// tags fetches the global tag vocabulary (distinct tags across all accounts),
-// used to drive the typeahead suggestions.
-func (c *apiClient) tags(ctx context.Context) ([]string, error) {
+// tagCount is one tag in the global vocabulary with the number of transactions
+// that carry it (mirrors api.TagDTO).
+type tagCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"transaction_count"`
+}
+
+// tagCounts fetches the global tag vocabulary with per-tag transaction counts,
+// used by the Tags page.
+func (c *apiClient) tagCounts(ctx context.Context) ([]tagCount, error) {
 	var out struct {
-		Tags []string `json:"tags"`
+		Tags []tagCount `json:"tags"`
 	}
 	if err := c.get(ctx, "/api/v1/tags", nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Tags, nil
+}
+
+// tags fetches just the tag names (the vocabulary), used to drive the dashboard
+// typeahead suggestions.
+func (c *apiClient) tags(ctx context.Context) ([]string, error) {
+	counts, err := c.tagCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(counts))
+	for i, t := range counts {
+		names[i] = t.Name
+	}
+	return names, nil
+}
+
+// deleteTag removes a tag from every transaction that carries it and returns the
+// number of transactions it was removed from.
+func (c *apiClient) deleteTag(ctx context.Context, name string) (int, error) {
+	u := c.base + "/api/v1/tags/" + url.PathEscape(name)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error != "" {
+			return 0, fmt.Errorf("%s", e.Error)
+		}
+		return 0, fmt.Errorf("DELETE tag: status %d", resp.StatusCode)
+	}
+	var out struct {
+		RemovedFrom int `json:"removed_from"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return 0, err
+	}
+	return out.RemovedFrom, nil
 }
 
 // setTags replaces a transaction's entire tag set and returns the

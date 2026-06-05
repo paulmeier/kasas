@@ -21,14 +21,16 @@ type Querier interface {
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
-	// Returns each distinct JSON tags array currently in use. The API explodes and
-	// de-duplicates the individual tags in Go, which keeps this query portable
-	// across SQLite and Postgres (no JSON functions or dialect-specific aggregation).
-	// ORDER BY makes the row order deterministic, so the spelling the API keeps for
-	// a case-insensitively duplicated tag is stable.
-	ListDistinctTagSets(ctx context.Context) ([]string, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListSyncLogs(ctx context.Context, rowLimit int32) ([]SyncLog, error)
+	// Returns the (id, tags) of every transaction that carries at least one tag. The
+	// API explodes the JSON arrays in Go to build the tag vocabulary with per-tag
+	// transaction counts, and reuses the same rows to strip a tag from every
+	// transaction on delete. Done in Go (not SQL) to stay portable across SQLite and
+	// Postgres (no JSON functions or dialect-specific aggregation). ORDER BY makes
+	// the row order deterministic, so the spelling kept for a case-insensitively
+	// duplicated tag is stable.
+	ListTaggedTransactions(ctx context.Context) ([]ListTaggedTransactionsRow, error)
 	// A bound of 0 disables that side of the date filter (so 0/0 returns all).
 	// The column comparison is written first so sqlc infers an integer type for
 	// the bound parameters from the `date` column.

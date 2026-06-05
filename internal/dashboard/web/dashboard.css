@@ -27,20 +27,93 @@ html, body {
   padding: 24px 20px 64px;
 }
 
-.topbar {
+/* --- App shell: collapsible sidebar + content --- */
+.app-shell { display: flex; align-items: flex-start; min-height: 100vh; }
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  flex: none;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  transition: width 0.15s ease;
+}
+.sidebar.collapsed { width: 64px; }
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 16px;
+  text-decoration: none;
+  color: var(--text);
+}
+.logo { height: 36px; width: 36px; border-radius: 50%; flex: none; }
+.brand { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; white-space: nowrap; }
+
+.nav { display: flex; flex-direction: column; gap: 4px; }
+.nav-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  padding: 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
 }
-.logo {
-  height: 40px;
-  width: 40px;
-  border-radius: 50%;
-  flex: none;
+.nav-item:hover { color: var(--text); background: var(--surface-2); }
+.nav-item.active { color: var(--text); background: var(--surface-2); }
+.nav-item.active .nav-icon { color: var(--accent); }
+.nav-icon { width: 20px; height: 20px; flex: none; }
+.nav-label { line-height: 1; }
+
+.sidebar-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
 }
-.brand { font-size: 22px; margin: 0; letter-spacing: 0.3px; }
-.subtitle { color: var(--muted); font-size: 14px; }
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.collapse-btn:hover { color: var(--text); background: var(--surface-2); }
+.collapse-icon { transition: transform 0.15s ease; }
+.sidebar.collapsed .collapse-icon { transform: rotate(180deg); }
+
+/* Collapsed rail: hide the labels/brand, center the icons. */
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .brand,
+.sidebar.collapsed .version-badge { display: none; }
+.sidebar.collapsed .sidebar-head,
+.sidebar.collapsed .nav-item,
+.sidebar.collapsed .collapse-btn { justify-content: center; }
+
+.content { flex: 1; min-width: 0; }
+
+.page-header { margin-bottom: 20px; }
+.page-title { font-size: 22px; margin: 0 0 4px; letter-spacing: 0.3px; }
+.page-subtitle { color: var(--muted); font-size: 14px; }
 
 .cards {
   display: grid;
@@ -300,16 +373,54 @@ html, body {
 }
 .btn-update:hover { border-color: transparent; opacity: 0.9; }
 
+/* Lives in the sidebar footer (hidden when collapsed). */
 .version-badge {
-  position: fixed;
-  bottom: 10px;
-  left: 12px;
-  z-index: 10;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  opacity: 0.5;
+  opacity: 0.6;
+  padding: 0 10px;
+  word-break: break-all;
   user-select: all; /* easy to select/copy when reporting an issue */
   transition: opacity 0.15s ease;
 }
 .version-badge:hover { opacity: 0.9; }
+
+/* --- Tags page --- */
+.tags-table { max-width: 560px; }
+.tags-table .tag-chip { padding: 3px 10px; }
+.tag-count { font-variant-numeric: tabular-nums; color: var(--muted); }
+.tag-actions { width: 1%; white-space: nowrap; }
+.tag-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0; /* revealed on row hover/focus, per the uncluttered-table preference */
+  transition: opacity 0.1s ease, color 0.1s ease, background 0.1s ease;
+}
+.tags-table tbody tr:hover .tag-delete,
+.tag-delete:focus-visible { opacity: 1; }
+.tag-delete:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
+.action-icon { width: 16px; height: 16px; }
+
+/* --- Empty / placeholder blocks (Tags empty state, Rules page) --- */
+.empty-state, .placeholder {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 32px 24px;
+  color: var(--muted);
+  max-width: 560px;
+}
+.empty-title, .placeholder-title { color: var(--text); font-size: 16px; margin: 0 0 8px; }
+.empty-hint { margin: 0; font-size: 14px; }
+.placeholder p { margin: 0 0 8px; }
+.placeholder p:last-child { margin-bottom: 0; }

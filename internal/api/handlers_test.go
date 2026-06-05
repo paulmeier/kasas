@@ -101,6 +101,21 @@ func putJSON(t *testing.T, srv *httptest.Server, path string, body, out any) int
 	return resp.StatusCode
 }
 
+func deleteJSON(t *testing.T, srv *httptest.Server, path string, out any) int {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+path, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	if out != nil && len(respBody) > 0 {
+		require.NoError(t, json.Unmarshal(respBody, out), "body: %s", respBody)
+	}
+	return resp.StatusCode
+}
+
 func TestHealthAndReady(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
@@ -296,14 +311,14 @@ func TestListTags(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
 	var out struct {
-		Tags []string `json:"tags"`
+		Tags []api.TagDTO `json:"tags"`
 	}
 	// No tags yet -> empty (but non-null) list.
 	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &out))
 	assert.NotNil(t, out.Tags)
 	assert.Empty(t, out.Tags)
 
-	// Tag two transactions; the vocabulary is the sorted, de-duplicated union.
+	// Tag two transactions; the vocabulary is the sorted union with per-tag counts.
 	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/tags",
 		map[string][]string{"tags": {"coffee", "food"}}, nil))
 	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/tags",
@@ -311,7 +326,52 @@ func TestListTags(t *testing.T) {
 
 	out.Tags = nil
 	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &out))
-	assert.Equal(t, []string{"coffee", "food", "rent"}, out.Tags)
+	assert.Equal(t, []api.TagDTO{
+		{Name: "coffee", TransactionCount: 2},
+		{Name: "food", TransactionCount: 1},
+		{Name: "rent", TransactionCount: 1},
+	}, out.Tags)
+}
+
+func TestDeleteTag(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	// Tag two transactions; "coffee" is shared, with a different spelling on tx-3.
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/tags",
+		map[string][]string{"tags": {"coffee", "food"}}, nil))
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/tags",
+		map[string][]string{"tags": {"Coffee", "rent"}}, nil))
+
+	// Delete "coffee" — case-insensitively matches "Coffee" too, so both rows.
+	var del struct {
+		Name        string `json:"name"`
+		RemovedFrom int    `json:"removed_from"`
+	}
+	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/tags/coffee", &del))
+	assert.Equal(t, "coffee", del.Name)
+	assert.Equal(t, 2, del.RemovedFrom)
+
+	// Gone from the vocabulary; the others remain with correct counts.
+	var list struct {
+		Tags []api.TagDTO `json:"tags"`
+	}
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &list))
+	assert.Equal(t, []api.TagDTO{
+		{Name: "food", TransactionCount: 1},
+		{Name: "rent", TransactionCount: 1},
+	}, list.Tags)
+
+	// The affected transactions kept their other tags.
+	var tx1 api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx1))
+	assert.Equal(t, []string{"food"}, tx1.Tags)
+
+	// Idempotent: deleting again removes from 0 rows and still returns 200.
+	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/tags/coffee", &del))
+	assert.Equal(t, 0, del.RemovedFrom)
+
+	// A blank name (here a single encoded space) is rejected.
+	assert.Equal(t, http.StatusBadRequest, deleteJSON(t, srv, "/api/v1/tags/%20", nil))
 }
 
 func TestSyncStatusAndHistory(t *testing.T) {
