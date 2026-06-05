@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/paulmeier/kasas/compare/v1.5.0...v1.6.0) (2026-06-05)
+
+
+### Features
+
+* add collapsible sidebar nav with Tags management page ([9c8e4cc](https://github.com/paulmeier/kasas/commit/9c8e4cc7e6d49348febe463b7b948a22cc9a8bbb))
+
 ## [1.5.0](https://github.com/paulmeier/kasas/compare/v1.4.0...v1.5.0) (2026-06-05)
 
 
