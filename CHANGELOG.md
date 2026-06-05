@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/paulmeier/kasas/compare/v1.3.1...v1.4.0) (2026-06-05)
+
+
+### Features
+
+* **dashboard:** add build-version badge and fix wasm cache staleness ([5eb1c9c](https://github.com/paulmeier/kasas/commit/5eb1c9ccbbfd4489e0ed1833fc3bfc7aacede793))
+* **dashboard:** add build-version badge and fix wasm cache staleness ([b2a419f](https://github.com/paulmeier/kasas/commit/b2a419f9464fef9cf9ca8d21f445214b4ba76a51))
+
 ## [1.3.1](https://github.com/paulmeier/kasas/compare/v1.3.0...v1.3.1) (2026-06-05)
 
 
