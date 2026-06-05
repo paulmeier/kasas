@@ -4,6 +4,11 @@ BIN     := bin/kasas
 IMAGE   ?= kasas:latest
 SEED_EXTRA ?= 0
 
+# Dev server port for `make run` / `make kill-port`. Empty = auto-detect from
+# $KASAS_SERVER_ADDR or [server].addr in config.toml (falling back to 8080).
+# Override explicitly with `make run PORT=9000`.
+PORT ?=
+
 # Use the locally installed sqlc, falling back to `go run` if it isn't on PATH.
 SQLC ?= $(shell command -v sqlc 2>/dev/null || echo go run github.com/sqlc-dev/sqlc/cmd/sqlc)
 
@@ -29,8 +34,31 @@ build: wasm ## Build a static binary into bin/ (builds the WASM first)
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/kasas
 
 .PHONY: run
-run: wasm ## Run the server locally (uses ./config.toml if present)
+run: wasm kill-port ## Run the server locally (frees the port first; uses ./config.toml)
 	go run ./cmd/kasas -config config.toml serve
+
+.PHONY: kill-port
+kill-port: ## Free the dev server port by killing whatever is listening on it
+	@port="$(PORT)"; \
+	if [ -z "$$port" ]; then \
+		addr="$${KASAS_SERVER_ADDR:-$$(sed -n 's/^[[:space:]]*addr[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' config.toml 2>/dev/null | head -n1)}"; \
+		port="$${addr##*:}"; \
+	fi; \
+	port="$${port:-8080}"; \
+	pids="$$(lsof -ti tcp:$$port -sTCP:LISTEN 2>/dev/null || true)"; \
+	if [ -z "$$pids" ]; then \
+		echo "kill-port: port $$port already free"; \
+	else \
+		echo "kill-port: freeing port $$port (PID(s): $$pids)"; \
+		kill $$pids 2>/dev/null || true; \
+		sleep 1; \
+		pids="$$(lsof -ti tcp:$$port -sTCP:LISTEN 2>/dev/null || true)"; \
+		if [ -n "$$pids" ]; then \
+			echo "kill-port: still listening, sending SIGKILL ($$pids)"; \
+			kill -9 $$pids 2>/dev/null || true; \
+			sleep 1; \
+		fi; \
+	fi
 
 .PHONY: seed
 seed: ## Seed the configured DB with demo data (re-runnable; SEED_EXTRA=N for more)

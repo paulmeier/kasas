@@ -128,13 +128,18 @@ PWA. Its UI is compiled to WebAssembly from `cmd/kasas-wasm` and embedded
 ```sh
 make wasm     # GOOS=js GOARCH=wasm build -> internal/dashboard/web/app.wasm.gz
 make build    # builds the WASM first, then the server (which embeds it)
-make run      # likewise, then runs the server
+make run      # likewise, frees the port, then runs the server
 ```
 
 The built `app.wasm.gz` is git-ignored. `go build ./...` and the tests still
 work without it (the embed tolerates an absent WASM), but the dashboard won't
 load until you `make wasm`. Edit the components in `internal/dashboard/*.go`,
 re-run `make wasm`, and refresh.
+
+`make run` frees the configured port before starting (via `make kill-port`),
+so it won't fail with "address already in use" when a previous server is still
+bound. The port is read from `$KASAS_SERVER_ADDR` or `[server].addr` in
+`config.toml` (default 8080); override it with `make run PORT=9000`.
 
 ## Testing
 
