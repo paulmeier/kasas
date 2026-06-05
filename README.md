@@ -18,8 +18,8 @@ REST API and a built-in [MCP](https://modelcontextprotocol.io/) server.
 - **SQLite or Postgres** — zero-dependency on embedded SQLite by default, or
   point it at a Postgres server with one config change. Same binary either way.
 - **Read-only web dashboard** at `/` — an account overview + a filterable,
-  paginated transactions table, built with [go-app](https://go-app.dev) (Go →
-  WebAssembly, embedded in the binary; no Node/JS build).
+  sortable, paginated transactions table, built with [go-app](https://go-app.dev)
+  (Go → WebAssembly, embedded in the binary; no Node/JS build).
 - **One small container** (`scratch` base — ~12 MB pulled, ~24 MB on disk for
   linux/amd64; the embedded WASM dashboard adds ~5 MB) with a bind-mounted
   SQLite file.
@@ -184,7 +184,8 @@ same `update.allow_apply` switch:
 When `dashboard.enabled` is true (the default), kasas serves a lightweight,
 **read-only** web UI at the root path (`/`): a balance card per account, and a
 transactions table (date, account, payee/description, color-coded amount,
-pending badge) with an account filter and "load more" paging. It's a
+pending badge) with an account filter, sortable columns, a selectable page size
+(10/20/50/100), and pagination. It's a
 [go-app](https://go-app.dev) PWA — the UI is written in Go, compiled to
 WebAssembly, embedded in the binary (served gzipped, ~3 MB), and reads from the
 same-origin REST API. Turn it off with `KASAS_DASHBOARD_ENABLED=false` (the WASM

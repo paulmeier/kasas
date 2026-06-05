@@ -2,8 +2,11 @@ package dashboard
 
 import (
 	"bytes"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
@@ -38,4 +41,154 @@ func TestAllAccountsValueNotAnAccountID(t *testing.T) {
 	if allAccountsValue == "" {
 		t.Fatal("allAccountsValue must be non-empty so go-app keeps the value attribute")
 	}
+}
+
+// TestSortedTxnsByAmountIsNumeric guards the key reason sorting is done
+// client-side: amounts are strings, so a lexical sort would order "100" before
+// "20" before "9". The Amount column must compare numerically.
+func TestSortedTxnsByAmountIsNumeric(t *testing.T) {
+	v := &dashboardView{
+		txns: []transaction{
+			{ID: "a", Amount: "9.00"},
+			{ID: "b", Amount: "100.00"},
+			{ID: "c", Amount: "-25.50"},
+			{ID: "d", Amount: "20.00"},
+		},
+		sortCol: sortByAmount,
+		sortAsc: true,
+	}
+	if got, want := amounts(v.sortedTxns()), []string{"-25.50", "9.00", "20.00", "100.00"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ascending amount sort = %v, want %v (a lexical sort would give 100,20,9,-25.50)", got, want)
+	}
+	v.sortAsc = false
+	if got, want := amounts(v.sortedTxns()), []string{"100.00", "20.00", "9.00", "-25.50"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("descending amount sort = %v, want %v", got, want)
+	}
+}
+
+// TestSortedTxnsByDateDefaultsNewestFirst checks the initial sort state
+// (sortByDate, descending) keeps the API's newest-first ordering.
+func TestSortedTxnsByDateDefaultsNewestFirst(t *testing.T) {
+	mk := func(id string, day int) transaction {
+		return transaction{ID: id, Date: time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC)}
+	}
+	v := &dashboardView{
+		txns:    []transaction{mk("a", 1), mk("b", 3), mk("c", 2)},
+		sortCol: sortByDate,
+		sortAsc: false,
+	}
+	if got, want := ids(v.sortedTxns()), []string{"b", "c", "a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("date-descending sort = %v, want %v", got, want)
+	}
+}
+
+// TestSortedTxnsByDescriptionFallsBackToDescription confirms the Description
+// column sorts on the same payee-or-description text that the rows display.
+func TestSortedTxnsByDescriptionFallsBackToDescription(t *testing.T) {
+	v := &dashboardView{
+		txns: []transaction{
+			{ID: "a", Payee: "Zelle"},
+			{ID: "b", Description: " amazon"}, // no payee -> uses description
+			{ID: "c", Payee: "Mortgage"},
+		},
+		sortCol: sortByDescription,
+		sortAsc: true,
+	}
+	if got, want := ids(v.sortedTxns()), []string{"b", "c", "a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("description sort = %v, want %v (amazon, Mortgage, Zelle)", got, want)
+	}
+}
+
+func TestDefaultAscForColumn(t *testing.T) {
+	for col, want := range map[sortColumn]bool{
+		sortByDate:        false,
+		sortByAmount:      false,
+		sortByAccount:     true,
+		sortByDescription: true,
+	} {
+		if got := defaultAscForColumn(col); got != want {
+			t.Errorf("defaultAscForColumn(%d) = %v, want %v", col, got, want)
+		}
+	}
+}
+
+// TestPaginationSlicingAndClamp covers page counting, the short final page, and
+// clamping when the requested page is past the end (e.g. after the result set
+// shrinks).
+func TestPaginationSlicingAndClamp(t *testing.T) {
+	txns := make([]transaction, 25)
+	for i := range txns {
+		txns[i] = transaction{ID: fmt.Sprintf("%02d", i), Payee: fmt.Sprintf("p%02d", i)}
+	}
+	v := &dashboardView{txns: txns, pageSize: 10, sortCol: sortByDescription, sortAsc: true}
+
+	if got := v.pageCount(); got != 3 {
+		t.Fatalf("pageCount = %d, want 3", got)
+	}
+	if got := len(v.visibleTxns()); got != 10 {
+		t.Fatalf("first page size = %d, want 10", got)
+	}
+	v.page = 2
+	if got := len(v.visibleTxns()); got != 5 {
+		t.Fatalf("last page size = %d, want 5", got)
+	}
+	v.page = 99 // past the end
+	if got := v.clampedPage(); got != 2 {
+		t.Fatalf("clampedPage = %d, want 2", got)
+	}
+	if got := len(v.visibleTxns()); got != 5 {
+		t.Fatalf("clamped page size = %d, want 5", got)
+	}
+}
+
+// TestPageSizeOptionsRendered ensures the "Show" dropdown offers exactly the
+// requested page sizes.
+func TestPageSizeOptionsRendered(t *testing.T) {
+	v := &dashboardView{pageSize: 50}
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderControls())
+	html := buf.String()
+	for _, n := range []string{"10", "20", "50", "100"} {
+		if !strings.Contains(html, `value="`+n+`"`) {
+			t.Fatalf("page-size option %q missing from controls.\nHTML:\n%s", n, html)
+		}
+	}
+}
+
+// TestSortHeaderMarksActiveColumn checks the active column is clickable and
+// shows a direction arrow, while inactive columns show none.
+func TestSortHeaderMarksActiveColumn(t *testing.T) {
+	v := &dashboardView{sortCol: sortByAmount, sortAsc: true}
+
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.sortHeader("Amount", sortByAmount, "right"))
+	html := buf.String()
+	if !strings.Contains(html, "sortable") {
+		t.Fatalf("active header missing sortable class.\nHTML:\n%s", html)
+	}
+	if !strings.Contains(html, "sort-arrow") || !strings.Contains(html, "▲") {
+		t.Fatalf("active ascending header should show an up arrow.\nHTML:\n%s", html)
+	}
+
+	buf.Reset()
+	app.PrintHTML(&buf, v.sortHeader("Date", sortByDate, ""))
+	if html := buf.String(); strings.Contains(html, "sort-arrow") {
+		t.Fatalf("inactive header should not show an arrow.\nHTML:\n%s", html)
+	}
+}
+
+func amounts(txns []transaction) []string {
+	out := make([]string, len(txns))
+	for i, t := range txns {
+		out[i] = t.Amount
+	}
+	return out
+}
+
+func ids(txns []transaction) []string {
+	out := make([]string, len(txns))
+	for i, t := range txns {
+		out[i] = t.ID
+	}
+	return out
 }

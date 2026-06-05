@@ -83,6 +83,29 @@ func (c *apiClient) transactions(ctx context.Context, accountID string, limit, o
 	return out.Transactions, nil
 }
 
+// allTransactions fetches every transaction for the given account filter ("" =
+// all accounts) by paging through the API in the largest batches the server
+// allows. The dashboard sorts and paginates client-side, so it needs the full
+// set rather than a single server page.
+func (c *apiClient) allTransactions(ctx context.Context, accountID string) ([]transaction, error) {
+	const (
+		batch    = 1000 // server maxLimit; fetch in the largest pages allowed
+		maxPages = 500  // safety bound (~500k rows) against a misbehaving server
+	)
+	var all []transaction
+	for page := 0; page < maxPages; page++ {
+		rows, err := c.transactions(ctx, accountID, batch, page*batch)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, rows...)
+		if len(rows) < batch {
+			break
+		}
+	}
+	return all, nil
+}
+
 func (c *apiClient) updateStatus(ctx context.Context) (updateStatus, error) {
 	var out updateStatus
 	if err := c.get(ctx, "/api/v1/update", nil, &out); err != nil {
