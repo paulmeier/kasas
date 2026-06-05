@@ -5,13 +5,30 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
 
-const pageSize = 50
+// defaultPageSize is the initially selected page size; pageSizeOptions are the
+// choices offered by the "Show" dropdown.
+const defaultPageSize = 50
+
+var pageSizeOptions = []int{10, 20, 50, 100}
+
+// sortColumn identifies which table column the transactions are sorted by.
+type sortColumn int
+
+const (
+	sortByDate sortColumn = iota // default; matches the API's date-descending order
+	sortByAccount
+	sortByDescription
+	sortByAmount
+)
 
 // allAccountsValue is the <option> value for the "All accounts" choice. It must
 // be non-empty: go-app drops empty-string value attributes (see
@@ -35,14 +52,19 @@ type dashboardView struct {
 
 	accounts []account
 	byID     map[string]account // account id -> account, for name lookup
-	txns     []transaction
+	txns     []transaction      // full set for the current filter, unpaged
 
 	selectedAccount string // "" means all accounts
-	offset          int
 	loading         bool
-	loadingMore     bool
-	hasMore         bool
 	errMsg          string
+
+	// Sort + client-side pagination state. The dashboard fetches the whole
+	// transaction set for the current account filter (txns), then sorts and
+	// pages it in the browser so header clicks and page changes are instant.
+	sortCol  sortColumn
+	sortAsc  bool
+	pageSize int // rows per page; one of pageSizeOptions
+	page     int // current page, 0-based
 
 	// Update banner state.
 	update    updateStatus
@@ -53,6 +75,7 @@ type dashboardView struct {
 
 func (v *dashboardView) OnMount(ctx app.Context) {
 	v.client = newAPIClient(originURL())
+	v.pageSize = defaultPageSize
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
 	v.loadUpdateStatus(ctx)
@@ -85,33 +108,26 @@ func (v *dashboardView) loadAccounts(ctx app.Context) {
 }
 
 func (v *dashboardView) reloadTransactions(ctx app.Context) {
-	v.offset = 0
 	v.txns = nil
+	v.page = 0
 	v.loading = true
-	v.fetchTransactions(ctx, false)
+	v.fetchTransactions(ctx)
 }
 
-func (v *dashboardView) fetchTransactions(ctx app.Context, more bool) {
+func (v *dashboardView) fetchTransactions(ctx app.Context) {
 	acctID := v.selectedAccount
-	offset := v.offset
 	ctx.Async(func() {
-		txns, err := v.client.transactions(context.Background(), acctID, pageSize, offset)
+		txns, err := v.client.allTransactions(context.Background(), acctID)
 		ctx.Dispatch(func(ctx app.Context) {
 			v.loading = false
-			v.loadingMore = false
 			if err != nil {
 				v.errMsg = err.Error()
 				ctx.Update()
 				return
 			}
 			v.errMsg = ""
-			if more {
-				v.txns = append(v.txns, txns...)
-			} else {
-				v.txns = txns
-			}
-			v.offset += len(txns)
-			v.hasMore = len(txns) == pageSize
+			v.txns = txns
+			v.page = 0
 			ctx.Update()
 		})
 	})
@@ -126,12 +142,157 @@ func (v *dashboardView) onAccountChange(ctx app.Context, _ app.Event) {
 	v.reloadTransactions(ctx)
 }
 
-func (v *dashboardView) onLoadMore(ctx app.Context, _ app.Event) {
-	if v.loadingMore || !v.hasMore {
+func (v *dashboardView) onPageSizeChange(ctx app.Context, _ app.Event) {
+	n, err := strconv.Atoi(ctx.JSSrc().Get("value").String())
+	if err != nil || n <= 0 {
 		return
 	}
-	v.loadingMore = true
-	v.fetchTransactions(ctx, true)
+	v.pageSize = n
+	v.page = 0
+	ctx.Update()
+}
+
+// toggleSort selects a sort column, or flips direction when the column is
+// already active. Sorting and paging happen client-side, so no refetch.
+func (v *dashboardView) toggleSort(ctx app.Context, col sortColumn) {
+	if v.sortCol == col {
+		v.sortAsc = !v.sortAsc
+	} else {
+		v.sortCol = col
+		v.sortAsc = defaultAscForColumn(col)
+	}
+	v.page = 0
+	ctx.Update()
+}
+
+func (v *dashboardView) goToPage(ctx app.Context, p int) {
+	if last := v.pageCount() - 1; p > last {
+		p = last
+	}
+	if p < 0 {
+		p = 0
+	}
+	if p == v.page {
+		return
+	}
+	v.page = p
+	ctx.Update()
+}
+
+// defaultAscForColumn is the initial direction when a column is first selected:
+// text columns ascend (A→Z); date and amount descend (newest / largest first),
+// which is what you usually want for transactions.
+func defaultAscForColumn(col sortColumn) bool {
+	switch col {
+	case sortByAccount, sortByDescription:
+		return true
+	default: // date, amount
+		return false
+	}
+}
+
+// sortedTxns returns a copy of the full transaction set ordered by the active
+// column and direction. The original slice is left untouched.
+func (v *dashboardView) sortedTxns() []transaction {
+	out := make([]transaction, len(v.txns))
+	copy(out, v.txns)
+	asc := v.sortAsc
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		switch v.sortCol {
+		case sortByAccount:
+			return cmpStr(v.accountName(a.AccountID), v.accountName(b.AccountID), asc)
+		case sortByDescription:
+			return cmpStr(displayDesc(a), displayDesc(b), asc)
+		case sortByAmount:
+			return cmpFloat(parseAmount(a.Amount), parseAmount(b.Amount), asc)
+		default: // sortByDate
+			if a.Date.Equal(b.Date) {
+				return a.ID < b.ID // deterministic tiebreaker (matches the API)
+			}
+			return cmpTime(a.Date, b.Date, asc)
+		}
+	})
+	return out
+}
+
+// pageCount is the number of pages at the current page size (always >= 1).
+func (v *dashboardView) pageCount() int {
+	if v.pageSize <= 0 {
+		return 1
+	}
+	if n := (len(v.txns) + v.pageSize - 1) / v.pageSize; n > 1 {
+		return n
+	}
+	return 1
+}
+
+// clampedPage keeps the requested page within [0, pageCount-1] so a shrinking
+// result set (e.g. after switching accounts) can't leave us past the end.
+func (v *dashboardView) clampedPage() int {
+	if last := v.pageCount() - 1; v.page > last {
+		return last
+	}
+	if v.page < 0 {
+		return 0
+	}
+	return v.page
+}
+
+// visibleTxns is the sorted slice for the current page.
+func (v *dashboardView) visibleTxns() []transaction {
+	sorted := v.sortedTxns()
+	if v.pageSize <= 0 {
+		return sorted
+	}
+	start := v.clampedPage() * v.pageSize
+	if start >= len(sorted) {
+		return nil
+	}
+	end := start + v.pageSize
+	if end > len(sorted) {
+		end = len(sorted)
+	}
+	return sorted[start:end]
+}
+
+// displayDesc is the text shown in the Description column: the payee, falling
+// back to the raw description when there is no payee.
+func displayDesc(t transaction) string {
+	if t.Payee != "" {
+		return t.Payee
+	}
+	return t.Description
+}
+
+// parseAmount turns a decimal amount string into a float for numeric sorting.
+// Unparseable values sort as 0.
+func parseAmount(s string) float64 {
+	s = strings.ReplaceAll(strings.TrimSpace(s), ",", "")
+	f, _ := strconv.ParseFloat(s, 64)
+	return f
+}
+
+func cmpStr(a, b string, asc bool) bool {
+	a, b = strings.ToLower(a), strings.ToLower(b)
+	if asc {
+		return a < b
+	}
+	return a > b
+}
+
+func cmpFloat(a, b float64, asc bool) bool {
+	if asc {
+		return a < b
+	}
+	return a > b
+}
+
+func cmpTime(a, b time.Time, asc bool) bool {
+	if asc {
+		return a.Before(b)
+	}
+	return a.After(b)
 }
 
 // loadUpdateStatus fetches the update banner state. It is best-effort: when the
@@ -214,7 +375,7 @@ func (v *dashboardView) Render() app.UI {
 		v.renderControls(),
 		v.renderError(),
 		v.renderTable(),
-		v.renderLoadMore(),
+		v.renderFooter(),
 	)
 }
 
@@ -281,6 +442,15 @@ func (v *dashboardView) renderControls() app.UI {
 				return app.Option().Value(a.ID).Text(a.Name).Selected(v.selectedAccount == a.ID)
 			}),
 		),
+		app.Span().Class("controls-spacer"),
+		app.Label().Class("control-label").Text("Show"),
+		app.Select().Class("pagesize-select").OnChange(v.onPageSizeChange).Body(
+			app.Range(pageSizeOptions).Slice(func(i int) app.UI {
+				n := pageSizeOptions[i]
+				s := strconv.Itoa(n)
+				return app.Option().Value(s).Text(s).Selected(v.pageSize == n)
+			}),
+		),
 	)
 }
 
@@ -298,22 +468,46 @@ func (v *dashboardView) renderTable() app.UI {
 	if len(v.txns) == 0 {
 		return app.Div().Class("status").Text("No transactions.")
 	}
+	rows := v.visibleTxns()
 	return app.Table().Class("txns").Body(
 		app.THead().Body(
 			app.Tr().Body(
-				app.Th().Text("Date"),
-				app.Th().Text("Account"),
-				app.Th().Text("Description"),
-				app.Th().Class("right").Text("Amount"),
+				v.sortHeader("Date", sortByDate, ""),
+				v.sortHeader("Account", sortByAccount, ""),
+				v.sortHeader("Description", sortByDescription, ""),
+				v.sortHeader("Amount", sortByAmount, "right"),
 				app.Th().Text(""),
 			),
 		),
 		app.TBody().Body(
-			app.Range(v.txns).Slice(func(i int) app.UI {
-				return v.renderRow(v.txns[i])
+			app.Range(rows).Slice(func(i int) app.UI {
+				return v.renderRow(rows[i])
 			}),
 		),
 	)
+}
+
+// sortHeader renders a clickable column header with a direction arrow when it is
+// the active sort column. extraClass carries presentation classes (e.g. "right").
+func (v *dashboardView) sortHeader(label string, col sortColumn, extraClass string) app.UI {
+	cls := "sortable"
+	if extraClass != "" {
+		cls += " " + extraClass
+	}
+	arrow := app.Text("")
+	if v.sortCol == col {
+		glyph := " ▼"
+		if v.sortAsc {
+			glyph = " ▲"
+		}
+		arrow = app.Span().Class("sort-arrow").Text(glyph)
+	}
+	return app.Th().Class(cls).
+		OnClick(func(ctx app.Context, _ app.Event) { v.toggleSort(ctx, col) }).
+		Body(
+			app.Text(label),
+			arrow,
+		)
 }
 
 func (v *dashboardView) renderRow(t transaction) app.UI {
@@ -321,14 +515,10 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 	if strings.HasPrefix(strings.TrimSpace(t.Amount), "-") {
 		amountClass = "amount neg"
 	}
-	desc := t.Payee
-	if desc == "" {
-		desc = t.Description
-	}
 	return app.Tr().Body(
 		app.Td().Text(t.Date.Format("2006-01-02")),
 		app.Td().Text(v.accountName(t.AccountID)),
-		app.Td().Text(desc),
+		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
 		app.Td().Body(v.pendingBadge(t.Pending)),
 	)
@@ -348,15 +538,79 @@ func (v *dashboardView) accountName(id string) string {
 	return id
 }
 
-func (v *dashboardView) renderLoadMore() app.UI {
-	if v.loading || !v.hasMore {
+// renderFooter shows the row range and, when the result set spans more than one
+// page, the pagination controls.
+func (v *dashboardView) renderFooter() app.UI {
+	if v.loading || len(v.txns) == 0 {
 		return app.Text("")
 	}
-	label := "Load more"
-	if v.loadingMore {
-		label = "Loading…"
+	total := len(v.txns)
+	pages := v.pageCount()
+	page := v.clampedPage()
+
+	start := page * v.pageSize
+	end := start + v.pageSize
+	if end > total {
+		end = total
 	}
-	return app.Div().Class("loadmore").Body(
-		app.Button().Class("btn").Text(label).OnClick(v.onLoadMore).Disabled(v.loadingMore),
+	status := fmt.Sprintf("Showing %d–%d of %d", start+1, end, total)
+
+	if pages <= 1 {
+		return app.Div().Class("pagination").Body(
+			app.Span().Class("page-status").Text(status),
+		)
+	}
+	return app.Div().Class("pagination").Body(
+		app.Span().Class("page-status").Text(status),
+		app.Div().Class("pager").Body(
+			app.Button().Class("page-btn").Text("‹ Prev").
+				Disabled(page == 0).
+				OnClick(func(ctx app.Context, _ app.Event) { v.goToPage(ctx, page-1) }),
+			v.renderPageNumbers(page, pages),
+			app.Button().Class("page-btn").Text("Next ›").
+				Disabled(page >= pages-1).
+				OnClick(func(ctx app.Context, _ app.Event) { v.goToPage(ctx, page+1) }),
+		),
 	)
+}
+
+// renderPageNumbers renders a windowed set of page buttons: the first and last
+// page, the current page with one neighbour on each side, and an ellipsis to
+// bridge any gap, so the control stays compact for long lists.
+func (v *dashboardView) renderPageNumbers(page, pages int) app.UI {
+	lo, hi := page-1, page+1
+	if lo < 0 {
+		lo = 0
+	}
+	if hi > pages-1 {
+		hi = pages - 1
+	}
+
+	var items []app.UI
+	pageButton := func(n int) app.UI {
+		cls := "page-btn page-num"
+		if n == page {
+			cls += " active"
+		}
+		return app.Button().Class(cls).Text(strconv.Itoa(n + 1)).
+			OnClick(func(ctx app.Context, _ app.Event) { v.goToPage(ctx, n) })
+	}
+	ellipsis := func() app.UI { return app.Span().Class("page-ellipsis").Text("…") }
+
+	if lo > 0 {
+		items = append(items, pageButton(0))
+		if lo > 1 {
+			items = append(items, ellipsis())
+		}
+	}
+	for n := lo; n <= hi; n++ {
+		items = append(items, pageButton(n))
+	}
+	if hi < pages-1 {
+		if hi < pages-2 {
+			items = append(items, ellipsis())
+		}
+		items = append(items, pageButton(pages-1))
+	}
+	return app.Div().Class("page-numbers").Body(items...)
 }
