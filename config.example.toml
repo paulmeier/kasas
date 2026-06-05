@@ -1,0 +1,61 @@
+# kasas configuration.
+#
+# Every key below can also be set via an environment variable: uppercase the
+# key, prefix it with KASAS_, and join sections with underscores. For example
+# [server].addr  ->  KASAS_SERVER_ADDR. Environment variables win over the file.
+#
+# Pass this file with:  kasas -config /etc/kasas/config.toml
+
+[server]
+# Address the HTTP API (and MCP server) listens on.
+addr = ":8080"
+
+[log]
+level  = "info"  # debug | info | warn | error
+format = "json"  # json | text
+
+[database]
+# Storage backend: "sqlite" (default, zero-dependency) or "postgres".
+driver = "sqlite"
+# SQLite: path to the database file. The parent directory is created if needed.
+path = "/data/kasas.db"
+# Postgres: connection string (used only when driver = "postgres").
+# dsn = "postgres://user:pass@host:5432/kasas?sslmode=disable"
+
+[simplefin]
+# Provide ONE of these on first run.
+#
+# setup_token: the one-time base64 token from your SimpleFIN bridge. It is
+# claimed for an access URL on first sync, and the access URL is persisted to
+# the secret store (so the token is consumed only once).
+setup_token = ""
+#
+# access_url: a previously claimed access URL with embedded credentials, e.g.
+# "https://user:pass@bridge.simplefin.org/simplefin". Stored to the secret
+# store on first use.
+access_url = ""
+
+[sync]
+enabled       = true
+interval      = "6h"  # any Go duration: "30m", "1h", "12h"
+lookback_days = 90    # how far back to fetch transactions; 0 = all available
+run_on_start  = true  # run one sync immediately at startup
+
+[secrets]
+# Local JSON file used to persist the SimpleFIN access URL when Vault is
+# disabled. Written with 0600 permissions.
+file = "/data/secrets.json"
+
+[vault]
+# Optional: store the SimpleFIN access URL in HashiCorp Vault (KV v2) instead of
+# the local secrets file.
+enabled        = false
+address        = "http://127.0.0.1:8200"  # falls back to VAULT_ADDR
+token          = ""                        # falls back to VAULT_TOKEN
+mount          = "secret"
+path           = "kasas"
+access_url_key = "simplefin_access_url"
+
+[mcp]
+# Mount the built-in Model Context Protocol server at /mcp.
+enabled = true

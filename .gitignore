@@ -27,6 +27,20 @@ go.work.sum
 # env file
 .env
 
+# kasas: local build output
+/bin/
+/kasas
+
+# kasas: local database, secrets, and config (never commit these)
+/data/
+/pgdata/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+secrets.json
+config.toml
+
 # Editor/IDE
 # .idea/
 # .vscode/
