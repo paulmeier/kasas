@@ -28,6 +28,7 @@ type Server struct {
 	logger     *slog.Logger
 	version    string
 	mcpEnabled bool
+	dashboard  http.Handler
 }
 
 // Options configures a Server.
@@ -37,6 +38,8 @@ type Options struct {
 	Logger     *slog.Logger
 	Version    string
 	MCPEnabled bool
+	// Dashboard, when non-nil, serves the web UI as the catch-all route.
+	Dashboard http.Handler
 }
 
 // New constructs a Server.
@@ -51,6 +54,7 @@ func New(opts Options) *Server {
 		logger:     logger,
 		version:    opts.Version,
 		mcpEnabled: opts.MCPEnabled,
+		dashboard:  opts.Dashboard,
 	}
 }
 
@@ -62,6 +66,9 @@ func (s *Server) Router() http.Handler {
 	r.Use(s.requestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+	// Gzip JSON/HTML/JS/CSS responses. The WASM is already served pre-gzipped,
+	// so it is skipped (it already carries Content-Encoding).
+	r.Use(middleware.Compress(5))
 
 	// Operational endpoints.
 	r.Get("/healthz", s.handleHealth)
@@ -87,6 +94,12 @@ func (s *Server) Router() http.Handler {
 	// Built-in MCP server over streamable HTTP.
 	if s.mcpEnabled {
 		r.Mount("/mcp", s.MCPHandler())
+	}
+
+	// The web dashboard is the catch-all: it owns "/", client-side routes, and
+	// its /web/* assets. The specific routes above (api, ops, mcp) match first.
+	if s.dashboard != nil {
+		r.NotFound(s.dashboard.ServeHTTP)
 	}
 
 	return r

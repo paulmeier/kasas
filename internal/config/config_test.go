@@ -22,6 +22,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 90, cfg.Sync.LookbackDays)
 	assert.True(t, cfg.Sync.Enabled)
 	assert.True(t, cfg.MCP.Enabled)
+	assert.True(t, cfg.Dashboard.Enabled)
 	assert.False(t, cfg.Vault.Enabled)
 	assert.Equal(t, "secret", cfg.Vault.Mount)
 }

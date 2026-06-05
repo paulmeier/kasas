@@ -59,3 +59,7 @@ access_url_key = "simplefin_access_url"
 [mcp]
 # Mount the built-in Model Context Protocol server at /mcp.
 enabled = true
+
+[dashboard]
+# Serve the read-only web dashboard at the root path (/).
+enabled = true

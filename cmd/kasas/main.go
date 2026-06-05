@@ -36,6 +36,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/api"
 	"github.com/paulmeier/kasas/internal/config"
+	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/vault"
@@ -108,12 +109,18 @@ func run(command, configPath string) error {
 		SetupToken:      cfg.SimpleFIN.SetupToken,
 	})
 
+	var dashboardHandler http.Handler
+	if cfg.Dashboard.Enabled {
+		dashboardHandler = dashboard.Handler(dashboard.Options{Version: version})
+	}
+
 	srv := api.New(api.Options{
 		Store:      store,
 		Syncer:     p,
 		Logger:     logger,
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
+		Dashboard:  dashboardHandler,
 	})
 
 	switch command {

@@ -47,6 +47,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Build dashboard WASM
+        run: |
+          GOOS=js GOARCH=wasm go build -trimpath -ldflags "-s -w" \
+            -o internal/dashboard/web/app.wasm ./cmd/kasas-wasm
+          gzip -9 -f internal/dashboard/web/app.wasm
       - name: Build and package
         env:
           CGO_ENABLED: "0"
