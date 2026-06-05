@@ -43,10 +43,12 @@ SELECT COUNT(*) FROM transactions;
 -- is the only writer.
 UPDATE transactions SET tags = sqlc.arg(tags) WHERE id = sqlc.arg(id);
 
--- name: ListDistinctTagSets :many
--- Returns each distinct JSON tags array currently in use. The API explodes and
--- de-duplicates the individual tags in Go, which keeps this query portable
--- across SQLite and Postgres (no JSON functions or dialect-specific aggregation).
--- ORDER BY makes the row order deterministic, so the spelling the API keeps for
--- a case-insensitively duplicated tag is stable.
-SELECT DISTINCT tags FROM transactions WHERE tags <> '[]' ORDER BY tags;
+-- name: ListTaggedTransactions :many
+-- Returns the (id, tags) of every transaction that carries at least one tag. The
+-- API explodes the JSON arrays in Go to build the tag vocabulary with per-tag
+-- transaction counts, and reuses the same rows to strip a tag from every
+-- transaction on delete. Done in Go (not SQL) to stay portable across SQLite and
+-- Postgres (no JSON functions or dialect-specific aggregation). ORDER BY makes
+-- the row order deterministic, so the spelling kept for a case-insensitively
+-- duplicated tag is stable.
+SELECT id, tags FROM transactions WHERE tags <> '[]' ORDER BY id;

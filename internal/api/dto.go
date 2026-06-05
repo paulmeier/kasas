@@ -39,6 +39,13 @@ type TransactionDTO struct {
 	Tags        []string  `json:"tags"`
 }
 
+// TagDTO is the JSON representation of a tag in the global vocabulary: its
+// display name and the number of transactions that carry it.
+type TagDTO struct {
+	Name             string `json:"name"`
+	TransactionCount int    `json:"transaction_count"`
+}
+
 // SyncDTO is the JSON representation of a sync_log entry.
 type SyncDTO struct {
 	ID          int64      `json:"id"`

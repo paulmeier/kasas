@@ -87,28 +87,35 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 	return result.RowsAffected()
 }
 
-const listDistinctTagSets = `-- name: ListDistinctTagSets :many
-SELECT DISTINCT tags FROM transactions WHERE tags <> '[]' ORDER BY tags
+const listTaggedTransactions = `-- name: ListTaggedTransactions :many
+SELECT id, tags FROM transactions WHERE tags <> '[]' ORDER BY id
 `
 
-// Returns each distinct JSON tags array currently in use. The API explodes and
-// de-duplicates the individual tags in Go, which keeps this query portable
-// across SQLite and Postgres (no JSON functions or dialect-specific aggregation).
-// ORDER BY makes the row order deterministic, so the spelling the API keeps for
-// a case-insensitively duplicated tag is stable.
-func (q *Queries) ListDistinctTagSets(ctx context.Context) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listDistinctTagSets)
+type ListTaggedTransactionsRow struct {
+	ID   string `json:"id"`
+	Tags string `json:"tags"`
+}
+
+// Returns the (id, tags) of every transaction that carries at least one tag. The
+// API explodes the JSON arrays in Go to build the tag vocabulary with per-tag
+// transaction counts, and reuses the same rows to strip a tag from every
+// transaction on delete. Done in Go (not SQL) to stay portable across SQLite and
+// Postgres (no JSON functions or dialect-specific aggregation). ORDER BY makes
+// the row order deterministic, so the spelling kept for a case-insensitively
+// duplicated tag is stable.
+func (q *Queries) ListTaggedTransactions(ctx context.Context) ([]ListTaggedTransactionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTaggedTransactions)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ListTaggedTransactionsRow{}
 	for rows.Next() {
-		var tags string
-		if err := rows.Scan(&tags); err != nil {
+		var i ListTaggedTransactionsRow
+		if err := rows.Scan(&i.ID, &i.Tags); err != nil {
 			return nil, err
 		}
-		items = append(items, tags)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

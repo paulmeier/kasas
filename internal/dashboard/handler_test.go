@@ -102,6 +102,25 @@ func TestServeWasmNotBuilt(t *testing.T) {
 	}
 }
 
+// TestHandlerServesClientRoutes guards the "server must register routes" gotcha:
+// go-app's handler serves the SPA shell only for routes registered via app.Route,
+// so each navigable path (including the new /tags and /rules) must return the
+// bootstrap HTML rather than 404.
+func TestHandlerServesClientRoutes(t *testing.T) {
+	h := Handler(Options{Version: "test"})
+	for _, path := range []string{"/", "/tags", "/rules"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200 (route must serve the SPA shell)", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+			t.Fatalf("GET %s Content-Type = %q, want text/html", path, ct)
+		}
+	}
+}
+
 // TestDashboardVersionFallbacks covers the empty base and the not-yet-built wasm.
 func TestDashboardVersionFallbacks(t *testing.T) {
 	// Empty base defaults to "dev" (still hashed when the wasm is present).

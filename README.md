@@ -183,12 +183,19 @@ same `update.allow_apply` switch:
 ## Dashboard
 
 When `dashboard.enabled` is true (the default), kasas serves a lightweight web UI
-at the root path (`/`): a balance card per account, and a transactions table
-(date, account, payee/description, color-coded amount, pending badge) with an
-account filter, sortable columns, a selectable page size (10/20/50/100), and
-pagination. Browsing is read-only except for **tags**: each transaction has an
-editable Tags cell where you can add or remove tags, with typeahead suggestions
-drawn from your existing tags (the Tags column itself is not sortable). It's a
+at the root path (`/`). A collapsible left sidebar navigates between three pages:
+
+- **Dashboard** — a balance card per account, and a transactions table (date,
+  account, payee/description, color-coded amount, pending badge) with an account
+  filter, sortable columns, a selectable page size (10/20/50/100), and pagination.
+- **Tags** — every tag with the number of transactions carrying it, and a delete
+  that strips the tag from all of them. (Tags are created on the Dashboard.)
+- **Rules** — a placeholder for upcoming automatic tagging.
+
+The sidebar collapses to an icon rail; the choice is remembered across pages.
+Browsing is read-only except for **tags**: each transaction has an editable Tags
+cell where you can add or remove tags, with typeahead suggestions drawn from your
+existing tags (the Tags column itself is not sortable). It's a
 [go-app](https://go-app.dev) PWA — the UI is written in Go, compiled to
 WebAssembly, embedded in the binary (served gzipped, ~3 MB), and reads from the
 same-origin REST API. Turn it off with `KASAS_DASHBOARD_ENABLED=false` (the WASM
@@ -211,7 +218,8 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/transactions` | List transactions |
 | `GET /api/v1/transactions/{id}` | Get one transaction |
 | `PUT /api/v1/transactions/{id}/tags` | Replace a transaction's tags (`{"tags":[...]}`) |
-| `GET /api/v1/tags` | List the distinct tag vocabulary |
+| `GET /api/v1/tags` | List tags with per-tag transaction counts (`[{"name","transaction_count"}]`) |
+| `DELETE /api/v1/tags/{name}` | Remove a tag from every transaction that carries it |
 | `GET /api/v1/sync` | Latest sync status |
 | `GET /api/v1/sync/history` | Recent sync runs (`?limit=`) |
 | `POST /api/v1/sync` | Trigger a sync (runs async, returns `202`) |

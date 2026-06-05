@@ -64,17 +64,52 @@ func TestDecodeTags(t *testing.T) {
 	}
 }
 
-func TestDistinctTags(t *testing.T) {
+func TestTagCounts(t *testing.T) {
 	sets := []string{
 		`["Food","coffee"]`,
 		`["food","Rent"]`, // "food" duplicates "Food" case-insensitively
 		`["coffee"]`,
 		`[]`,
 	}
-	// Sorted case-insensitively; first spelling ("Food") wins.
-	want := []string{"coffee", "Food", "Rent"}
-	if got := distinctTags(sets); !reflect.DeepEqual(got, want) {
-		t.Fatalf("distinctTags = %q, want %q", got, want)
+	// Sorted case-insensitively; first spelling ("Food") wins; the count is the
+	// number of transactions (input arrays) each tag appears in.
+	want := []TagDTO{
+		{Name: "coffee", TransactionCount: 2},
+		{Name: "Food", TransactionCount: 2},
+		{Name: "Rent", TransactionCount: 1},
+	}
+	if got := tagCounts(sets); !reflect.DeepEqual(got, want) {
+		t.Fatalf("tagCounts = %+v, want %+v", got, want)
+	}
+}
+
+func TestTagCountsDeduplicatesWithinTransaction(t *testing.T) {
+	// A single transaction repeating a tag (case-insensitively) counts once.
+	got := tagCounts([]string{`["food","Food","FOOD"]`})
+	want := []TagDTO{{Name: "food", TransactionCount: 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tagCounts = %+v, want %+v", got, want)
+	}
+}
+
+func TestContainsFold(t *testing.T) {
+	tags := []string{"Food", "Rent"}
+	if !containsFold(tags, "food") {
+		t.Fatal("containsFold should match case-insensitively")
+	}
+	if containsFold(tags, "coffee") {
+		t.Fatal("containsFold should not match an absent tag")
+	}
+}
+
+func TestRemoveFold(t *testing.T) {
+	got := removeFold([]string{"Food", "rent", "FOOD"}, "food")
+	if want := []string{"rent"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("removeFold = %q, want %q", got, want)
+	}
+	// Removing an absent tag leaves the slice unchanged (but never nil).
+	if got := removeFold([]string{"a"}, "b"); !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("removeFold absent = %q, want [a]", got)
 	}
 }
 
