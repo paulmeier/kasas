@@ -3,6 +3,8 @@ package dashboard
 import (
 	"bytes"
 	"compress/gzip"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -43,6 +45,60 @@ func TestDashboardVersionBustsOnWasmChange(t *testing.T) {
 	}
 	if got := dashboardVersion("v1.2.3", fsA); got != vA {
 		t.Fatalf("version must be stable for identical content: %q != %q", got, vA)
+	}
+}
+
+// TestServeWasmRevalidation guards the cache-control fix: the wasm URL is
+// unversioned, and go-app's service worker repopulates its cache via fetch()
+// (which honours the HTTP cache), so a long max-age would let a stale wasm
+// survive a rebuild. The wasm must therefore be served with "no-cache" + an
+// ETag, and a matching If-None-Match must revalidate to 304.
+func TestServeWasmRevalidation(t *testing.T) {
+	gz := gzipBytes(t, "wasm-A")
+	fsys := fstest.MapFS{"web/app.wasm.gz": {Data: gz}}
+	const etag = `"abc123"`
+	h := serveWasm(fsys, etag)
+
+	// Full response: revalidatable headers and the gzipped body.
+	req := httptest.NewRequest(http.MethodGet, "/web/app.wasm", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want %q (a long max-age lets a stale wasm survive a rebuild)", cc, "no-cache")
+	}
+	if got := rec.Header().Get("ETag"); got != etag {
+		t.Fatalf("ETag = %q, want %q", got, etag)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), gz) {
+		t.Fatalf("body should be the gzipped wasm bytes")
+	}
+
+	// Matching If-None-Match revalidates cheaply to 304 with no body.
+	req2 := httptest.NewRequest(http.MethodGet, "/web/app.wasm", nil)
+	req2.Header.Set("If-None-Match", etag)
+	rec2 := httptest.NewRecorder()
+	h(rec2, req2)
+
+	if rec2.Code != http.StatusNotModified {
+		t.Fatalf("If-None-Match status = %d, want 304", rec2.Code)
+	}
+	if rec2.Body.Len() != 0 {
+		t.Fatalf("304 must have an empty body, got %d bytes", rec2.Body.Len())
+	}
+}
+
+// TestServeWasmNotBuilt: the route 404s gracefully when the wasm is absent.
+func TestServeWasmNotBuilt(t *testing.T) {
+	h := serveWasm(fstest.MapFS{}, "")
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/web/app.wasm", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 when wasm is not built", rec.Code)
 	}
 }
 

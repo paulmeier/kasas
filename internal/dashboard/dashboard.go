@@ -71,6 +71,12 @@ type dashboardView struct {
 	updating  bool
 	updateMsg string // post-apply message (covers the restart window)
 	updateErr string
+
+	// Build version shown in the corner badge, fetched from the server's
+	// /web/version (the same "<binary-version>-<wasmhash>" string go-app uses as
+	// its service-worker cache key), so it changes exactly when the served UI
+	// changes — a quick way to confirm the browser is running a fresh build.
+	version string
 }
 
 func (v *dashboardView) OnMount(ctx app.Context) {
@@ -79,6 +85,7 @@ func (v *dashboardView) OnMount(ctx app.Context) {
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
 	v.loadUpdateStatus(ctx)
+	v.loadVersion(ctx)
 }
 
 func originURL() string {
@@ -310,6 +317,21 @@ func (v *dashboardView) loadUpdateStatus(ctx app.Context) {
 	})
 }
 
+// loadVersion fetches the build version for the corner badge. Best-effort: the
+// badge stays hidden if the request fails.
+func (v *dashboardView) loadVersion(ctx app.Context) {
+	ctx.Async(func() {
+		ver, err := v.client.buildVersion(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			if err != nil {
+				return
+			}
+			v.version = ver
+			ctx.Update()
+		})
+	})
+}
+
 func (v *dashboardView) onApplyUpdate(ctx app.Context, _ app.Event) {
 	if v.updating {
 		return
@@ -376,7 +398,22 @@ func (v *dashboardView) Render() app.UI {
 		v.renderError(),
 		v.renderTable(),
 		v.renderFooter(),
+		v.renderVersion(),
 	)
+}
+
+// renderVersion shows the build version in a fixed bottom-left corner badge. The
+// value is go-app's GOAPP_VERSION — the binary version with a short hash of the
+// served UI mixed in (the service-worker cache key) — so a changed badge is a
+// quick confirmation that the browser is running a fresh build, not a cached one.
+func (v *dashboardView) renderVersion() app.UI {
+	if v.version == "" {
+		return app.Text("")
+	}
+	return app.Div().
+		Class("version-badge").
+		Title("kasas build version (service-worker cache key)").
+		Text(v.version)
 }
 
 // renderUpdateBanner shows a lightweight notice at the top of the dashboard when

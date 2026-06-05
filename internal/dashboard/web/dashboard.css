@@ -199,3 +199,17 @@ html, body {
   font-weight: 600;
 }
 .btn-update:hover { border-color: transparent; opacity: 0.9; }
+
+.version-badge {
+  position: fixed;
+  bottom: 10px;
+  left: 12px;
+  z-index: 10;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  opacity: 0.5;
+  user-select: all; /* easy to select/copy when reporting an issue */
+  transition: opacity 0.15s ease;
+}
+.version-badge:hover { opacity: 0.9; }
