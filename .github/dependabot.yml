@@ -16,6 +16,9 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   - package-ecosystem: docker
     directory: /
@@ -23,3 +26,6 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    groups:
+      docker:
+        patterns: ["*"]
