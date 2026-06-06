@@ -18,6 +18,16 @@ type Account struct {
 	SyncedAt    int64  `json:"synced_at"`
 }
 
+type ApiKey struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Prefix     string `json:"prefix"`
+	KeyHash    string `json:"key_hash"`
+	Scope      string `json:"scope"`
+	CreatedAt  int64  `json:"created_at"`
+	LastUsedAt int64  `json:"last_used_at"`
+}
+
 type Event struct {
 	ID         int64  `json:"id"`
 	EventID    string `json:"event_id"`
@@ -72,4 +82,18 @@ type TransactionVersion struct {
 	ChangeKind    string `json:"change_kind"`
 	OccurredAt    int64  `json:"occurred_at"`
 	Data          string `json:"data"`
+}
+
+type Webhook struct {
+	ID            int64  `json:"id"`
+	Url           string `json:"url"`
+	Secret        string `json:"secret"`
+	EventTypes    string `json:"event_types"`
+	Enabled       int64  `json:"enabled"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	LastStatus    int64  `json:"last_status"`
+	LastError     string `json:"last_error"`
+	LastAttemptAt int64  `json:"last_attempt_at"`
+	LastSuccessAt int64  `json:"last_success_at"`
 }

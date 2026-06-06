@@ -46,13 +46,45 @@ type settingsView struct {
 	securityErr string
 	newToken    string // freshly minted token, shown once
 
+	// API keys panel state.
+	apiKeys       []apiKey
+	apiKeysLoaded bool
+	creatingKey   bool
+	newKey        string // freshly minted API key secret, shown once
+	keyMsg        string
+	keyErr        string
+
 	errMsg string
 }
+
+// DOM ids for the (uncontrolled) API-key create inputs.
+const (
+	apiKeyNameInputID   = "kasas-apikey-name-input"
+	apiKeyScopeSelectID = "kasas-apikey-scope-select"
+)
 
 func (v *settingsView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx)
 	v.loadConfig(ctx)
 	v.loadLatestSync(ctx)
+	v.loadApiKeys(ctx)
+}
+
+// loadApiKeys fetches the provisioned API keys for the panel. Best-effort: a failure
+// (e.g. an open instance with no auth) leaves the list empty.
+func (v *settingsView) loadApiKeys(ctx app.Context) {
+	ctx.Async(func() {
+		keys, err := v.client.listApiKeys(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			v.apiKeysLoaded = true
+			if err != nil {
+				ctx.Update()
+				return
+			}
+			v.apiKeys = keys
+			ctx.Update()
+		})
+	})
 }
 
 func (v *settingsView) loadConfig(ctx app.Context) {
@@ -224,6 +256,7 @@ func (v *settingsView) Render() app.UI {
 		v.renderError(),
 		v.renderSimpleFIN(),
 		v.renderSecurity(),
+		v.renderApiKeys(),
 		v.renderConfig(),
 	)
 }
@@ -533,6 +566,209 @@ func (v *settingsView) onCopyToken(ctx app.Context, _ app.Event) {
 	ctx.Update()
 }
 
+// renderApiKeys renders the API-key provisioning panel: a create form (name +
+// scope), the one-time secret reveal, and the list of existing keys with revoke.
+func (v *settingsView) renderApiKeys() app.UI {
+	body := []app.UI{
+		app.Div().Class("settings-section-head").Body(
+			app.H2().Class("settings-title").Text("API keys"),
+		),
+		app.P().Class("settings-help").Text(
+			"Per-app credentials for programmatic REST access, separate from the dashboard token. " +
+				"A read key can only GET; a read-write key can also change data. Clients send the key as " +
+				"\"Authorization: Bearer kasas_…\". Provisioning stays admin-only (the dashboard token)."),
+		app.Div().Class("form-row").Body(
+			app.Input().
+				ID(apiKeyNameInputID).
+				Class("settings-input").
+				Type("text").
+				Placeholder("Name (e.g. Budgeting app)").
+				AutoComplete(false),
+			app.Select().ID(apiKeyScopeSelectID).Class("account-select").Body(
+				app.Option().Value("read").Text("Read-only"),
+				app.Option().Value("read_write").Text("Read & write"),
+			),
+			app.Button().
+				Class("btn btn-primary").
+				Text(createKeyLabel(v.creatingKey)).
+				Disabled(v.creatingKey).
+				OnClick(v.onCreateApiKey),
+		),
+	}
+
+	if v.keyErr != "" {
+		body = append(body, app.Div().Class("error").Text("Error: "+v.keyErr))
+	}
+	if v.keyMsg != "" {
+		body = append(body, app.Div().Class("settings-ok").Text(v.keyMsg))
+	}
+	if v.newKey != "" {
+		body = append(body, v.renderNewKey())
+	}
+	body = append(body, v.renderApiKeyList())
+
+	return app.Section().Class("card settings-section").Body(body...)
+}
+
+// renderNewKey shows a freshly minted API key once, with a copy button.
+func (v *settingsView) renderNewKey() app.UI {
+	return app.Div().Class("token-reveal").Body(
+		app.P().Class("settings-help").Text(
+			"Copy this key now — it is shown only once and stored only as a hash. "+
+				"Give it to the app that needs API access."),
+		app.Div().Class("form-row").Body(
+			app.Input().Class("settings-input token-value").Type("text").ReadOnly(true).Value(v.newKey),
+			app.Button().Class("btn").Text("Copy").OnClick(v.onCopyApiKey),
+		),
+	)
+}
+
+func (v *settingsView) renderApiKeyList() app.UI {
+	if !v.apiKeysLoaded {
+		return app.Div().Class("status").Text("Loading…")
+	}
+	if len(v.apiKeys) == 0 {
+		return app.Div().Class("settings-note").Text("No API keys yet.")
+	}
+	return app.Table().Class("txns rules-table apikeys-table").Body(
+		app.THead().Body(
+			app.Tr().Body(
+				app.Th().Text("Name"),
+				app.Th().Text("Key"),
+				app.Th().Text("Scope"),
+				app.Th().Text("Last used"),
+				app.Th().Class("right").Text(""),
+			),
+		),
+		app.TBody().Body(
+			app.Range(v.apiKeys).Slice(func(i int) app.UI {
+				return v.renderApiKeyRow(v.apiKeys[i])
+			}),
+		),
+	)
+}
+
+func (v *settingsView) renderApiKeyRow(k apiKey) app.UI {
+	return app.Tr().Body(
+		app.Td().Text(orNone(k.Name)),
+		app.Td().Body(app.Code().Class("rule-query").Text(k.Prefix+"…")),
+		app.Td().Text(scopeText(k.Scope)),
+		app.Td().Text(lastUsedText(k.LastUsedAt)),
+		app.Td().Class("right rule-actions").Body(
+			app.Button().Type("button").Class("label-delete").Title("Revoke key").
+				OnClick(func(ctx app.Context, _ app.Event) { v.onRevokeApiKey(ctx, k) }).
+				Body(iconTrash()),
+		),
+	)
+}
+
+func createKeyLabel(busy bool) string {
+	if busy {
+		return "Creating…"
+	}
+	return "Create key"
+}
+
+func scopeText(scope string) string {
+	if scope == "read_write" {
+		return "Read & write"
+	}
+	return "Read-only"
+}
+
+// lastUsedText renders a key's last-used time, or "Never" when it has not been used.
+func lastUsedText(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "Never"
+	}
+	return t.Format("2006-01-02 15:04") + " UTC"
+}
+
+func (v *settingsView) onCreateApiKey(ctx app.Context, _ app.Event) {
+	if v.creatingKey {
+		return
+	}
+	name := domInputValue(apiKeyNameInputID)
+	scope := domInputValue(apiKeyScopeSelectID)
+	if scope == "" {
+		scope = "read"
+	}
+	v.creatingKey = true
+	v.keyErr, v.keyMsg, v.newKey = "", "", ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		key, err := v.client.createApiKey(context.Background(), name, scope)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.creatingKey = false
+			if err != nil {
+				v.keyErr = err.Error()
+				ctx.Update()
+				return
+			}
+			v.newKey = key.Key
+			key.Key = "" // don't retain the secret in the list row
+			v.apiKeys = append([]apiKey{key}, v.apiKeys...)
+			v.keyMsg = "API key created."
+			clearDomInput(apiKeyNameInputID)
+			ctx.Update()
+		})
+	})
+}
+
+func (v *settingsView) onRevokeApiKey(ctx app.Context, k apiKey) {
+	label := k.Name
+	if strings.TrimSpace(label) == "" {
+		label = k.Prefix + "…"
+	}
+	if !app.Window().Call("confirm", "Revoke API key "+label+"? Apps using it lose access immediately.").Bool() {
+		return
+	}
+	prev := v.apiKeys
+	v.apiKeys = removeApiKey(v.apiKeys, k.ID)
+	v.keyErr, v.keyMsg = "", ""
+	ctx.Update()
+
+	id := k.ID
+	ctx.Async(func() {
+		err := v.client.revokeApiKey(context.Background(), id)
+		ctx.Dispatch(func(ctx app.Context) {
+			if err != nil {
+				v.apiKeys = prev // revert the optimistic removal
+				v.keyErr = "Failed to revoke key: " + err.Error()
+				ctx.Update()
+				return
+			}
+			v.keyMsg = "API key revoked."
+			ctx.Update()
+		})
+	})
+}
+
+func (v *settingsView) onCopyApiKey(ctx app.Context, _ app.Event) {
+	if v.newKey == "" {
+		return
+	}
+	clip := app.Window().Get("navigator").Get("clipboard")
+	if !clip.Truthy() {
+		return
+	}
+	clip.Call("writeText", v.newKey)
+	v.keyMsg = "API key copied to clipboard."
+	ctx.Update()
+}
+
+func removeApiKey(list []apiKey, id int64) []apiKey {
+	out := make([]apiKey, 0, len(list))
+	for _, k := range list {
+		if k.ID == id {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
 // renderConfig renders the read-only effective configuration as a grid of cards.
 func (v *settingsView) renderConfig() app.UI {
 	head := app.Div().Class("settings-section-head").Body(
@@ -570,6 +806,11 @@ func (v *settingsView) renderConfig() app.UI {
 			configRow("Enabled", enabledText(c.Events.Enabled)),
 			configRow("Event retention", retentionText(c.Events.RetentionDays)),
 			configRow("History retention", retentionText(c.Events.HistoryRetentionDays)),
+		),
+		configCard("Webhooks",
+			configRow("Enabled", enabledText(c.Webhooks.Enabled)),
+			configRow("Timeout", c.Webhooks.Timeout),
+			configRow("Max attempts", strconv.Itoa(c.Webhooks.MaxAttempts)),
 		),
 		configCard("Dashboard", configRow("Enabled", enabledText(c.Dashboard.Enabled))),
 		configCard("Updates",

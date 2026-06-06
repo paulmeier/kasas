@@ -22,6 +22,8 @@ type Querier interface {
 	// labels before storing. RETURNING * yields the generated id and timestamps.
 	CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error)
 	CreateSyncLog(ctx context.Context, arg CreateSyncLogParams) (SyncLog, error)
+	// Revoke a key by id. :execrows lets the caller detect a missing id (0 rows).
+	DeleteApiKey(ctx context.Context, id int64) (int64, error)
 	// Retention prune: drops events that occurred before the cutoff (unix seconds).
 	// :execrows reports how many rows were removed, for logging.
 	DeleteEventsBefore(ctx context.Context, cutoff int64) (int64, error)
@@ -35,6 +37,7 @@ type Querier interface {
 	// :execrows reports how many rows were removed, for logging. Only runs when
 	// events.history_retention_days > 0; the default keeps history forever.
 	DeleteTransactionVersionsBefore(ctx context.Context, cutoff int64) (int64, error)
+	DeleteWebhook(ctx context.Context, id int64) (int64, error)
 	// SQLite-specific label queries. Labels are a JSON object (key->value) stored in
 	// the TEXT `labels` column; these push filtering and deletion down to SQL via
 	// SQLite's JSON1 functions.
@@ -49,10 +52,17 @@ type Querier interface {
 	FilterTransactionsByLabelKey(ctx context.Context, arg FilterTransactionsByLabelKeyParams) ([]Transaction, error)
 	FilterTransactionsByLabelValue(ctx context.Context, arg FilterTransactionsByLabelValueParams) ([]Transaction, error)
 	GetAccount(ctx context.Context, id string) (Account, error)
+	// The per-request verification lookup: hash the presented bearer and find its key.
+	GetApiKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
 	GetEventBySequence(ctx context.Context, id int64) (Event, error)
 	GetOrganization(ctx context.Context, id string) (Organization, error)
 	GetRule(ctx context.Context, id int64) (Rule, error)
 	GetTransaction(ctx context.Context, id string) (Transaction, error)
+	GetWebhook(ctx context.Context, id int64) (Webhook, error)
+	// Stores a new API key. Only the SHA-256 hash of the secret is persisted (the full
+	// key is shown to the caller once and never stored); `prefix` is a non-secret
+	// fragment for display. RETURNING * yields the generated id.
+	InsertApiKey(ctx context.Context, arg InsertApiKeyParams) (ApiKey, error)
 	// Appends one immutable event to the canonical stream. The generated id
 	// (sequence) and the stored row are returned so the caller can broadcast the
 	// just-committed event to live SSE subscribers. event_id is a caller-supplied
@@ -68,12 +78,19 @@ type Querier interface {
 	// version number column: a transaction's versions are its rows ordered by id, and
 	// the API assigns the ordinal (v1, v2, ...) on read. data is a JSON object.
 	InsertTransactionVersion(ctx context.Context, arg InsertTransactionVersionParams) (TransactionVersion, error)
+	// Registers a webhook endpoint. `event_types` is a JSON array string of subscribed
+	// types ('[]'/'["*"]' = all). RETURNING * yields the generated id and timestamps.
+	InsertWebhook(ctx context.Context, arg InsertWebhookParams) (Webhook, error)
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
+	// Newest first, for the dashboard list (the secret is never returned, only metadata).
+	ListApiKeys(ctx context.Context) ([]ApiKey, error)
 	// The deterministic id order makes rule precedence predictable when several
 	// rules write the same label key (later rules win).
 	ListEnabledRules(ctx context.Context) ([]Rule, error)
+	// The dispatcher loads this set on each event and filters by type in Go.
+	ListEnabledWebhooks(ctx context.Context) ([]Webhook, error)
 	// The cursor read: every event whose sequence is greater than `after`, in stream
 	// order, with optional exact-match filters (an empty string disables that filter).
 	// Mirrors the ListTransactions optional-filter shape - the column is written first
@@ -106,6 +123,9 @@ type Querier interface {
 	// the bound parameters from the `date` column.
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
 	ListTransactionsByAccount(ctx context.Context, arg ListTransactionsByAccountParams) ([]Transaction, error)
+	ListWebhooks(ctx context.Context) ([]Webhook, error)
+	// Best-effort touch of the last-used timestamp after a successful verification.
+	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	// Replaces the editable fields of a rule. :execrows lets the caller detect a
 	// missing id (0 rows affected).
 	UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, error)
@@ -120,6 +140,14 @@ type Querier interface {
 	// caller detect a missing id (0 rows affected). The poller never touches labels,
 	// so this is the only writer.
 	UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error)
+	// Replaces the editable fields. :execrows lets the caller detect a missing id.
+	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) (int64, error)
+	// Records the outcome of the most recent delivery attempt on the webhook row (the
+	// lean alternative to a per-delivery table). last_success_at is only advanced on a
+	// 2xx; the caller passes the existing value otherwise.
+	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) error
+	// Rotates the signing secret (and bumps updated_at).
+	UpdateWebhookSecret(ctx context.Context, arg UpdateWebhookSecretParams) (int64, error)
 	UpsertAccount(ctx context.Context, arg UpsertAccountParams) error
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error
 }

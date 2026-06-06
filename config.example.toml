@@ -107,3 +107,18 @@ retention_days = 0
 # keeps every transaction's full history forever; set a positive value to prune
 # snapshots older than that many days on the same schedule.
 history_retention_days = 0
+
+[webhooks]
+# Push the event stream outward: kasas POSTs each matching event to the HTTP
+# endpoints you register (via the dashboard Webhooks page, POST /api/v1/webhooks, or
+# the create_webhook MCP tool), HMAC-signed (X-Kasas-Signature). This turns kasas
+# into an integration hub — budgeting, accounting, tax, fraud detection, and
+# notification apps can react to changes without polling. Effective only when
+# [events].enabled is also true (webhooks ride the event bus).
+enabled = true
+# Per-attempt HTTP timeout for a delivery.
+timeout = "10s"
+# How many times to attempt a delivery (with exponential backoff) before giving up.
+# Delivery is best-effort: a consumer that misses one (its endpoint was down, or
+# kasas restarted) reconciles by replaying from its cursor via GET /api/v1/events.
+max_attempts = 5

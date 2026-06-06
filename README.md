@@ -43,7 +43,8 @@ dashboard's Settings page or `POST /api/v1/sync`.
 
 ```
 SimpleFIN bridge ──poll──▶ kasas ──▶ SQLite ──▶ REST API  (/api/v1/...)
-                                            └──▶ MCP server (/mcp)
+                                            ├──▶ MCP server (/mcp)
+                                            └──▶ Webhooks ──push──▶ your apps
 ```
 
 ## Quick start (Docker)
@@ -155,6 +156,36 @@ stdio MCP transport (`kasas mcp`) is local and needs no token.
 > It is a single shared secret (no per-user accounts). Generating/revoking from
 > the dashboard is only possible when the token is **not** config-managed. A token
 > complements, but does not replace, keeping kasas on a trusted network.
+
+### API keys
+
+The dashboard token is a single shared **admin** secret. For **external
+integrations** — a budgeting app, a tax tool, a fraud detector, a notifier —
+provision a separate **API key** per consumer instead, so access is scoped and
+revocable independently. Keys are scoped:
+
+- **`read`** — `GET` endpoints only (accounts, transactions, search, events, …).
+- **`read_write`** — also mutations (edit labels, manage rules, trigger a sync).
+
+Provisioning stays **admin-only** (the dashboard token): an API key can never mint
+another key, manage webhooks, rotate the token, or set the SimpleFIN credential.
+Mint, list, and revoke keys under **Settings → API keys**, or over REST/MCP:
+
+```sh
+# Mint a read-only key. The full secret is returned ONCE — store it now.
+curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Budgeting app","scope":"read"}' \
+  http://localhost:8080/api/v1/security/api-keys
+# -> {"id":1,"name":"Budgeting app","prefix":"kasas_AbCd1234","scope":"read","key":"kasas_…"}
+
+# Use it exactly like the dashboard token:
+curl -H "Authorization: Bearer kasas_…" http://localhost:8080/api/v1/transactions
+```
+
+Only a SHA-256 **hash** of each key is stored, so a database leak never exposes
+usable credentials — the full secret is shown exactly once, at creation. The MCP
+tools `list_api_keys`, `create_api_key`, and `revoke_api_key` do the same over MCP.
 
 ## Storage backends
 
@@ -458,6 +489,58 @@ state, then the change is recorded as `v2`. Until then its history is empty.
 
 In the dashboard, hover a transaction row and click the clock to open its history
 timeline. Over MCP, call `get_transaction_history`.
+
+## Webhooks
+
+Webhooks turn the [event stream](#event-stream) into an **outbound push**: kasas
+`POST`s each subscribed event to an HTTP endpoint you register, HMAC-signed, so
+external apps react to changes without polling. This makes kasas an **integration
+hub** — budgeting, accounting, tax, fraud detection, and notification apps build on
+the events without kasas implementing any of them.
+
+Register endpoints on the dashboard **Webhooks** page, via `POST /api/v1/webhooks`,
+or the `create_webhook` MCP tool. Subscribe to specific event types (the same
+taxonomy as the event stream) or to all of them with `*`:
+
+```sh
+curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://my-app.example.com/hooks/kasas","event_types":["transaction.created","transaction.updated"]}' \
+  http://localhost:8080/api/v1/webhooks
+# -> {"id":1,"url":…,"event_types":[…],"enabled":true,"secret":"whsec_…"}
+```
+
+Each delivery is a JSON `POST` of the event (the same envelope as the REST/SSE
+event) with these headers:
+
+```
+X-Kasas-Event:     transaction.created
+X-Kasas-Event-Id:  <uuid>             # idempotency / dedupe key
+X-Kasas-Timestamp: <unix seconds>
+X-Kasas-Signature: sha256=<hex HMAC>
+```
+
+**Verify the signature** by recomputing `HMAC-SHA256(secret, "<timestamp>.<body>")`
+over the raw request body and comparing in constant time (reject stale timestamps to
+thwart replay):
+
+```python
+expected = "sha256=" + hmac.new(secret.encode(), f"{ts}.{raw_body}".encode(),
+                                 hashlib.sha256).hexdigest()
+assert hmac.compare_digest(expected, request.headers["X-Kasas-Signature"])
+```
+
+**Reliability.** Delivery is best-effort: kasas retries with exponential backoff
+(`webhooks.max_attempts`, `webhooks.timeout`), and the dashboard shows each
+endpoint's last-delivery health. It is *not* a durable queue — if an endpoint is
+down or kasas restarts, missed events are reconciled the way any consumer catches
+up: replay from your last cursor via `GET /api/v1/events?after=<sequence>`. That is
+exactly why the durable event stream exists.
+
+Manage webhooks over REST (`GET`/`POST`/`PUT`/`DELETE /api/v1/webhooks`, plus
+`/{id}/test` to send a test delivery and `/{id}/rotate-secret`) or the MCP tools
+(`list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`,
+`test_webhook`). Webhooks ride on the event stream, so they require `events.enabled`.
 
 ## MCP server
 
