@@ -74,6 +74,10 @@ func (a pgQuerier) InsertTransaction(ctx context.Context, arg InsertTransactionP
 	return a.q.InsertTransaction(ctx, pg.InsertTransactionParams(arg))
 }
 
+func (a pgQuerier) UpdateTransactionFromSync(ctx context.Context, arg UpdateTransactionFromSyncParams) (int64, error) {
+	return a.q.UpdateTransactionFromSync(ctx, pg.UpdateTransactionFromSyncParams(arg))
+}
+
 func (a pgQuerier) UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error) {
 	return a.q.UpdateTransactionLabels(ctx, pg.UpdateTransactionLabelsParams(arg))
 }

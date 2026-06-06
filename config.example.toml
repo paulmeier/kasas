@@ -23,7 +23,8 @@ path = "/data/kasas.db"
 # dsn = "postgres://user:pass@host:5432/kasas?sslmode=disable"
 
 [simplefin]
-# Provide ONE of these on first run.
+# Provide ONE of these on first run. You can also set the credential at runtime
+# from the dashboard's Settings page (no restart) instead of using these keys.
 #
 # setup_token: the one-time base64 token from your SimpleFIN bridge. It is
 # claimed for an access URL on first sync, and the access URL is persisted to

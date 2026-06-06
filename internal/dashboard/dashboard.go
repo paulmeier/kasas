@@ -47,6 +47,7 @@ func Routes() {
 	app.Route("/", func() app.Composer { return &dashboardView{} })
 	app.Route("/labels", func() app.Composer { return &labelsView{} })
 	app.Route("/rules", func() app.Composer { return &rulesView{} })
+	app.Route("/settings", func() app.Composer { return &settingsView{} })
 }
 
 // dashboardView is the root component: account overview + a filterable,

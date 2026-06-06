@@ -31,10 +31,13 @@ REST API and a built-in [MCP](https://modelcontextprotocol.io/) server.
 
 ## How it works
 
-A background scheduler (`gocron`) polls a SimpleFIN bridge on an interval,
-upserts organizations and accounts, and inserts transactions idempotently
-(`transactions.id` is the SimpleFIN transaction ID, inserted with
-`ON CONFLICT DO NOTHING`). Every run is recorded in `sync_log`.
+A background scheduler (`gocron`) polls a SimpleFIN bridge on an interval and
+upserts organizations and accounts. New transactions are inserted by their
+SimpleFIN id; a transaction that already exists has its bridge-owned fields
+refreshed (so a pending charge that later posts, or a corrected amount, flows in)
+while any **labels you added are always preserved** — a sync never clobbers your
+labels. Every run is recorded in `sync_log`. You can also force a sync from the
+dashboard's Settings page or `POST /api/v1/sync`.
 
 ```
 SimpleFIN bridge ──poll──▶ kasas ──▶ SQLite ──▶ REST API  (/api/v1/...)
@@ -183,7 +186,7 @@ same `update.allow_apply` switch:
 ## Dashboard
 
 When `dashboard.enabled` is true (the default), kasas serves a lightweight web UI
-at the root path (`/`). A collapsible left sidebar navigates between three pages:
+at the root path (`/`). A collapsible left sidebar navigates between four pages:
 
 - **Dashboard** — a balance card per account, and a transactions table (date,
   account, payee/description, color-coded amount, pending badge) with an account
@@ -192,6 +195,9 @@ at the root path (`/`). A collapsible left sidebar navigates between three pages
   carrying it, and a delete that strips it from all of them. (Labels are created
   on the Dashboard.)
 - **Rules** — a placeholder for upcoming automatic labeling.
+- **Settings** — connect to SimpleFIN by pasting a setup token or access URL
+  (stored securely and used on the next sync, no restart), force a sync with live
+  status, and review the effective configuration (read-only, secrets redacted).
 
 The sidebar collapses to an icon rail; the choice is remembered across pages.
 Browsing is read-only except for **labels**: each transaction has an editable
@@ -226,6 +232,8 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/sync` | Latest sync status |
 | `GET /api/v1/sync/history` | Recent sync runs (`?limit=`) |
 | `POST /api/v1/sync` | Trigger a sync (runs async, returns `202`) |
+| `GET /api/v1/config` | Effective configuration, secrets redacted (powers the Settings page) |
+| `PUT /api/v1/simplefin/credential` | Set the SimpleFIN setup token or access URL (`{"token":"..."}`) |
 | `GET /api/v1/update` | Update status (when `update.check` is on) |
 | `POST /api/v1/update` | Install the latest release in place (when `update.allow_apply` is on) |
 

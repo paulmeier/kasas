@@ -220,6 +220,156 @@ func (c *apiClient) setLabels(ctx context.Context, id string, labels map[string]
 	return out.Labels, nil
 }
 
+// These config structs mirror api.ConfigDTO (secrets already redacted server-side)
+// for the read-only Settings display.
+type configData struct {
+	Server    serverConfig    `json:"server"`
+	Log       logConfig       `json:"log"`
+	Database  databaseConfig  `json:"database"`
+	SimpleFIN simplefinConfig `json:"simplefin"`
+	Sync      syncConfig      `json:"sync"`
+	Vault     vaultConfig     `json:"vault"`
+	Secrets   secretsConfig   `json:"secrets"`
+	MCP       mcpConfig       `json:"mcp"`
+	Dashboard dashboardConfig `json:"dashboard"`
+	Update    updateConfig    `json:"update"`
+}
+
+type serverConfig struct {
+	Addr string `json:"addr"`
+}
+type logConfig struct {
+	Level  string `json:"level"`
+	Format string `json:"format"`
+}
+type databaseConfig struct {
+	Driver string `json:"driver"`
+	Path   string `json:"path"`
+	DSN    string `json:"dsn"`
+}
+type simplefinConfig struct {
+	Connected bool `json:"connected"`
+}
+type syncConfig struct {
+	Enabled      bool   `json:"enabled"`
+	Interval     string `json:"interval"`
+	LookbackDays int    `json:"lookback_days"`
+	RunOnStart   bool   `json:"run_on_start"`
+}
+type vaultConfig struct {
+	Enabled      bool   `json:"enabled"`
+	Address      string `json:"address"`
+	Mount        string `json:"mount"`
+	Path         string `json:"path"`
+	AccessURLKey string `json:"access_url_key"`
+	TokenSet     bool   `json:"token_set"`
+}
+type secretsConfig struct {
+	File string `json:"file"`
+}
+type mcpConfig struct {
+	Enabled bool `json:"enabled"`
+}
+type dashboardConfig struct {
+	Enabled bool `json:"enabled"`
+}
+type updateConfig struct {
+	Check      bool   `json:"check"`
+	AllowApply bool   `json:"allow_apply"`
+	Repository string `json:"repository"`
+}
+
+// syncRun mirrors api.SyncDTO: one sync_log entry. CompletedAt is the zero time
+// while a sync is still running (the API sends null).
+type syncRun struct {
+	ID          int64     `json:"id"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+	Status      string    `json:"status"`
+	Error       string    `json:"error"`
+}
+
+// config fetches the effective configuration (secrets redacted) for the Settings page.
+func (c *apiClient) config(ctx context.Context) (configData, error) {
+	var out configData
+	if err := c.get(ctx, "/api/v1/config", nil, &out); err != nil {
+		return configData{}, err
+	}
+	return out, nil
+}
+
+// latestSync fetches the most recent sync run, or nil when no sync has run yet.
+func (c *apiClient) latestSync(ctx context.Context) (*syncRun, error) {
+	var out struct {
+		Latest *syncRun `json:"latest"`
+	}
+	if err := c.get(ctx, "/api/v1/sync", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Latest, nil
+}
+
+// setSimpleFINToken stores a SimpleFIN setup token or access URL and returns the
+// resulting connection state.
+func (c *apiClient) setSimpleFINToken(ctx context.Context, token string) (bool, error) {
+	body, err := json.Marshal(map[string]string{"token": token})
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.base+"/api/v1/simplefin/credential", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error != "" {
+			return false, fmt.Errorf("%s", e.Error)
+		}
+		return false, fmt.Errorf("set credential: status %d", resp.StatusCode)
+	}
+	var out struct {
+		Connected bool `json:"connected"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, err
+	}
+	return out.Connected, nil
+}
+
+// triggerSync starts a sync. The server runs it asynchronously and returns 202;
+// progress is then observable via latestSync.
+func (c *apiClient) triggerSync(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/sync", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error != "" {
+			return fmt.Errorf("%s", e.Error)
+		}
+		return fmt.Errorf("trigger sync: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func (c *apiClient) updateStatus(ctx context.Context) (updateStatus, error) {
 	var out updateStatus
 	if err := c.get(ctx, "/api/v1/update", nil, &out); err != nil {

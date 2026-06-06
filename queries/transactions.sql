@@ -39,6 +39,23 @@ WHERE id = sqlc.arg(id);
 -- name: CountTransactions :one
 SELECT COUNT(*) FROM transactions;
 
+-- name: UpdateTransactionFromSync :execrows
+-- Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
+-- pending charge that has now posted, or a corrected amount). labels is
+-- intentionally NOT in the SET list, so user labels are never clobbered. The
+-- poller calls this only when InsertTransaction reports the row already existed
+-- (ON CONFLICT DO NOTHING affected 0 rows).
+UPDATE transactions
+SET account_id  = sqlc.arg(account_id),
+    amount      = sqlc.arg(amount),
+    pending     = sqlc.arg(pending),
+    date        = sqlc.arg(date),
+    description = sqlc.arg(description),
+    payee       = sqlc.arg(payee),
+    memo        = sqlc.arg(memo),
+    synced_at   = sqlc.arg(synced_at)
+WHERE id = sqlc.arg(id);
+
 -- name: UpdateTransactionLabels :execrows
 -- Replaces the whole label set for one transaction. labels is a JSON object of
 -- key->value pairs; the API normalizes it before storing. :execrows lets the

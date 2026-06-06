@@ -131,6 +131,8 @@ func run(command, configPath string) error {
 	apiOpts := api.Options{
 		Store:      store,
 		Syncer:     p,
+		Connector:  p,
+		Config:     cfg,
 		Logger:     logger,
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
