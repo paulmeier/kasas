@@ -55,8 +55,8 @@ func TestMCPListsAllTools(t *testing.T) {
 		names[i] = tool.Name
 	}
 	assert.ElementsMatch(t, []string{
-		"list_accounts", "get_account", "list_transactions", "list_labels",
-		"list_organizations", "sync_status", "trigger_sync",
+		"list_accounts", "get_account", "list_transactions", "search_transactions",
+		"list_labels", "list_organizations", "sync_status", "trigger_sync",
 	}, names)
 }
 

@@ -12,6 +12,7 @@ type navItem int
 
 const (
 	navDashboard navItem = iota
+	navSearch
 	navLabels
 	navRules
 	navSettings
@@ -94,6 +95,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 		),
 		app.Div().Class("nav").Body(
 			navLink("/", "Dashboard", iconDashboard(), active == navDashboard),
+			navLink("/search", "Search", iconSearch(), active == navSearch),
 			navLink("/labels", "Labels", iconLabels(), active == navLabels),
 			navLink("/rules", "Rules", iconRules(), active == navRules),
 			navLink("/settings", "Settings", iconSettings(), active == navSettings),
@@ -142,6 +144,10 @@ func (c *chrome) renderVersion() app.UI {
 
 func iconDashboard() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>`)
+}
+
+func iconSearch() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`)
 }
 
 func iconLabels() app.UI {

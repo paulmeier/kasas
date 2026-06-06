@@ -127,6 +127,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/accounts/{id}/transactions", s.handleListAccountTransactions)
 
 		r.Get("/transactions", s.handleListTransactions)
+		// Static /search is registered before /{id} so it isn't captured as a
+		// transaction id (chi prefers static segments, but keep it explicit).
+		r.Get("/transactions/search", s.handleSearchTransactions)
 		r.Get("/transactions/{id}", s.handleGetTransaction)
 		r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
 

@@ -35,6 +35,11 @@ func (s *Server) MCPServer() *mcp.Server {
 	}, s.mcpListTransactions)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "search_transactions",
+		Description: "Search transactions with the kasas query language: free text plus field filters (description:, payee:, memo:, account:, id:, amount:>10, date:2024-03, pending:true) and label filters (label:key=value, label:key for presence, or the key:value shorthand), combined with AND / OR / NOT and parentheses. An empty query matches all.",
+	}, s.mcpSearchTransactions)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_labels",
 		Description: "List the label vocabulary: every key/value pair in use with the number of transactions carrying it.",
 	}, s.mcpListLabels)

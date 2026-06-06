@@ -45,6 +45,7 @@ const allAccountsValue = "__all__"
 // paths serve the SPA shell instead of 404ing.
 func Routes() {
 	app.Route("/", func() app.Composer { return &dashboardView{} })
+	app.Route("/search", func() app.Composer { return &searchView{} })
 	app.Route("/labels", func() app.Composer { return &labelsView{} })
 	app.Route("/rules", func() app.Composer { return &rulesView{} })
 	app.Route("/settings", func() app.Composer { return &settingsView{} })
@@ -54,7 +55,8 @@ func Routes() {
 // paginated transactions table.
 type dashboardView struct {
 	app.Compo
-	chrome // shared sidebar + API client + version badge
+	chrome       // shared sidebar + API client + version badge
+	labelEditing // inline label editor (state + handlers), shared with the Search page
 
 	accounts []account
 	byID     map[string]account // account id -> account, for name lookup
@@ -63,17 +65,6 @@ type dashboardView struct {
 	selectedAccount string // "" means all accounts
 	loading         bool
 	errMsg          string
-
-	// Label editing state. allLabels is the global label vocabulary as "key: value"
-	// strings (from /api/v1/labels) that powers the typeahead. Only one row's
-	// add-label input is active at a time: labelEditID is that row's transaction id
-	// ("" = none) and labelDraft mirrors the input's text so suggestions can be
-	// filtered. The add input is uncontrolled (its DOM value is the source of truth
-	// and is cleared imperatively), so labelDraft is only used to decide what to
-	// suggest.
-	allLabels   []string
-	labelDraft  string
-	labelEditID string
 
 	// Sort + client-side pagination state. The dashboard fetches the whole
 	// transaction set for the current account filter (txns), then sorts and
@@ -92,11 +83,27 @@ type dashboardView struct {
 
 func (v *dashboardView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx) // wires v.client, sidebar state, version badge
+	v.initLabelEditing()
 	v.pageSize = defaultPageSize
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
-	v.loadLabels(ctx)
+	v.loadVocab(ctx, v.client)
 	v.loadUpdateStatus(ctx)
+}
+
+// initLabelEditing wires the shared label editor to this view's transaction
+// slice and error field. Call after loadChrome (the setLabels hook needs
+// v.client). txnByID returns the addressable slice element so optimistic edits
+// land on the live row.
+func (v *dashboardView) initLabelEditing() {
+	v.txnByID = func(id string) *transaction {
+		if i := v.txnIndex(id); i >= 0 {
+			return &v.txns[i]
+		}
+		return nil
+	}
+	v.setLabels = v.client.setLabels
+	v.reportError = func(msg string) { v.errMsg = msg }
 }
 
 func originURL() string {
@@ -160,21 +167,6 @@ func (v *dashboardView) onAccountChange(ctx app.Context, _ app.Event) {
 	v.reloadTransactions(ctx)
 }
 
-// loadLabels fetches the global label vocabulary for the typeahead. Best-effort:
-// if it fails the suggestions are simply empty until the next successful load.
-func (v *dashboardView) loadLabels(ctx app.Context) {
-	ctx.Async(func() {
-		labels, err := v.client.labelSuggestions(context.Background())
-		ctx.Dispatch(func(ctx app.Context) {
-			if err != nil {
-				return
-			}
-			v.allLabels = labels
-			ctx.Update()
-		})
-	})
-}
-
 // txnIndex returns the index of the transaction with the given id, or -1. The
 // set is small (one filter's worth), so a linear scan is fine.
 func (v *dashboardView) txnIndex(id string) int {
@@ -185,264 +177,6 @@ func (v *dashboardView) txnIndex(id string) int {
 	}
 	return -1
 }
-
-// formatLabel renders a key/value pair as the "key: value" string shown on chips
-// and in suggestions.
-func formatLabel(key, value string) string { return key + ": " + value }
-
-// parseLabel splits a "key: value" input into its trimmed parts. ok is false when
-// there is no colon or either side is empty (labels are strictly key:value).
-func parseLabel(raw string) (key, value string, ok bool) {
-	i := strings.Index(raw, ":")
-	if i < 0 {
-		return "", "", false
-	}
-	key = strings.TrimSpace(raw[:i])
-	value = strings.TrimSpace(raw[i+1:])
-	if key == "" || value == "" {
-		return "", "", false
-	}
-	return key, value, true
-}
-
-// addLabel parses a typed/picked "key: value" and applies it to a transaction.
-// Invalid input (no colon or an empty side) is rejected: nothing is saved and the
-// input is left intact so the user can fix it. On a valid add the input is cleared
-// and re-focused (via clearLabelInput) so the user can keep adding labels.
-func (v *dashboardView) addLabel(ctx app.Context, id, raw string) {
-	key, value, ok := parseLabel(raw)
-	if !ok {
-		return // leave the input as-is for the user to correct
-	}
-	if i := v.txnIndex(id); i >= 0 {
-		next := cloneLabels(v.txns[i].Labels)
-		next[key] = value // one value per key: a repeat key replaces its value
-		v.saveLabels(ctx, id, next)
-	}
-	// Clear + refocus last, so the focus lands after the chip-insert re-render.
-	v.clearLabelInput(ctx, id)
-}
-
-// cloneLabels returns a non-nil shallow copy of a labels map, so optimistic edits
-// don't mutate the row's current map before the save is confirmed.
-func cloneLabels(in map[string]string) map[string]string {
-	out := make(map[string]string, len(in)+1)
-	for k, val := range in {
-		out[k] = val
-	}
-	return out
-}
-
-// removeLabel drops a key from a transaction's labels.
-func (v *dashboardView) removeLabel(ctx app.Context, id, key string) {
-	i := v.txnIndex(id)
-	if i < 0 {
-		return
-	}
-	next := cloneLabels(v.txns[i].Labels)
-	delete(next, key)
-	v.saveLabels(ctx, id, next)
-}
-
-// saveLabels optimistically applies the new label set to the row, then persists
-// it. On failure it reverts and surfaces the error; on success it adopts the
-// server-normalized set and folds any new labels into the suggestion vocabulary.
-func (v *dashboardView) saveLabels(ctx app.Context, id string, next map[string]string) {
-	i := v.txnIndex(id)
-	if i < 0 {
-		return
-	}
-	prev := v.txns[i].Labels
-	v.txns[i].Labels = next
-	v.mergeVocab(next)
-	ctx.Update()
-
-	ctx.Async(func() {
-		saved, err := v.client.setLabels(context.Background(), id, next)
-		ctx.Dispatch(func(ctx app.Context) {
-			j := v.txnIndex(id)
-			if err != nil {
-				if j >= 0 {
-					v.txns[j].Labels = prev // revert the optimistic update
-				}
-				v.errMsg = "Failed to save labels: " + err.Error()
-				ctx.Update()
-				return
-			}
-			// Adopt the server-normalized set, but only re-render when it
-			// actually differs from the optimistic one. Skipping the no-op render
-			// avoids recreating the add-label input and stealing its focus while the
-			// user is still labeling the row.
-			if j >= 0 && !equalLabels(v.txns[j].Labels, saved) {
-				v.txns[j].Labels = saved
-				v.mergeVocab(saved)
-				ctx.Update()
-				return
-			}
-			v.mergeVocab(saved)
-		})
-	})
-}
-
-// equalLabels reports whether two label maps are identical.
-func equalLabels(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, av := range a {
-		if bv, ok := b[k]; !ok || av != bv {
-			return false
-		}
-	}
-	return true
-}
-
-// mergeVocab folds labels into allLabels (as "key: value" strings,
-// case-insensitive), keeping it sorted, so freshly created labels are immediately
-// suggestable without a refetch.
-func (v *dashboardView) mergeVocab(labels map[string]string) {
-	for key, value := range labels {
-		s := formatLabel(key, value)
-		found := false
-		for _, existing := range v.allLabels {
-			if strings.EqualFold(existing, s) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			v.allLabels = append(v.allLabels, s)
-		}
-	}
-	sort.Slice(v.allLabels, func(i, j int) bool {
-		return strings.ToLower(v.allLabels[i]) < strings.ToLower(v.allLabels[j])
-	})
-}
-
-// clearLabelInput resets the draft and clears the row's uncontrolled add-label
-// input imperatively. go-app v10 drops empty value attributes, so a controlled
-// Value("") would not clear the field — set the DOM value directly instead.
-// After the re-render (which can recreate the input node and drop focus), it
-// re-focuses the input so the user can keep adding labels and a later click-away
-// still closes the editor via blur.
-func (v *dashboardView) clearLabelInput(ctx app.Context, id string) {
-	v.labelDraft = ""
-	v.focusLabelInput(ctx, id, true)
-	ctx.Update()
-	// Re-assert focus after the re-render. With the chips in their own container
-	// the input node is reused (so focus is usually preserved already), but this
-	// keeps it robust if go-app recreates it.
-	ctx.Defer(func(ctx app.Context) {
-		if v.labelEditID == id {
-			v.focusLabelInput(ctx, id, false)
-		}
-	})
-}
-
-// focusLabelInput focuses a row's add-label input by id, optionally clearing its
-// value first. No-op when the element is absent (e.g. not currently editing).
-func (v *dashboardView) focusLabelInput(_ app.Context, id string, clear bool) {
-	doc := app.Window().Get("document")
-	if !doc.Truthy() {
-		return
-	}
-	el := doc.Call("getElementById", labelInputID(id))
-	if !el.Truthy() {
-		return
-	}
-	if clear {
-		el.Set("value", "")
-	}
-	el.Call("focus")
-}
-
-// onLabelsCellClick opens the add-label editor for a row when its Labels cell is
-// clicked in empty space, then focuses the freshly-rendered input. Clicks on the
-// cell's interactive children (remove × buttons, the input, suggestion buttons)
-// are ignored so they keep their own behavior.
-func (v *dashboardView) onLabelsCellClick(ctx app.Context, t transaction, e app.Event) {
-	if target := e.Get("target"); target.Truthy() {
-		switch target.Get("tagName").String() {
-		case "BUTTON", "INPUT":
-			return
-		}
-	}
-	if v.labelEditID == t.ID {
-		return // already editing this row
-	}
-	v.labelEditID = t.ID
-	v.labelDraft = ""
-	ctx.Update()
-	// Focus after the input has been rendered into the DOM.
-	ctx.Defer(func(ctx app.Context) {
-		if v.labelEditID == t.ID {
-			v.focusLabelInput(ctx, t.ID, false)
-		}
-	})
-}
-
-func (v *dashboardView) onLabelInput(ctx app.Context, id string) {
-	v.labelEditID = id
-	v.labelDraft = ctx.JSSrc().Get("value").String()
-	ctx.Update()
-}
-
-func (v *dashboardView) onLabelKeyDown(ctx app.Context, e app.Event, id string) {
-	switch e.Get("key").String() {
-	case "Enter":
-		e.PreventDefault()
-		v.addLabel(ctx, id, ctx.JSSrc().Get("value").String())
-	case "Escape":
-		// Closing the editor removes the input, which drops focus.
-		v.labelEditID = ""
-		v.labelDraft = ""
-		ctx.Update()
-	}
-}
-
-// onLabelBlur hides the suggestions when the input loses focus. Suggestion picks
-// use mousedown + preventDefault, which keeps the input focused, so blur does
-// not fire on a pick and the click is not lost.
-func (v *dashboardView) onLabelBlur(ctx app.Context) {
-	v.labelEditID = ""
-	v.labelDraft = ""
-	ctx.Update()
-}
-
-// filterLabelSuggestions returns vocabulary labels ("key: value") matching the
-// draft (case-insensitive substring), excluding those already applied to the row.
-// The list is capped so the dropdown stays compact.
-func filterLabelSuggestions(all []string, draft string, applied map[string]string) []string {
-	const maxSuggestions = 8
-	d := strings.ToLower(strings.TrimSpace(draft))
-	if d == "" {
-		return nil
-	}
-	isApplied := func(s string) bool {
-		key, value, ok := parseLabel(s)
-		if !ok {
-			return false
-		}
-		cur, ok := applied[key]
-		return ok && cur == value
-	}
-	var out []string
-	for _, s := range all {
-		if isApplied(s) {
-			continue
-		}
-		if strings.Contains(strings.ToLower(s), d) {
-			out = append(out, s)
-			if len(out) >= maxSuggestions {
-				break
-			}
-		}
-	}
-	return out
-}
-
-// labelInputID is the stable DOM id of a row's add-label input, used to clear it.
-func labelInputID(txnID string) string { return "label-input-" + txnID }
 
 func (v *dashboardView) onPageSizeChange(ctx app.Context, _ app.Event) {
 	n, err := strconv.Atoi(ctx.JSSrc().Get("value").String())
@@ -498,24 +232,54 @@ func defaultAscForColumn(col sortColumn) bool {
 func (v *dashboardView) sortedTxns() []transaction {
 	out := make([]transaction, len(v.txns))
 	copy(out, v.txns)
-	asc := v.sortAsc
 	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		switch v.sortCol {
-		case sortByAccount:
-			return cmpStr(v.accountName(a.AccountID), v.accountName(b.AccountID), asc)
-		case sortByDescription:
-			return cmpStr(displayDesc(a), displayDesc(b), asc)
-		case sortByAmount:
-			return cmpFloat(parseAmount(a.Amount), parseAmount(b.Amount), asc)
-		default: // sortByDate
-			if a.Date.Equal(b.Date) {
-				return a.ID < b.ID // deterministic tiebreaker (matches the API)
-			}
-			return cmpTime(a.Date, b.Date, asc)
-		}
+		return lessTxn(out[i], out[j], v.sortCol, v.sortAsc, v.accountName)
 	})
 	return out
+}
+
+// lessTxn orders two transactions by the given column and direction, with a
+// stable id tiebreak for equal dates (matching the API's date,id order). nameOf
+// resolves an account id to its display name for the Account column. Shared by
+// the Dashboard and Search result tables.
+func lessTxn(a, b transaction, col sortColumn, asc bool, nameOf func(string) string) bool {
+	switch col {
+	case sortByAccount:
+		return cmpStr(nameOf(a.AccountID), nameOf(b.AccountID), asc)
+	case sortByDescription:
+		return cmpStr(displayDesc(a), displayDesc(b), asc)
+	case sortByAmount:
+		return cmpFloat(parseAmount(a.Amount), parseAmount(b.Amount), asc)
+	default: // sortByDate
+		if a.Date.Equal(b.Date) {
+			return a.ID < b.ID // deterministic tiebreaker (matches the API)
+		}
+		return cmpTime(a.Date, b.Date, asc)
+	}
+}
+
+// pageCountOf is the number of pages for total rows at the given page size
+// (always >= 1). clampPage keeps a page index within [0, pageCount-1] so a
+// shrinking result set can't leave the view past the end. Both are used by the
+// Search results table.
+func pageCountOf(total, size int) int {
+	if size <= 0 {
+		return 1
+	}
+	if n := (total + size - 1) / size; n > 1 {
+		return n
+	}
+	return 1
+}
+
+func clampPage(page, total, size int) int {
+	if last := pageCountOf(total, size) - 1; page > last {
+		return last
+	}
+	if page < 0 {
+		return 0
+	}
+	return page
 }
 
 // pageCount is the number of pages at the current page size (always >= 1).
@@ -825,92 +589,13 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
 		v.renderLabelsCell(t),
-		app.Td().Body(v.pendingBadge(t.Pending)),
+		app.Td().Body(pendingBadge(t.Pending)),
 	)
 }
 
-// renderLabelsCell renders the Labels cell: each label as a "key: value" chip with
-// a remove (×) button. The add-label input is hidden until the cell is clicked
-// (see onLabelsCellClick) — so unlabeled rows are just empty, clickable space
-// rather than a wall of input boxes. While editing, typing shows a typeahead
-// dropdown.
-func (v *dashboardView) renderLabelsCell(t transaction) app.UI {
-	editing := v.labelEditID == t.ID
-
-	keys := sortedLabelKeys(t.Labels)
-	chips := make([]app.UI, 0, len(keys))
-	for _, k := range keys {
-		key, value := k, t.Labels[k] // capture for the closure
-		chips = append(chips, app.Span().Class("label-chip").Body(
-			app.Span().Class("label-label").Text(formatLabel(key, value)),
-			app.Button().Type("button").Class("label-remove").Title("Remove "+key).Text("×").
-				OnClick(func(ctx app.Context, _ app.Event) { v.removeLabel(ctx, t.ID, key) }),
-		))
-	}
-
-	// Chips live in their own container so adding/removing one never touches the
-	// add-label input that follows it. Keeping the input at a stable DOM position
-	// lets go-app reuse the node across re-renders, which preserves its focus
-	// while the user keeps labeling the row.
-	body := []app.UI{app.Div().Class("label-chips").Body(chips...)}
-	if editing {
-		body = append(body, app.Input().
-			ID(labelInputID(t.ID)).
-			Class("label-input").
-			Type("text").
-			Placeholder("key: value").
-			OnInput(func(ctx app.Context, _ app.Event) { v.onLabelInput(ctx, t.ID) }).
-			OnKeyDown(func(ctx app.Context, e app.Event) { v.onLabelKeyDown(ctx, e, t.ID) }).
-			OnBlur(func(ctx app.Context, _ app.Event) { v.onLabelBlur(ctx) }))
-		if sugg := v.renderLabelSuggestions(t); sugg != nil {
-			body = append(body, sugg)
-		}
-	}
-
-	// The whole cell is the click target that opens the editor; "editable"
-	// styles the empty space as clickable when not already editing.
-	cls := "labels-cell"
-	if !editing {
-		cls += " editable"
-	}
-	return app.Td().Class(cls).
-		OnClick(func(ctx app.Context, e app.Event) { v.onLabelsCellClick(ctx, t, e) }).
-		Body(body...)
-}
-
-// sortedLabelKeys returns a transaction's label keys in sorted order so chips
-// render deterministically (Go map iteration is randomized).
-func sortedLabelKeys(labels map[string]string) []string {
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// renderLabelSuggestions renders the typeahead dropdown for the active row, or nil
-// when there is nothing to suggest. Picks fire on mousedown with preventDefault
-// so the click is not swallowed by the input's blur (which would otherwise hide
-// the dropdown first).
-func (v *dashboardView) renderLabelSuggestions(t transaction) app.UI {
-	matches := filterLabelSuggestions(v.allLabels, v.labelDraft, t.Labels)
-	if len(matches) == 0 {
-		return nil
-	}
-	return app.Div().Class("label-suggestions").Body(
-		app.Range(matches).Slice(func(i int) app.UI {
-			s := matches[i]
-			return app.Button().Type("button").Class("label-suggestion").Text(s).
-				OnMouseDown(func(ctx app.Context, e app.Event) {
-					e.PreventDefault()
-					v.addLabel(ctx, t.ID, s)
-				})
-		}),
-	)
-}
-
-func (v *dashboardView) pendingBadge(pending bool) app.UI {
+// pendingBadge renders the "pending" badge, or nothing for a posted transaction.
+// Shared by the Dashboard and Search result tables.
+func pendingBadge(pending bool) app.UI {
 	if !pending {
 		return app.Text("")
 	}
