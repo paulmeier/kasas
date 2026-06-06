@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/paulmeier/kasas/compare/v2.2.0...v2.3.0) (2026-06-06)
+
+
+### Features
+
+* rules engine to auto-label transactions matching a search query ([#36](https://github.com/paulmeier/kasas/issues/36)) ([17b2ce9](https://github.com/paulmeier/kasas/commit/17b2ce960379514ed80e73413ad104d0a19be066))
+
 ## [2.2.0](https://github.com/paulmeier/kasas/compare/v2.1.0...v2.2.0) (2026-06-06)
 
 
