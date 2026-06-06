@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/events"
 )
 
 const (
@@ -129,27 +130,61 @@ func (s *Server) handleUpdateTransactionLabels(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	labels := normalizeLabels(req.Labels)
-	encoded, err := encodeLabels(labels)
+	newLabels := normalizeLabels(req.Labels)
+	encoded, err := encodeLabels(newLabels)
 	if err != nil {
 		s.serverError(w, "encode labels", err)
 		return
 	}
 
-	n, err := s.store.UpdateTransactionLabels(r.Context(), db.UpdateTransactionLabelsParams{
-		ID:     id,
-		Labels: encoded,
+	// Update and emit the per-key label diff atomically: read the old labels, write
+	// the new set, then record label.applied / label.removed for what changed.
+	notFound := false
+	err = s.emitter.Record(r.Context(), s.store, func(q db.Querier, rec *events.Recorder) error {
+		prev, gerr := q.GetTransaction(r.Context(), id)
+		if errors.Is(gerr, sql.ErrNoRows) {
+			notFound = true
+			return nil
+		}
+		if gerr != nil {
+			return gerr
+		}
+		if _, uerr := q.UpdateTransactionLabels(r.Context(), db.UpdateTransactionLabelsParams{ID: id, Labels: encoded}); uerr != nil {
+			return uerr
+		}
+		return emitLabelDiff(r.Context(), q, rec, id, decodeLabels(prev.Labels), newLabels)
 	})
 	if err != nil {
 		s.serverError(w, "update transaction labels", err)
 		return
 	}
-	if n == 0 {
+	if notFound {
 		s.writeError(w, http.StatusNotFound, "transaction not found")
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "labels": labels})
+	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "labels": newLabels})
+}
+
+// emitLabelDiff records a label.applied event for every key that was added or
+// changed and a label.removed for every key that was dropped between a
+// transaction's old and new label sets. The event entity is the transaction.
+func emitLabelDiff(ctx context.Context, q db.Querier, rec *events.Recorder, txnID string, oldLabels, newLabels map[string]string) error {
+	for k, v := range newLabels {
+		if oldLabels[k] != v {
+			if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, txnID, events.LabelPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	for k, v := range oldLabels {
+		if _, ok := newLabels[k]; !ok {
+			if err := rec.Emit(ctx, q, events.TypeLabelRemoved, events.EntityTransaction, txnID, events.LabelPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleListLabels(w http.ResponseWriter, r *http.Request) {
@@ -178,19 +213,35 @@ func (s *Server) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hasValue := r.URL.Query().Has("value")
+	value := normalizeValue(r.URL.Query().Get("value"))
+
 	resp := map[string]any{"key": key}
-	var removed int64
-	var err error
-	if r.URL.Query().Has("value") {
-		value := normalizeValue(r.URL.Query().Get("value"))
+	if hasValue {
 		resp["value"] = value
-		removed, err = s.store.DeleteLabelByValue(r.Context(), db.DeleteLabelByValueParams{
-			LabelKey:   key,
-			LabelValue: value,
-		})
-	} else {
-		removed, err = s.store.DeleteLabelByKey(r.Context(), key)
 	}
+
+	// Delete and emit a single coarse label.removed for the vocabulary change. A
+	// bulk delete can touch many transactions, so it is one event (entity = the
+	// label key) rather than a per-transaction fan-out; granular label.removed
+	// events are reserved for single-transaction label edits (see emitLabelDiff).
+	var removed int64
+	err := s.emitter.Record(r.Context(), s.store, func(q db.Querier, rec *events.Recorder) error {
+		var derr error
+		if hasValue {
+			removed, derr = q.DeleteLabelByValue(r.Context(), db.DeleteLabelByValueParams{LabelKey: key, LabelValue: value})
+		} else {
+			removed, derr = q.DeleteLabelByKey(r.Context(), key)
+		}
+		if derr != nil || removed == 0 {
+			return derr // nothing removed -> nothing to emit
+		}
+		payload := events.LabelDeletedPayload{Key: key, RemovedFrom: removed}
+		if hasValue {
+			payload.Value = value
+		}
+		return rec.Emit(r.Context(), q, events.TypeLabelRemoved, events.EntityLabel, key, payload)
+	})
 	if err != nil {
 		s.serverError(w, "delete label", err)
 		return

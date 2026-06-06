@@ -24,6 +24,7 @@ type ConfigDTO struct {
 	MCP       MCPConfigDTO       `json:"mcp"`
 	Dashboard DashboardConfigDTO `json:"dashboard"`
 	Update    UpdateConfigDTO    `json:"update"`
+	Events    EventsConfigDTO    `json:"events"`
 	Security  SecurityConfigDTO  `json:"security"`
 }
 
@@ -98,6 +99,12 @@ type UpdateConfigDTO struct {
 	Repository string `json:"repository"`
 }
 
+// EventsConfigDTO mirrors config.Events.
+type EventsConfigDTO struct {
+	Enabled       bool `json:"enabled"`
+	RetentionDays int  `json:"retention_days"`
+}
+
 // toConfigDTO builds the redacted view of the effective configuration. connected
 // reflects whether a SimpleFIN access URL is currently stored; security reports
 // the dashboard-token state.
@@ -132,6 +139,10 @@ func toConfigDTO(cfg *config.Config, connected bool, security SecurityConfigDTO)
 			Check:      cfg.Update.Check,
 			AllowApply: cfg.Update.AllowApply,
 			Repository: cfg.Update.Repository,
+		},
+		Events: EventsConfigDTO{
+			Enabled:       cfg.Events.Enabled,
+			RetentionDays: cfg.Events.RetentionDays,
 		},
 		Security: security,
 	}

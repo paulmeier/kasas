@@ -14,6 +14,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 )
@@ -44,9 +45,10 @@ type UpdateChecker interface {
 type Server struct {
 	store      db.Store
 	syncer     Syncer
-	connector  Connector      // nil when runtime credential management is unavailable
-	config     *config.Config // resolved config for the read-only Settings display
-	auth       Authenticator  // nil when token auth is unavailable; gates /api/v1 + /mcp
+	connector  Connector       // nil when runtime credential management is unavailable
+	config     *config.Config  // resolved config for the read-only Settings display
+	auth       Authenticator   // nil when token auth is unavailable; gates /api/v1 + /mcp
+	emitter    *events.Emitter // nil when events are disabled; records + streams events
 	logger     *slog.Logger
 	version    string
 	mcpEnabled bool
@@ -73,6 +75,10 @@ type Options struct {
 	// /api/v1/auth status endpoint) and the MCP-over-HTTP server behind the
 	// dashboard token, and powers the token-management endpoints.
 	Auth Authenticator
+	// Emitter, when non-nil, records events for mutations made through the API
+	// (label edits, rule changes) and exposes its bus for the SSE stream. Nil when
+	// events are disabled (events.enabled=false).
+	Emitter *events.Emitter
 	// Dashboard, when non-nil, serves the web UI as the catch-all route.
 	Dashboard http.Handler
 	// UpdateChecker, when non-nil, enables GET /api/v1/update (status for the
@@ -97,6 +103,7 @@ func New(opts Options) *Server {
 		connector:  opts.Connector,
 		config:     opts.Config,
 		auth:       opts.Auth,
+		emitter:    opts.Emitter,
 		logger:     logger,
 		version:    opts.Version,
 		mcpEnabled: opts.MCPEnabled,
@@ -114,87 +121,107 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(s.requestLogger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
-	// Gzip JSON/HTML/JS/CSS responses. The WASM is already served pre-gzipped,
-	// so it is skipped (it already carries Content-Encoding).
+	// Gzip JSON/HTML/JS/CSS responses. The WASM is already served pre-gzipped, so
+	// it is skipped (it carries Content-Encoding), and text/event-stream is not in
+	// chi's compressible set either, so this is safe to keep at the root even for
+	// the SSE stream below.
 	r.Use(middleware.Compress(5))
 
-	// Operational endpoints.
-	r.Get("/healthz", s.handleHealth)
-	r.Get("/readyz", s.handleReady)
-	r.Handle("/metrics", promhttp.Handler())
-
-	// REST API.
-	r.Route("/api/v1", func(r chi.Router) {
-		// Auth status is intentionally open (no token required) so the dashboard
-		// can learn whether to show a login screen before it holds a token.
-		r.Get("/auth", s.handleAuthStatus)
-
-		// Everything else requires the dashboard token when one is configured.
-		r.Group(func(r chi.Router) {
-			r.Use(s.requireToken)
-
-			r.Get("/organizations", s.handleListOrganizations)
-
-			r.Get("/accounts", s.handleListAccounts)
-			r.Get("/accounts/{id}", s.handleGetAccount)
-			r.Get("/accounts/{id}/transactions", s.handleListAccountTransactions)
-
-			r.Get("/transactions", s.handleListTransactions)
-			// Static /search is registered before /{id} so it isn't captured as a
-			// transaction id (chi prefers static segments, but keep it explicit).
-			r.Get("/transactions/search", s.handleSearchTransactions)
-			r.Get("/transactions/{id}", s.handleGetTransaction)
-			r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
-
-			r.Get("/labels", s.handleListLabels)
-			r.Delete("/labels/{key}", s.handleDeleteLabel)
-
-			r.Get("/rules", s.handleListRules)
-			r.Post("/rules", s.handleCreateRule)
-			// Static /rules/run is registered before /rules/{id} so it isn't captured
-			// as a rule id (chi prefers static segments, but keep it explicit).
-			r.Post("/rules/run", s.handleRunAllRules)
-			r.Get("/rules/{id}", s.handleGetRule)
-			r.Put("/rules/{id}", s.handleUpdateRule)
-			r.Delete("/rules/{id}", s.handleDeleteRule)
-			r.Post("/rules/{id}/run", s.handleRunRule)
-
-			r.Get("/sync", s.handleSyncStatus)
-			r.Get("/sync/history", s.handleSyncHistory)
-			r.Post("/sync", s.handleTriggerSync)
-
-			// Read-only effective configuration (secrets redacted) for the Settings
-			// page, plus the runtime-writable SimpleFIN credential.
-			r.Get("/config", s.handleGetConfig)
-			if s.connector != nil {
-				r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
-			}
-
-			// Dashboard token management (generate/set, and revoke). Available only
-			// when an Authenticator is wired; refused when the token is config-managed.
-			if s.auth != nil {
-				r.Post("/security/token", s.handleSetToken)
-				r.Delete("/security/token", s.handleClearToken)
-			}
-
-			// Update status for the dashboard banner, and (optionally) apply.
-			if s.updates != nil {
-				r.Get("/update", s.handleUpdateStatus)
-				if s.allowApply {
-					r.Post("/update", s.handleApplyUpdate)
-				}
-			}
-		})
+	// The SSE event stream is long-lived, so it must NOT be wrapped in the request
+	// timeout (which cancels the request context after 60s and would tear the
+	// stream down). It gets only the dashboard-token gate; everything else is
+	// registered under the timeout group that follows.
+	r.Group(func(r chi.Router) {
+		r.Use(s.requireToken)
+		r.Get("/api/v1/events/stream", s.handleEventStream)
 	})
 
-	// Built-in MCP server over streamable HTTP, gated by the same dashboard token.
-	if s.mcpEnabled {
-		r.Group(func(r chi.Router) {
-			r.Use(s.requireToken)
-			r.Mount("/mcp", s.MCPHandler())
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(60 * time.Second))
+
+		// Operational endpoints.
+		r.Get("/healthz", s.handleHealth)
+		r.Get("/readyz", s.handleReady)
+		r.Handle("/metrics", promhttp.Handler())
+
+		// REST API.
+		r.Route("/api/v1", func(r chi.Router) {
+			// Auth status is intentionally open (no token required) so the dashboard
+			// can learn whether to show a login screen before it holds a token.
+			r.Get("/auth", s.handleAuthStatus)
+
+			// Everything else requires the dashboard token when one is configured.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireToken)
+
+				r.Get("/organizations", s.handleListOrganizations)
+
+				r.Get("/accounts", s.handleListAccounts)
+				r.Get("/accounts/{id}", s.handleGetAccount)
+				r.Get("/accounts/{id}/transactions", s.handleListAccountTransactions)
+
+				r.Get("/transactions", s.handleListTransactions)
+				// Static /search is registered before /{id} so it isn't captured as a
+				// transaction id (chi prefers static segments, but keep it explicit).
+				r.Get("/transactions/search", s.handleSearchTransactions)
+				r.Get("/transactions/{id}", s.handleGetTransaction)
+				r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
+
+				r.Get("/labels", s.handleListLabels)
+				r.Delete("/labels/{key}", s.handleDeleteLabel)
+
+				r.Get("/rules", s.handleListRules)
+				r.Post("/rules", s.handleCreateRule)
+				// Static /rules/run is registered before /rules/{id} so it isn't captured
+				// as a rule id (chi prefers static segments, but keep it explicit).
+				r.Post("/rules/run", s.handleRunAllRules)
+				r.Get("/rules/{id}", s.handleGetRule)
+				r.Put("/rules/{id}", s.handleUpdateRule)
+				r.Delete("/rules/{id}", s.handleDeleteRule)
+				r.Post("/rules/{id}/run", s.handleRunRule)
+
+				// Canonical event stream (poll/cursor). The live SSE tail is the
+				// separate /events/stream route above; chi prefers the static
+				// "stream" segment over the {sequence} param, but order is explicit.
+				r.Get("/events", s.handleListEvents)
+				r.Get("/events/{sequence}", s.handleGetEvent)
+
+				r.Get("/sync", s.handleSyncStatus)
+				r.Get("/sync/history", s.handleSyncHistory)
+				r.Post("/sync", s.handleTriggerSync)
+
+				// Read-only effective configuration (secrets redacted) for the Settings
+				// page, plus the runtime-writable SimpleFIN credential.
+				r.Get("/config", s.handleGetConfig)
+				if s.connector != nil {
+					r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
+				}
+
+				// Dashboard token management (generate/set, and revoke). Available only
+				// when an Authenticator is wired; refused when the token is config-managed.
+				if s.auth != nil {
+					r.Post("/security/token", s.handleSetToken)
+					r.Delete("/security/token", s.handleClearToken)
+				}
+
+				// Update status for the dashboard banner, and (optionally) apply.
+				if s.updates != nil {
+					r.Get("/update", s.handleUpdateStatus)
+					if s.allowApply {
+						r.Post("/update", s.handleApplyUpdate)
+					}
+				}
+			})
 		})
-	}
+
+		// Built-in MCP server over streamable HTTP, gated by the same dashboard token.
+		if s.mcpEnabled {
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireToken)
+				r.Mount("/mcp", s.MCPHandler())
+			})
+		}
+	})
 
 	// The web dashboard is the catch-all: it owns "/", client-side routes, and
 	// its /web/* assets. The specific routes above (api, ops, mcp) match first.

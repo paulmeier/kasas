@@ -40,6 +40,7 @@ import (
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/vault"
@@ -94,6 +95,18 @@ func run(command, configPath string) error {
 
 	store := newStore(cfg.Database.Driver, database)
 
+	// Event stream: a bus fans live events out to SSE subscribers, and an emitter
+	// records each change transactionally and publishes it after commit. Both stay
+	// nil when events are disabled, which makes the poller and API emit nothing.
+	var (
+		eventBus *events.Bus
+		emitter  *events.Emitter
+	)
+	if cfg.Events.Enabled {
+		eventBus = events.NewBus()
+		emitter = events.NewEmitter(eventBus)
+	}
+
 	secrets, err := vault.New(vault.Config{
 		Enabled:      cfg.Vault.Enabled,
 		Address:      cfg.Vault.Address,
@@ -118,6 +131,7 @@ func run(command, configPath string) error {
 		Store:           store,
 		Secrets:         secrets,
 		Logger:          logger,
+		Emitter:         emitter,
 		Interval:        cfg.Sync.Interval,
 		LookbackDays:    cfg.Sync.LookbackDays,
 		ConfigAccessURL: cfg.SimpleFIN.AccessURL,
@@ -143,6 +157,7 @@ func run(command, configPath string) error {
 		Connector:  p,
 		Config:     cfg,
 		Auth:       guard,
+		Emitter:    emitter,
 		Logger:     logger,
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
@@ -159,7 +174,7 @@ func run(command, configPath string) error {
 
 	switch command {
 	case "", "serve":
-		return serve(cfg, logger, p, srv, updateChecker, guard)
+		return serve(cfg, logger, p, srv, updateChecker, guard, store, eventBus)
 	case "migrate":
 		logger.Info("migrations applied")
 		return nil
@@ -175,7 +190,7 @@ func run(command, configPath string) error {
 
 // serve runs the HTTP server plus the background sync scheduler until an
 // interrupt or SIGTERM is received, then shuts down gracefully.
-func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard) error {
+func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard, store db.Store, eventBus *events.Bus) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -185,6 +200,11 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 
 	if updateChecker != nil {
 		go updateChecker.Run(ctx, logger, 24*time.Hour)
+	}
+
+	// Prune old events on a schedule when a finite retention is configured.
+	if eventBus != nil && cfg.Events.RetentionDays > 0 {
+		go pruneEvents(ctx, logger, store, cfg.Events.RetentionDays)
 	}
 
 	if cfg.Sync.Enabled {
@@ -223,6 +243,12 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 	<-ctx.Done()
 	logger.Info("shutdown signal received, draining connections")
 
+	// Close the event bus first so live SSE subscribers unblock and their handlers
+	// return, letting the HTTP server drain instead of waiting out the grace period.
+	if eventBus != nil {
+		eventBus.Close()
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
@@ -230,6 +256,37 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// pruneEvents periodically deletes events older than retentionDays, running once
+// at startup and then on a fixed interval until ctx is cancelled. It is only
+// started when a finite retention is configured (events.retention_days > 0);
+// the default of 0 keeps the stream fully replayable forever.
+func pruneEvents(ctx context.Context, logger *slog.Logger, store db.Store, retentionDays int) {
+	const interval = 6 * time.Hour
+	prune := func() {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
+		n, err := store.DeleteEventsBefore(ctx, cutoff)
+		if err != nil {
+			logger.Error("event retention prune failed", "error", err)
+			return
+		}
+		if n > 0 {
+			logger.Info("pruned old events", "removed", n, "older_than_days", retentionDays)
+		}
+	}
+
+	prune()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			prune()
+		}
+	}
 }
 
 // selfUpdate checks GitHub for a newer release and, unless -check is passed,

@@ -3,6 +3,8 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/paulmeier/kasas/internal/api"
+	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/testutil"
 )
 
@@ -58,6 +61,7 @@ func TestMCPListsAllTools(t *testing.T) {
 		"list_accounts", "get_account", "list_transactions", "search_transactions",
 		"list_labels", "list_organizations", "sync_status", "trigger_sync",
 		"list_rules", "create_rule", "update_rule", "delete_rule", "run_rules",
+		"list_events",
 	}, names)
 }
 
@@ -149,4 +153,47 @@ func TestMCPTriggerSync(t *testing.T) {
 	require.False(t, res.IsError)
 	assert.Equal(t, 1, fs.Calls())
 	assert.Equal(t, 3, out.NewTransactions)
+}
+
+func TestMCPListEvents(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	testutil.Seed(t, store)
+	_, err := store.InsertEvent(context.Background(), db.InsertEventParams{
+		EventID: "e1", EventType: "transaction.created", EntityType: "transaction",
+		EntityID: "tx-1", OccurredAt: 1, Data: "{}",
+	})
+	require.NoError(t, err)
+
+	s := api.New(api.Options{
+		Store:      store,
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Version:    "test",
+		MCPEnabled: true,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	clientT, serverT := mcp.NewInMemoryTransports()
+	go func() { _ = s.MCPServer().Run(ctx, serverT) }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0"}, nil)
+	session, err := client.Connect(ctx, clientT, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	var out struct {
+		Events []api.EventDTO `json:"events"`
+		Next   int64          `json:"next"`
+	}
+	res := callTool(t, session, "list_events", map[string]any{}, &out)
+	require.False(t, res.IsError)
+	require.Len(t, out.Events, 1)
+	assert.Equal(t, "transaction.created", out.Events[0].Type)
+	assert.Equal(t, out.Events[0].Sequence, out.Next)
+
+	// A filter matching nothing returns an empty page.
+	var empty struct {
+		Events []api.EventDTO `json:"events"`
+	}
+	callTool(t, session, "list_events", map[string]any{"type": "rule.created"}, &empty)
+	assert.Empty(t, empty.Events)
 }

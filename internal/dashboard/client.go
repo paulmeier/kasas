@@ -365,6 +365,47 @@ func (c *apiClient) postRun(ctx context.Context, path string) (runResult, error)
 	return out, nil
 }
 
+// event mirrors api.EventDTO: one entry in the canonical event stream. Data is the
+// raw JSON payload, shown verbatim (and pretty-printed) in the Events page.
+type event struct {
+	Sequence   int64           `json:"sequence"`
+	EventID    string          `json:"event_id"`
+	Type       string          `json:"type"`
+	EntityType string          `json:"entity_type"`
+	EntityID   string          `json:"entity_id"`
+	OccurredAt time.Time       `json:"occurred_at"`
+	Data       json.RawMessage `json:"data"`
+}
+
+// recentEvents fetches the most recent events (chronological order) plus the head
+// sequence to resume forward polling from. Used for the Events page's initial load.
+func (c *apiClient) recentEvents(ctx context.Context, limit int) ([]event, int64, error) {
+	q := url.Values{}
+	q.Set("newest", "1")
+	q.Set("limit", strconv.Itoa(limit))
+	return c.fetchEvents(ctx, q)
+}
+
+// events fetches the events after the given sequence cursor (the live forward
+// tail), plus the new cursor.
+func (c *apiClient) events(ctx context.Context, after int64, limit int) ([]event, int64, error) {
+	q := url.Values{}
+	q.Set("after", strconv.FormatInt(after, 10))
+	q.Set("limit", strconv.Itoa(limit))
+	return c.fetchEvents(ctx, q)
+}
+
+func (c *apiClient) fetchEvents(ctx context.Context, q url.Values) ([]event, int64, error) {
+	var out struct {
+		Events []event `json:"events"`
+		Next   int64   `json:"next"`
+	}
+	if err := c.get(ctx, "/api/v1/events", q, &out); err != nil {
+		return nil, 0, err
+	}
+	return out.Events, out.Next, nil
+}
+
 // decodeAPIError reads a non-2xx response's {"error": "..."} body and returns it
 // as an error, falling back to the status code.
 func decodeAPIError(resp *http.Response, op string) error {
@@ -391,6 +432,7 @@ type configData struct {
 	MCP       mcpConfig       `json:"mcp"`
 	Dashboard dashboardConfig `json:"dashboard"`
 	Update    updateConfig    `json:"update"`
+	Events    eventsConfig    `json:"events"`
 	Security  securityConfig  `json:"security"`
 }
 
@@ -436,6 +478,10 @@ type updateConfig struct {
 	Check      bool   `json:"check"`
 	AllowApply bool   `json:"allow_apply"`
 	Repository string `json:"repository"`
+}
+type eventsConfig struct {
+	Enabled       bool `json:"enabled"`
+	RetentionDays int  `json:"retention_days"`
 }
 type securityConfig struct {
 	AuthRequired bool   `json:"auth_required"`

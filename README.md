@@ -115,6 +115,8 @@ variables. Env vars are prefixed `KASAS_`, with sections joined by underscores
 | `dashboard.token` | `KASAS_DASHBOARD_TOKEN` | — | Access token for the API, dashboard, and MCP. Empty = unauthenticated (see [Authentication](#authentication)) |
 | `update.check` | `KASAS_UPDATE_CHECK` | `true` | Daily check for a newer release (logs + dashboard banner) |
 | `update.allow_apply` | `KASAS_UPDATE_ALLOW_APPLY` | `true` | Let the dashboard/API trigger an in-place self-update |
+| `events.enabled` | `KASAS_EVENTS_ENABLED` | `true` | Record the [event stream](#event-stream) |
+| `events.retention_days` | `KASAS_EVENTS_RETENTION_DAYS` | `0` | Prune events older than N days; `0` = keep forever |
 
 ## Authentication
 
@@ -226,7 +228,7 @@ same `update.allow_apply` switch:
 ## Dashboard
 
 When `dashboard.enabled` is true (the default), kasas serves a lightweight web UI
-at the root path (`/`). A collapsible left sidebar navigates between five pages:
+at the root path (`/`). A collapsible left sidebar navigates between six pages:
 
 - **Dashboard** — a balance card per account, and a transactions table (date,
   account, payee/description, color-coded amount, pending badge) with an account
@@ -244,6 +246,9 @@ at the root path (`/`). A collapsible left sidebar navigates between five pages:
   apply; it runs against every newly-synced transaction, and a **Run** button
   applies a rule (or all enabled rules) to existing transactions. Edit,
   enable/disable, and delete inline. See [Rules](#rules) below.
+- **Events** — a live feed of the [event stream](#event-stream): the most recent
+  events, polled forward as new ones arrive, with the type, entity, time, and an
+  expandable JSON payload per row.
 - **Settings** — connect to SimpleFIN by pasting a setup token or access URL
   (stored securely and used on the next sync, no restart), generate or revoke the
   [dashboard token](#authentication) that secures kasas, force a sync with live
@@ -290,6 +295,9 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/sync` | Latest sync status |
 | `GET /api/v1/sync/history` | Recent sync runs (`?limit=`) |
 | `POST /api/v1/sync` | Trigger a sync (runs async, returns `202`) |
+| `GET /api/v1/events` | Read the [event stream](#event-stream) from a cursor (`?after=`, `?type=`, `?entity_type=`, `?entity_id=`, `?limit=`); `?newest` for the latest. Returns `{events, next}` |
+| `GET /api/v1/events/{sequence}` | Get one event by its sequence number |
+| `GET /api/v1/events/stream` | Live event tail over Server-Sent Events (add `?after=` to replay from a cursor, then follow) |
 | `GET /api/v1/config` | Effective configuration, secrets redacted (powers the Settings page) |
 | `PUT /api/v1/simplefin/credential` | Set the SimpleFIN setup token or access URL (`{"token":"..."}`) |
 | `GET /api/v1/update` | Update status (when `update.check` is on) |
@@ -355,15 +363,81 @@ id=$(curl -s localhost:8080/api/v1/rules \
 curl -X POST "localhost:8080/api/v1/rules/$id/run"   # -> {"matched":3,"updated":3}
 ```
 
+## Event stream
+
+kasas records a **canonical event stream**: an append-only, ordered, replayable
+log of every meaningful change. It is the substrate for sync engines,
+notifications, automations, external consumers, and CQRS / event-sourcing — read
+it to learn *what changed and when*, rather than re-diffing current state. Toggle
+it with `events.enabled` (default on); it is exposed over REST, SSE, MCP
+(`list_events`), and the dashboard's **Events** page.
+
+Each event is a self-contained envelope — `data` carries a snapshot of the
+entity, so a consumer needs no follow-up query (and a `*.deleted` event still
+carries the entity's last-known state):
+
+```json
+{
+  "sequence":    42,
+  "event_id":    "550e8400-e29b-41d4-a716-446655440000",
+  "type":        "transaction.created",
+  "entity_type": "transaction",
+  "entity_id":   "abc-123",
+  "occurred_at": "2026-06-06T12:34:56Z",
+  "data":        { "id": "abc-123", "account_id": "...", "amount": "-12.34", "...": "..." }
+}
+```
+
+Event types: `transaction.created` / `transaction.updated` (and the reserved
+`transaction.deleted`), `account.created` / `account.updated`, `label.applied` /
+`label.removed`, `rule.created` / `rule.updated` / `rule.deleted` /
+`rule.executed`, and `sync.completed`. (A bulk label-vocabulary delete emits one
+coarse `label.removed` with `entity_type: "label"`; single-transaction label
+edits emit granular per-key events with `entity_type: "transaction"`.)
+
+**Consumer contract:** order by `sequence` and dedupe on `event_id`. `sequence`
+is strictly increasing but **may have gaps** (a rolled-back change consumes a
+value), so treat it as a cursor, not a contiguous count. Events and the changes
+that produce them are written in the same database transaction, so the stream
+never contains an event whose change was rolled back.
+
+```sh
+# Poll forward from a cursor (a sync engine's main loop):
+curl "localhost:8080/api/v1/events?after=42&limit=100"   # -> {"events":[…],"next":57}
+
+# Everything for one transaction (its timeline):
+curl "localhost:8080/api/v1/events?entity_type=transaction&entity_id=abc-123"
+
+# Follow live over SSE (header auth works for non-browser clients):
+curl -N -H "Authorization: Bearer $TOKEN" localhost:8080/api/v1/events/stream
+```
+
+Real-time delivery uses Server-Sent Events at `/api/v1/events/stream`: pass
+`?after=<sequence>` to replay the backlog and then follow live, or omit it to
+stream only new events. Each SSE frame carries the event's `sequence` as its `id`
+(so a reconnecting client resumes via `?after`), the `type` as the event name,
+and the full envelope as the JSON `data` payload. A subscriber that falls too far
+behind is dropped and should reconnect with its last sequence as `?after` to
+replay the gap. Note that a browser `EventSource` cannot send an `Authorization`
+header, so the dashboard's Events page polls `/api/v1/events` rather than using
+SSE; non-browser consumers (curl, a Go service) use SSE with a Bearer token.
+
+The log grows append-only. By default it is kept forever so the stream is fully
+replayable from sequence 0; set `events.retention_days` to a positive number to
+prune events older than that many days on a schedule (a consumer offline longer
+than the window then loses the pruned history).
+
 ## MCP server
 
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the
 streamable-HTTP transport. It exposes tools: `list_accounts`, `get_account`,
 `list_transactions` (with optional `label_key`/`label_value` drill-down),
 `search_transactions` (the query language above), `list_labels`,
-`list_organizations`, `sync_status`, `trigger_sync`, and the rules tools
-`list_rules`, `create_rule`, `update_rule`, `delete_rule`, and `run_rules`
-(pass an `id` to run one rule, or omit it to run all enabled rules).
+`list_organizations`, `sync_status`, `trigger_sync`, `list_events` (read the
+[event stream](#event-stream): cursor with `after`, filter by
+`type`/`entity_type`/`entity_id`), and the rules tools `list_rules`,
+`create_rule`, `update_rule`, `delete_rule`, and `run_rules` (pass an `id` to run
+one rule, or omit it to run all enabled rules).
 
 For desktop MCP clients that launch a subprocess, run it over stdio instead:
 
@@ -379,6 +453,8 @@ kasas -config config.toml mcp
 - `kasas_sync_duration_seconds` — sync duration histogram
 - `kasas_transactions_inserted_total` — new transactions inserted
 - `kasas_rules_applied_total` — new transactions auto-labeled by a rule
+- `kasas_events_emitted_total{type}` — events appended to the stream, by type
+- `kasas_events_dropped_total` — live event subscribers dropped for lagging
 - `kasas_last_successful_sync_timestamp_seconds` — last success (unix time)
 - `kasas_accounts` — accounts seen in the most recent sync
 
@@ -394,6 +470,7 @@ organizations  id, domain, name, sfin_url
 accounts       id, org_id, name, currency, balance, balance_date, synced_at
 transactions   id, account_id, amount, pending, date, description, payee, memo, synced_at, labels
 rules          id, name, query, labels, enabled, created_at, updated_at
+events         id, event_id, event_type, entity_type, entity_id, occurred_at, data
 sync_log       id, started_at, completed_at, status, error
 ```
 

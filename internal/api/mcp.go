@@ -72,6 +72,11 @@ func (s *Server) MCPServer() *mcp.Server {
 	}, s.mcpRunRules)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_events",
+		Description: "Read the canonical event stream: an ordered, replayable log of changes (transaction.created/updated, account.created/updated, label.applied/removed, rule.created/updated/deleted/executed, sync.completed). Page with `after` (a sequence cursor; 0 or omitted starts from the beginning) and optionally filter by type, entity_type (transaction|account|label|rule|sync), or entity_id. Returns the events plus the `next` cursor to pass as `after` next time.",
+	}, s.mcpListEvents)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_organizations",
 		Description: "List the financial institutions (organizations) that own the accounts.",
 	}, s.mcpListOrganizations)
@@ -167,6 +172,19 @@ type runRulesInput struct {
 type runRulesOutput struct {
 	Matched int `json:"matched"` // transactions matched by at least one rule
 	Updated int `json:"updated"` // transactions whose labels actually changed
+}
+
+type listEventsInput struct {
+	After      int64  `json:"after,omitempty" jsonschema:"return events after this sequence cursor; 0 or omitted starts from the beginning"`
+	Limit      int64  `json:"limit,omitempty" jsonschema:"maximum number of events to return (default 100, max 1000)"`
+	Type       string `json:"type,omitempty" jsonschema:"filter to one event type, e.g. transaction.created (optional)"`
+	EntityType string `json:"entity_type,omitempty" jsonschema:"filter to one entity kind: transaction, account, label, rule, or sync (optional)"`
+	EntityID   string `json:"entity_id,omitempty" jsonschema:"filter to one entity id, e.g. a transaction id (optional)"`
+}
+
+type listEventsOutput struct {
+	Events []EventDTO `json:"events"`
+	Next   int64      `json:"next"` // cursor to pass as `after` on the next call
 }
 
 type listOrganizationsOutput struct {
@@ -267,11 +285,11 @@ func (s *Server) mcpUpdateRule(ctx context.Context, _ *mcp.CallToolRequest, in u
 }
 
 func (s *Server) mcpDeleteRule(ctx context.Context, _ *mcp.CallToolRequest, in deleteRuleInput) (*mcp.CallToolResult, deleteRuleOutput, error) {
-	n, err := s.store.DeleteRule(ctx, in.ID)
+	deleted, err := s.deleteRule(ctx, in.ID)
 	if err != nil {
 		return nil, deleteRuleOutput{}, err
 	}
-	if n == 0 {
+	if !deleted {
 		return nil, deleteRuleOutput{}, fmt.Errorf("rule %d not found", in.ID)
 	}
 	return &mcp.CallToolResult{}, deleteRuleOutput{ID: in.ID, Deleted: true}, nil
@@ -299,11 +317,19 @@ func (s *Server) mcpRunRules(ctx context.Context, _ *mcp.CallToolRequest, in run
 			return nil, runRulesOutput{}, err
 		}
 	}
-	matched, updated, err := s.applyRules(ctx, compiled)
+	matched, updated, err := s.applyRules(ctx, compiled, in.ID)
 	if err != nil {
 		return nil, runRulesOutput{}, err
 	}
 	return &mcp.CallToolResult{}, runRulesOutput{Matched: matched, Updated: updated}, nil
+}
+
+func (s *Server) mcpListEvents(ctx context.Context, _ *mcp.CallToolRequest, in listEventsInput) (*mcp.CallToolResult, listEventsOutput, error) {
+	rows, next, err := s.listEvents(ctx, in.After, in.Limit, in.Type, in.EntityType, in.EntityID)
+	if err != nil {
+		return nil, listEventsOutput{}, err
+	}
+	return &mcp.CallToolResult{}, listEventsOutput{Events: toEventDTOs(rows), Next: next}, nil
 }
 
 func (s *Server) mcpListOrganizations(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {

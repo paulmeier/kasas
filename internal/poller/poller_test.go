@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/testutil"
 	"github.com/paulmeier/kasas/internal/vault"
 )
@@ -346,4 +347,112 @@ func TestResolveAccessURLPrecedence(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
+}
+
+// --- event emission ---
+
+func eventTypeCount(evs []db.Event, typ string) int {
+	n := 0
+	for _, e := range evs {
+		if e.EventType == typ {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSyncEmitsCreationEvents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	ctx := context.Background()
+
+	_, err := p.Sync(ctx)
+	require.NoError(t, err)
+
+	evs, err := queries.ListEventsAfter(ctx, db.ListEventsAfterParams{RowLimit: 100})
+	require.NoError(t, err)
+	assert.Equal(t, 1, eventTypeCount(evs, events.TypeAccountCreated))
+	assert.Equal(t, 2, eventTypeCount(evs, events.TypeTransactionCreated))
+	assert.Equal(t, 1, eventTypeCount(evs, events.TypeSyncCompleted))
+}
+
+func TestResyncEmitsTransactionUpdatedOnlyOnChange(t *testing.T) {
+	ctx := context.Background()
+	var mu sync.Mutex
+	body := refreshBody1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		b := body
+		mu.Unlock()
+		_, _ = w.Write([]byte(b))
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+
+	_, err := p.Sync(ctx) // insert
+	require.NoError(t, err)
+
+	// An identical re-sync changes nothing, so no transaction.updated.
+	_, err = p.Sync(ctx)
+	require.NoError(t, err)
+	updated, err := queries.ListEventsAfter(ctx, db.ListEventsAfterParams{EventType: events.TypeTransactionUpdated, RowLimit: 100})
+	require.NoError(t, err)
+	assert.Empty(t, updated, "an unchanged re-sync emits no transaction.updated")
+
+	// Changing the amount emits exactly one transaction.updated.
+	mu.Lock()
+	body = refreshBody2
+	mu.Unlock()
+	_, err = p.Sync(ctx)
+	require.NoError(t, err)
+	updated, err = queries.ListEventsAfter(ctx, db.ListEventsAfterParams{EventType: events.TypeTransactionUpdated, RowLimit: 100})
+	require.NoError(t, err)
+	assert.Len(t, updated, 1, "a changed re-sync emits one transaction.updated")
+}
+
+func TestSyncEmitsLabelAppliedFromRules(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	ctx := context.Background()
+	mustCreateRule(t, queries, "description:coffee", `{"category":"coffee"}`, true)
+
+	_, err := p.Sync(ctx)
+	require.NoError(t, err)
+
+	applied, err := queries.ListEventsAfter(ctx, db.ListEventsAfterParams{EventType: events.TypeLabelApplied, RowLimit: 100})
+	require.NoError(t, err)
+	require.Len(t, applied, 1)
+	assert.Equal(t, "txn-1", applied[0].EntityID)
+}
+
+func TestSyncWithoutEmitterRecordsNoEvents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL}) // no Emitter
+	ctx := context.Background()
+
+	_, err := p.Sync(ctx)
+	require.NoError(t, err)
+
+	evs, err := queries.ListEventsAfter(ctx, db.ListEventsAfterParams{RowLimit: 100})
+	require.NoError(t, err)
+	assert.Empty(t, evs, "a nil emitter records nothing")
 }

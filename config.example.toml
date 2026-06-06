@@ -86,3 +86,17 @@ check = true
 allow_apply = true
 # GitHub repository (owner/name) to check for releases and self-update assets.
 repository = "paulmeier/kasas"
+
+[events]
+# Record a canonical, append-only event stream for every meaningful change
+# (transaction.created/updated, account.created/updated, label.applied/removed,
+# rule.created/updated/deleted/executed, sync.completed). Consumers read it via
+# GET /api/v1/events (cursor poll), the live SSE tail at /api/v1/events/stream,
+# or the list_events MCP tool — to power sync engines, notifications,
+# automations, and CQRS / event-sourcing. Disable to skip recording entirely.
+enabled = true
+# Prune events older than this many days, on a periodic schedule. 0 (the default)
+# keeps every event forever so the stream stays fully replayable from sequence 0;
+# set a positive value to cap the table's growth (a consumer offline longer than
+# the window then loses the pruned history).
+retention_days = 0

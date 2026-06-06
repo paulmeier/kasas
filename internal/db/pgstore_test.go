@@ -236,4 +236,51 @@ func TestPostgresStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(0), n)
 	})
+
+	// Exercises the Postgres events adapter (whole-struct casts, RETURNING, the
+	// identity sequence, the optional-filter cursor query, and the int32 limit
+	// hand-map) against a real Postgres.
+	t.Run("events: insert, cursor, filter, recent, prune", func(t *testing.T) {
+		mk := func(eventType, entityType, entityID string, at int64) db.Event {
+			ev, err := store.InsertEvent(ctx, db.InsertEventParams{
+				EventID: eventType + ":" + entityID, EventType: eventType,
+				EntityType: entityType, EntityID: entityID, OccurredAt: at, Data: `{"k":"v"}`,
+			})
+			require.NoError(t, err)
+			require.NotZero(t, ev.ID, "identity sequence is returned")
+			return ev
+		}
+		a := mk("transaction.created", "transaction", "tx-1", 1000)
+		b := mk("label.applied", "transaction", "tx-1", 1001)
+		c := mk("account.created", "account", "acct-1", 1002)
+
+		after, err := store.ListEventsAfter(ctx, db.ListEventsAfterParams{After: a.ID, RowLimit: 10})
+		require.NoError(t, err)
+		require.Len(t, after, 2)
+		assert.Equal(t, []int64{b.ID, c.ID}, []int64{after[0].ID, after[1].ID})
+
+		byType, err := store.ListEventsAfter(ctx, db.ListEventsAfterParams{EventType: "account.created", RowLimit: 10})
+		require.NoError(t, err)
+		require.Len(t, byType, 1)
+		assert.Equal(t, "acct-1", byType[0].EntityID)
+
+		byEntity, err := store.ListEventsAfter(ctx, db.ListEventsAfterParams{EntityType: "transaction", EntityID: "tx-1", RowLimit: 10})
+		require.NoError(t, err)
+		assert.Len(t, byEntity, 2)
+
+		recent, err := store.ListRecentEvents(ctx, 1)
+		require.NoError(t, err)
+		require.Len(t, recent, 1)
+		assert.Equal(t, c.ID, recent[0].ID, "most recent first")
+
+		got, err := store.GetEventBySequence(ctx, a.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "transaction.created", got.EventType)
+
+		removed, err := store.DeleteEventsBefore(ctx, 1001)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), removed, "only the oldest event is before the cutoff")
+		_, err = store.GetEventBySequence(ctx, a.ID)
+		require.ErrorIs(t, err, sql.ErrNoRows)
+	})
 }

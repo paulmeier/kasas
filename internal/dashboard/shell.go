@@ -16,6 +16,7 @@ const (
 	navSearch
 	navLabels
 	navRules
+	navEvents
 	navSettings
 )
 
@@ -308,6 +309,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 			navLink("/search", "Search", iconSearch(), active == navSearch),
 			navLink("/labels", "Labels", iconLabels(), active == navLabels),
 			navLink("/rules", "Rules", iconRules(), active == navRules),
+			navLink("/events", "Events", iconEvents(), active == navEvents),
 			navLink("/settings", "Settings", iconSettings(), active == navSettings),
 		),
 		app.Div().Class("sidebar-foot").Body(
@@ -366,6 +368,10 @@ func iconLabels() app.UI {
 
 func iconRules() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>`)
+}
+
+func iconEvents() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`)
 }
 
 func iconSettings() app.UI {
