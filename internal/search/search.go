@@ -76,24 +76,6 @@ func (q *Query) Match(r Record) bool {
 	return q.root.eval(r)
 }
 
-// reservedFields are the built-in field names. A field: prefix using any other
-// (identifier-shaped) name is treated as a label shorthand, so `category:food`
-// means `label:category=food`. Keep this list as the single source of truth:
-// adding a new built-in field here is what stops it from being silently shadowed
-// by the label shorthand.
-var reservedFields = map[string]bool{
-	"description": true,
-	"payee":       true,
-	"memo":        true,
-	"account":     true,
-	"id":          true,
-	"amount":      true,
-	"date":        true,
-	"pending":     true,
-	"label":       true,
-	"synced":      true,
-}
-
 // --- AST ---
 
 type node interface{ eval(Record) bool }
@@ -428,7 +410,11 @@ const (
 	opContains
 )
 
-// predFromTerm turns one term token into a leaf predicate.
+// predFromTerm turns one term token into a leaf predicate. The switch over
+// t.field enumerates every built-in ("reserved") field name and is the single
+// source of truth for them; any other field is treated as a label shorthand
+// (`category:food` == `label:category=food`), so adding a built-in case here is
+// what stops that name being silently shadowed by a label.
 func predFromTerm(t token) (node, error) {
 	if t.field == "" {
 		needle := strings.ToLower(t.value)

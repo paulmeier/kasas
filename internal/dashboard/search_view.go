@@ -327,9 +327,29 @@ func (v *searchView) Render() app.UI {
 		v.renderSearchBar(),
 		v.renderParseError(),
 		v.renderError(),
+		v.renderControls(),
 		v.renderResults(),
 		v.renderFooter(),
 		v.renderHelpModal(),
+	)
+}
+
+// renderControls shows the page-size selector above the results (only once a
+// search has returned rows), mirroring the Dashboard's "Show" control.
+func (v *searchView) renderControls() app.UI {
+	if !v.loaded || !v.searched || len(v.results) == 0 {
+		return app.Text("")
+	}
+	return app.Div().Class("controls").Body(
+		app.Span().Class("controls-spacer"),
+		app.Label().Class("control-label").Text("Show"),
+		app.Select().Class("pagesize-select").OnChange(v.onPageSizeChange).Body(
+			app.Range(pageSizeOptions).Slice(func(i int) app.UI {
+				n := pageSizeOptions[i]
+				s := strconv.Itoa(n)
+				return app.Option().Value(s).Text(s).Selected(v.pageSize == n)
+			}),
+		),
 	)
 }
 
