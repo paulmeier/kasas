@@ -242,6 +242,29 @@ func (a pgQuerier) DeleteEventsBefore(ctx context.Context, cutoff int64) (int64,
 	return a.q.DeleteEventsBefore(ctx, cutoff)
 }
 
+// Transaction history. The transaction_versions columns are all int64/string, so
+// TransactionVersion rows and InsertTransactionVersionParams are byte-identical to
+// the pg ones (whole-struct cast). ListTransactionVersions has no LIMIT, so unlike
+// the events reads it needs no int32 hand-map; Count and DeleteBefore are plain
+// int64 pass-throughs.
+func (a pgQuerier) InsertTransactionVersion(ctx context.Context, arg InsertTransactionVersionParams) (TransactionVersion, error) {
+	row, err := a.q.InsertTransactionVersion(ctx, pg.InsertTransactionVersionParams(arg))
+	return TransactionVersion(row), err
+}
+
+func (a pgQuerier) ListTransactionVersions(ctx context.Context, transactionID string) ([]TransactionVersion, error) {
+	rows, err := a.q.ListTransactionVersions(ctx, transactionID)
+	return mapSlice(rows, func(r pg.TransactionVersion) TransactionVersion { return TransactionVersion(r) }), err
+}
+
+func (a pgQuerier) CountTransactionVersions(ctx context.Context, transactionID string) (int64, error) {
+	return a.q.CountTransactionVersions(ctx, transactionID)
+}
+
+func (a pgQuerier) DeleteTransactionVersionsBefore(ctx context.Context, cutoff int64) (int64, error) {
+	return a.q.DeleteTransactionVersionsBefore(ctx, cutoff)
+}
+
 func mapSlice[T, U any](in []T, conv func(T) U) []U {
 	out := make([]U, len(in))
 	for i := range in {

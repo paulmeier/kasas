@@ -18,6 +18,11 @@ var eventsEmitted = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total events appended to the stream, labelled by type.",
 }, []string{"type"})
 
+var versionsRecorded = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "kasas_transaction_versions_total",
+	Help: "Total immutable transaction-history snapshots recorded, labelled by change kind.",
+}, []string{"kind"})
+
 // Emitter records events transactionally with the mutation that produced them and
 // publishes them to the Bus after the transaction commits.
 //
@@ -107,4 +112,52 @@ func (r *Recorder) Emit(ctx context.Context, q db.Querier, eventType, entityType
 		Data:       raw,
 	})
 	return nil
+}
+
+// Version appends one immutable snapshot to a transaction's history within the
+// current transaction. snap is the full transaction state at this version and kind
+// is the cause (one of the Change* constants). Unlike Emit it does NOT publish to
+// the bus — versions are a durable record, not a live stream. When the recorder
+// belongs to a nil/no-op emitter (events.enabled=false), Version does nothing, so
+// callers need no events-enabled conditional at the call site.
+func (r *Recorder) Version(ctx context.Context, q db.Querier, txnID string, snap TransactionPayload, kind string) error {
+	if r.emitter == nil {
+		return nil
+	}
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		return fmt.Errorf("marshal %s transaction version: %w", kind, err)
+	}
+	if _, err := q.InsertTransactionVersion(ctx, db.InsertTransactionVersionParams{
+		TransactionID: txnID,
+		ChangeKind:    kind,
+		OccurredAt:    r.emitter.now().Unix(),
+		Data:          string(raw),
+	}); err != nil {
+		return err
+	}
+	versionsRecorded.WithLabelValues(kind).Inc()
+	return nil
+}
+
+// VersionChange records a version for a change to an existing transaction, writing
+// a synthesized "imported" baseline first if the transaction has no history yet.
+// The baseline is what makes history work for transactions that predate this
+// feature: the first time one changes, its prior state becomes v1 and the change
+// becomes v2. For a transaction that already has versions, only the change is
+// recorded. No-op for a nil/no-op emitter.
+func (r *Recorder) VersionChange(ctx context.Context, q db.Querier, txnID string, prior, next TransactionPayload, kind string) error {
+	if r.emitter == nil {
+		return nil
+	}
+	n, err := q.CountTransactionVersions(ctx, txnID)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		if err := r.Version(ctx, q, txnID, prior, ChangeImported); err != nil {
+			return err
+		}
+	}
+	return r.Version(ctx, q, txnID, next, kind)
 }

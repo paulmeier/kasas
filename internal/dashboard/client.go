@@ -406,6 +406,48 @@ func (c *apiClient) fetchEvents(ctx context.Context, q url.Values) ([]event, int
 	return out.Events, out.Next, nil
 }
 
+// version mirrors api.VersionDTO: one entry in a transaction's immutable history.
+// Transaction is the raw snapshot JSON, shown verbatim (pretty-printed) in an
+// expandable block; Diff is the change from the previous version.
+type version struct {
+	Version     int             `json:"version"`
+	ChangeKind  string          `json:"change_kind"`
+	OccurredAt  time.Time       `json:"occurred_at"`
+	Transaction json.RawMessage `json:"transaction"`
+	Diff        versionDiff     `json:"diff"`
+}
+
+// versionDiff mirrors api.VersionDiffDTO: the scalar field changes and label deltas
+// from the previous version.
+type versionDiff struct {
+	Fields        []fieldChange          `json:"fields"`
+	LabelsAdded   map[string]string      `json:"labels_added"`
+	LabelsRemoved map[string]string      `json:"labels_removed"`
+	LabelsChanged map[string]labelChange `json:"labels_changed"`
+}
+
+type fieldChange struct {
+	Field string `json:"field"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+}
+
+type labelChange struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// transactionHistory fetches one transaction's full version history (oldest first).
+func (c *apiClient) transactionHistory(ctx context.Context, id string) ([]version, error) {
+	var out struct {
+		Versions []version `json:"versions"`
+	}
+	if err := c.get(ctx, "/api/v1/transactions/"+url.PathEscape(id)+"/history", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Versions, nil
+}
+
 // decodeAPIError reads a non-2xx response's {"error": "..."} body and returns it
 // as an error, falling back to the status code.
 func decodeAPIError(resp *http.Response, op string) error {
@@ -480,8 +522,9 @@ type updateConfig struct {
 	Repository string `json:"repository"`
 }
 type eventsConfig struct {
-	Enabled       bool `json:"enabled"`
-	RetentionDays int  `json:"retention_days"`
+	Enabled              bool `json:"enabled"`
+	RetentionDays        int  `json:"retention_days"`
+	HistoryRetentionDays int  `json:"history_retention_days"`
 }
 type securityConfig struct {
 	AuthRequired bool   `json:"auth_required"`

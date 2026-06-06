@@ -152,7 +152,14 @@ func (s *Server) handleUpdateTransactionLabels(w http.ResponseWriter, r *http.Re
 		if _, uerr := q.UpdateTransactionLabels(r.Context(), db.UpdateTransactionLabelsParams{ID: id, Labels: encoded}); uerr != nil {
 			return uerr
 		}
-		return emitLabelDiff(r.Context(), q, rec, id, decodeLabels(prev.Labels), newLabels)
+		if derr := emitLabelDiff(r.Context(), q, rec, id, decodeLabels(prev.Labels), newLabels); derr != nil {
+			return derr
+		}
+		// Append a labeled version, synthesizing a v1 baseline from the prior state
+		// if this transaction predates history.
+		next := prev
+		next.Labels = encoded
+		return rec.VersionChange(r.Context(), q, id, events.TransactionSnapshot(prev), events.TransactionSnapshot(next), events.ChangeLabeled)
 	})
 	if err != nil {
 		s.serverError(w, "update transaction labels", err)

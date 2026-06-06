@@ -61,7 +61,7 @@ func TestMCPListsAllTools(t *testing.T) {
 		"list_accounts", "get_account", "list_transactions", "search_transactions",
 		"list_labels", "list_organizations", "sync_status", "trigger_sync",
 		"list_rules", "create_rule", "update_rule", "delete_rule", "run_rules",
-		"list_events",
+		"list_events", "get_transaction_history",
 	}, names)
 }
 
@@ -88,6 +88,22 @@ func TestMCPGetAccount(t *testing.T) {
 
 	// Unknown id surfaces as a tool error (IsError), not a protocol error.
 	missing := callTool(t, session, "get_account", map[string]any{"id": "nope"}, nil)
+	assert.True(t, missing.IsError)
+}
+
+func TestMCPGetTransactionHistory(t *testing.T) {
+	session, fx, _ := connectMCP(t)
+
+	// A known transaction returns a valid history envelope. The MCP test server has
+	// no emitter, so no versions are recorded yet -- an empty list, but a success.
+	var out api.HistoryDTO
+	res := callTool(t, session, "get_transaction_history", map[string]any{"transaction_id": fx.TxIDsByDateDesc[0]}, &out)
+	require.False(t, res.IsError)
+	assert.Equal(t, fx.TxIDsByDateDesc[0], out.TransactionID)
+	assert.Empty(t, out.Versions)
+
+	// An unknown id surfaces as a tool error.
+	missing := callTool(t, session, "get_transaction_history", map[string]any{"transaction_id": "nope"}, nil)
 	assert.True(t, missing.IsError)
 }
 

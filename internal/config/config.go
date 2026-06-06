@@ -101,9 +101,17 @@ type Dashboard struct {
 // RetentionDays, when > 0, prunes events older than that many days on a periodic
 // schedule; 0 (the default) keeps them forever so the stream stays fully
 // replayable.
+//
+// HistoryRetentionDays prunes the immutable transaction history
+// (transaction_versions, exposed at /api/v1/transactions/{id}/history and the
+// get_transaction_history MCP tool) on the same schedule. History recording rides
+// on Enabled, but its retention is independent of RetentionDays: history is meant
+// to be kept far longer than the noisy event log, so 0 (the default) keeps every
+// transaction's full history forever.
 type Events struct {
-	Enabled       bool
-	RetentionDays int
+	Enabled              bool
+	RetentionDays        int
+	HistoryRetentionDays int
 }
 
 // Update controls the periodic check for newer releases. It only logs a notice
@@ -148,6 +156,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("update.repository", "paulmeier/kasas")
 	v.SetDefault("events.enabled", true)
 	v.SetDefault("events.retention_days", 0)
+	v.SetDefault("events.history_retention_days", 0)
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -203,8 +212,9 @@ func Load(path string) (*Config, error) {
 			Repository: v.GetString("update.repository"),
 		},
 		Events: Events{
-			Enabled:       v.GetBool("events.enabled"),
-			RetentionDays: v.GetInt("events.retention_days"),
+			Enabled:              v.GetBool("events.enabled"),
+			RetentionDays:        v.GetInt("events.retention_days"),
+			HistoryRetentionDays: v.GetInt("events.history_retention_days"),
 		},
 	}
 
@@ -243,6 +253,9 @@ func (c *Config) validate() error {
 	}
 	if c.Events.RetentionDays < 0 {
 		return fmt.Errorf("events.retention_days must not be negative, got %d", c.Events.RetentionDays)
+	}
+	if c.Events.HistoryRetentionDays < 0 {
+		return fmt.Errorf("events.history_retention_days must not be negative, got %d", c.Events.HistoryRetentionDays)
 	}
 	return nil
 }

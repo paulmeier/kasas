@@ -315,12 +315,19 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 					// Apply any matching rules (emitting label.applied per label).
 					// Re-synced (existing) rows are left alone so a sync never
 					// clobbers labels.
-					labeled, err := p.applyRulesToNewTxn(ctx, q, rec, compiledRules, acct, t, syncedAt)
+					labelsJSON, labeled, err := p.applyRulesToNewTxn(ctx, q, rec, compiledRules, acct, t, syncedAt)
 					if err != nil {
 						return fmt.Errorf("apply rules to transaction %q: %w", t.ID, err)
 					}
 					if labeled {
 						res.AutoLabeled++
+					}
+					// Record v1 of the transaction's history, folding in any birth
+					// labels the rules applied. (The transaction.created event above
+					// fires with empty labels; the version captures the settled state.)
+					settled := newTransactionRow(acct, t, syncedAt, labelsJSON)
+					if err := rec.Version(ctx, q, t.ID, events.TransactionSnapshot(settled), events.ChangeImported); err != nil {
+						return fmt.Errorf("record imported version for %q: %w", t.ID, err)
 					}
 					continue
 				}
@@ -348,6 +355,11 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				updated := newTransactionRow(acct, t, syncedAt, prevTxn.Labels)
 				if transactionBridgeChanged(prevTxn, updated) {
 					if err := rec.Emit(ctx, q, events.TypeTransactionUpdated, events.EntityTransaction, t.ID, events.TransactionSnapshot(updated)); err != nil {
+						return err
+					}
+					// Append a synced version, synthesizing a v1 baseline from the prior
+					// state if this transaction predates history.
+					if err := rec.VersionChange(ctx, q, t.ID, events.TransactionSnapshot(prevTxn), events.TransactionSnapshot(updated), events.ChangeSynced); err != nil {
 						return err
 					}
 				}
@@ -384,30 +396,31 @@ func (p *Poller) loadEnabledRules(ctx context.Context, q db.Querier) ([]rules.Co
 
 // applyRulesToNewTxn applies the compiled rules to one just-inserted transaction
 // (whose labels are still empty) and writes the merged label set when any rule
-// matched, emitting a label.applied event per applied label. It reports whether
-// the transaction was labeled.
-func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) (bool, error) {
+// matched, emitting a label.applied event per applied label. It returns the final
+// labels JSON (the new-row default '{}' when nothing matched, so the caller always
+// has a valid snapshot input) and whether the transaction was labeled.
+func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) (string, bool, error) {
 	if len(compiled) == 0 {
-		return false, nil
+		return "{}", false, nil
 	}
 	merged, changed := rules.Apply(compiled, newSearchRecord(acct, t, syncedAt), map[string]string{})
 	if !changed {
-		return false, nil
+		return "{}", false, nil
 	}
 	encoded, err := labels.Encode(merged)
 	if err != nil {
-		return false, err
+		return "{}", false, err
 	}
 	if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ID, Labels: encoded}); err != nil {
-		return false, err
+		return "{}", false, err
 	}
 	// The transaction had no labels before, so every merged label is newly applied.
 	for k, v := range merged {
 		if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, t.ID, events.LabelPayload{TransactionID: t.ID, Key: k, Value: v}); err != nil {
-			return false, err
+			return "{}", false, err
 		}
 	}
-	return true, nil
+	return encoded, true, nil
 }
 
 // accountChanged reports whether any consumer-meaningful field of an account
