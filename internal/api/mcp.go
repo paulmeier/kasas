@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/paulmeier/kasas/internal/rules"
 )
 
 // MCPServer builds the MCP server with all kasas tools registered. It is used
@@ -43,6 +45,31 @@ func (s *Server) MCPServer() *mcp.Server {
 		Name:        "list_labels",
 		Description: "List the label vocabulary: every key/value pair in use with the number of transactions carrying it.",
 	}, s.mcpListLabels)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_rules",
+		Description: "List the auto-labeling rules. Each rule applies its labels to every transaction matching its query (the kasas search syntax).",
+	}, s.mcpListRules)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_rule",
+		Description: "Create an auto-labeling rule: a condition (a kasas search query, e.g. 'amount:<0 description:coffee') and the labels to apply to every matching transaction. Enabled rules apply automatically to newly-synced transactions; use run_rules to also apply over existing ones.",
+	}, s.mcpCreateRule)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "update_rule",
+		Description: "Replace an existing rule's name, query, labels, and enabled flag by id.",
+	}, s.mcpUpdateRule)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_rule",
+		Description: "Delete a rule by id. Does not remove labels already applied to transactions.",
+	}, s.mcpDeleteRule)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "run_rules",
+		Description: "Run rules over all existing transactions, applying labels to matches. Pass an id to run a single rule (even if disabled); omit it to run every enabled rule. Returns how many transactions matched and how many were newly labeled.",
+	}, s.mcpRunRules)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_organizations",
@@ -103,6 +130,43 @@ type listTransactionsOutput struct {
 
 type listLabelsOutput struct {
 	Labels []LabelDTO `json:"labels"`
+}
+
+type listRulesOutput struct {
+	Rules []RuleDTO `json:"rules"`
+}
+
+type createRuleInput struct {
+	Name    string            `json:"name,omitempty" jsonschema:"optional human-readable name for the rule"`
+	Query   string            `json:"query" jsonschema:"the condition: a kasas search query, e.g. 'amount:<0 description:coffee' or 'label:category=food amount:>50'"`
+	Labels  map[string]string `json:"labels" jsonschema:"the key:value labels to apply to every transaction the query matches"`
+	Enabled *bool             `json:"enabled,omitempty" jsonschema:"whether the rule auto-applies to newly-synced transactions (default true)"`
+}
+
+type updateRuleInput struct {
+	ID      int64             `json:"id" jsonschema:"the id of the rule to replace"`
+	Name    string            `json:"name,omitempty" jsonschema:"optional human-readable name for the rule"`
+	Query   string            `json:"query" jsonschema:"the condition: a kasas search query"`
+	Labels  map[string]string `json:"labels" jsonschema:"the key:value labels to apply to every transaction the query matches"`
+	Enabled *bool             `json:"enabled,omitempty" jsonschema:"whether the rule auto-applies to newly-synced transactions (default true)"`
+}
+
+type deleteRuleInput struct {
+	ID int64 `json:"id" jsonschema:"the id of the rule to delete"`
+}
+
+type deleteRuleOutput struct {
+	ID      int64 `json:"id"`
+	Deleted bool  `json:"deleted"`
+}
+
+type runRulesInput struct {
+	ID int64 `json:"id,omitempty" jsonschema:"a single rule id to run (even if disabled); omit to run all enabled rules"`
+}
+
+type runRulesOutput struct {
+	Matched int `json:"matched"` // transactions matched by at least one rule
+	Updated int `json:"updated"` // transactions whose labels actually changed
 }
 
 type listOrganizationsOutput struct {
@@ -172,6 +236,74 @@ func (s *Server) mcpListLabels(ctx context.Context, _ *mcp.CallToolRequest, _ em
 		sets[i] = row.Labels
 	}
 	return &mcp.CallToolResult{}, listLabelsOutput{Labels: labelCounts(sets)}, nil
+}
+
+func (s *Server) mcpListRules(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listRulesOutput, error) {
+	rs, err := s.store.ListRules(ctx)
+	if err != nil {
+		return nil, listRulesOutput{}, err
+	}
+	return &mcp.CallToolResult{}, listRulesOutput{Rules: toRuleDTOs(rs)}, nil
+}
+
+func (s *Server) mcpCreateRule(ctx context.Context, _ *mcp.CallToolRequest, in createRuleInput) (*mcp.CallToolResult, RuleDTO, error) {
+	// createRuleInput is field-for-field a ruleInput (with richer schema docs).
+	rule, err := s.createRule(ctx, ruleInput(in))
+	if err != nil {
+		return nil, RuleDTO{}, err
+	}
+	return &mcp.CallToolResult{}, toRuleDTO(rule), nil
+}
+
+func (s *Server) mcpUpdateRule(ctx context.Context, _ *mcp.CallToolRequest, in updateRuleInput) (*mcp.CallToolResult, RuleDTO, error) {
+	rule, err := s.updateRule(ctx, in.ID, ruleInput{Name: in.Name, Query: in.Query, Labels: in.Labels, Enabled: in.Enabled})
+	if errors.Is(err, errRuleNotFound) {
+		return nil, RuleDTO{}, fmt.Errorf("rule %d not found", in.ID)
+	}
+	if err != nil {
+		return nil, RuleDTO{}, err
+	}
+	return &mcp.CallToolResult{}, toRuleDTO(rule), nil
+}
+
+func (s *Server) mcpDeleteRule(ctx context.Context, _ *mcp.CallToolRequest, in deleteRuleInput) (*mcp.CallToolResult, deleteRuleOutput, error) {
+	n, err := s.store.DeleteRule(ctx, in.ID)
+	if err != nil {
+		return nil, deleteRuleOutput{}, err
+	}
+	if n == 0 {
+		return nil, deleteRuleOutput{}, fmt.Errorf("rule %d not found", in.ID)
+	}
+	return &mcp.CallToolResult{}, deleteRuleOutput{ID: in.ID, Deleted: true}, nil
+}
+
+func (s *Server) mcpRunRules(ctx context.Context, _ *mcp.CallToolRequest, in runRulesInput) (*mcp.CallToolResult, runRulesOutput, error) {
+	var compiled []rules.Compiled
+	if in.ID > 0 {
+		rule, err := s.store.GetRule(ctx, in.ID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, runRulesOutput{}, fmt.Errorf("rule %d not found", in.ID)
+		}
+		if err != nil {
+			return nil, runRulesOutput{}, err
+		}
+		c, cerr := rules.Compile(ruleFromDB(rule))
+		if cerr != nil {
+			return nil, runRulesOutput{}, cerr
+		}
+		compiled = []rules.Compiled{c}
+	} else {
+		var err error
+		compiled, err = s.enabledCompiledRules(ctx)
+		if err != nil {
+			return nil, runRulesOutput{}, err
+		}
+	}
+	matched, updated, err := s.applyRules(ctx, compiled)
+	if err != nil {
+		return nil, runRulesOutput{}, err
+	}
+	return &mcp.CallToolResult{}, runRulesOutput{Matched: matched, Updated: updated}, nil
 }
 
 func (s *Server) mcpListOrganizations(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {

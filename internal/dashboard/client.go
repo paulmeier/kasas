@@ -222,6 +222,135 @@ func (c *apiClient) setLabels(ctx context.Context, id string, labels map[string]
 	return out.Labels, nil
 }
 
+// rule mirrors api.RuleDTO: an auto-labeling rule (a condition query plus the
+// labels applied to every matching transaction).
+type rule struct {
+	ID        int64             `json:"id"`
+	Name      string            `json:"name"`
+	Query     string            `json:"query"`
+	Labels    map[string]string `json:"labels"`
+	Enabled   bool              `json:"enabled"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// rulePayload is the create/update request body (mirrors api.ruleInput).
+type rulePayload struct {
+	Name    string            `json:"name"`
+	Query   string            `json:"query"`
+	Labels  map[string]string `json:"labels"`
+	Enabled bool              `json:"enabled"`
+}
+
+// runResult is the rules run response: how many transactions matched and how many
+// were newly labeled.
+type runResult struct {
+	Matched int `json:"matched"`
+	Updated int `json:"updated"`
+}
+
+func (c *apiClient) listRules(ctx context.Context) ([]rule, error) {
+	var out struct {
+		Rules []rule `json:"rules"`
+	}
+	if err := c.get(ctx, "/api/v1/rules", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Rules, nil
+}
+
+func (c *apiClient) createRule(ctx context.Context, p rulePayload) (rule, error) {
+	return c.sendRule(ctx, http.MethodPost, "/api/v1/rules", p)
+}
+
+func (c *apiClient) updateRule(ctx context.Context, id int64, p rulePayload) (rule, error) {
+	return c.sendRule(ctx, http.MethodPut, "/api/v1/rules/"+strconv.FormatInt(id, 10), p)
+}
+
+// sendRule POSTs or PUTs a rule payload and decodes the returned rule, surfacing
+// the server's error message (e.g. an invalid query) on failure.
+func (c *apiClient) sendRule(ctx context.Context, method, path string, p rulePayload) (rule, error) {
+	body, err := json.Marshal(p)
+	if err != nil {
+		return rule{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(body))
+	if err != nil {
+		return rule{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return rule{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return rule{}, decodeAPIError(resp, "save rule")
+	}
+	var out rule
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return rule{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) deleteRule(ctx context.Context, id int64) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/rules/"+strconv.FormatInt(id, 10), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "delete rule")
+	}
+	return nil
+}
+
+func (c *apiClient) runRule(ctx context.Context, id int64) (runResult, error) {
+	return c.postRun(ctx, "/api/v1/rules/"+strconv.FormatInt(id, 10)+"/run")
+}
+
+func (c *apiClient) runAllRules(ctx context.Context) (runResult, error) {
+	return c.postRun(ctx, "/api/v1/rules/run")
+}
+
+func (c *apiClient) postRun(ctx context.Context, path string) (runResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, nil)
+	if err != nil {
+		return runResult{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return runResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return runResult{}, decodeAPIError(resp, "run rules")
+	}
+	var out runResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return runResult{}, err
+	}
+	return out, nil
+}
+
+// decodeAPIError reads a non-2xx response's {"error": "..."} body and returns it
+// as an error, falling back to the status code.
+func decodeAPIError(resp *http.Response, op string) error {
+	var e struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if e.Error != "" {
+		return fmt.Errorf("%s", e.Error)
+	}
+	return fmt.Errorf("%s: status %d", op, resp.StatusCode)
+}
+
 // These config structs mirror api.ConfigDTO (secrets already redacted server-side)
 // for the read-only Settings display.
 type configData struct {

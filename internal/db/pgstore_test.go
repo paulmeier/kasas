@@ -178,4 +178,62 @@ func TestPostgresStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `{}`, tx1.Labels)
 	})
+
+	// Exercises the Postgres rules adapter (whole-struct casts, RETURNING, the
+	// identity id, and the enabled filter) against a real Postgres.
+	t.Run("rules: CRUD and enabled filter", func(t *testing.T) {
+		created, err := store.CreateRule(ctx, db.CreateRuleParams{
+			Name: "Coffee", Query: "description:coffee", Labels: `{"category":"coffee"}`,
+			Enabled: 1, CreatedAt: 10, UpdatedAt: 10,
+		})
+		require.NoError(t, err)
+		require.NotZero(t, created.ID, "identity id is returned")
+		assert.Equal(t, "Coffee", created.Name)
+		assert.Equal(t, int64(1), created.Enabled)
+
+		disabled, err := store.CreateRule(ctx, db.CreateRuleParams{
+			Query: "amount:>0", Labels: `{"flow":"in"}`, Enabled: 0, CreatedAt: 11, UpdatedAt: 11,
+		})
+		require.NoError(t, err)
+
+		got, err := store.GetRule(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "description:coffee", got.Query)
+
+		all, err := store.ListRules(ctx)
+		require.NoError(t, err)
+		assert.Len(t, all, 2)
+
+		enabled, err := store.ListEnabledRules(ctx)
+		require.NoError(t, err)
+		require.Len(t, enabled, 1)
+		assert.Equal(t, created.ID, enabled[0].ID)
+
+		n, err := store.UpdateRule(ctx, db.UpdateRuleParams{
+			ID: created.ID, Name: "Coffee shops", Query: "payee:cafe",
+			Labels: `{"category":"coffee"}`, Enabled: 0, UpdatedAt: 12,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+		updated, err := store.GetRule(ctx, created.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "payee:cafe", updated.Query)
+		assert.Equal(t, int64(0), updated.Enabled)
+
+		// Both rules are now disabled.
+		enabled, err = store.ListEnabledRules(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, enabled)
+
+		n, err = store.DeleteRule(ctx, disabled.ID)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+		_, err = store.GetRule(ctx, disabled.ID)
+		require.ErrorIs(t, err, sql.ErrNoRows)
+
+		// Deleting an unknown id affects no rows.
+		n, err = store.DeleteRule(ctx, 999999)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), n)
+	})
 }

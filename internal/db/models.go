@@ -25,6 +25,16 @@ type Organization struct {
 	SfinUrl string `json:"sfin_url"`
 }
 
+type Rule struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Query     string `json:"query"`
+	Labels    string `json:"labels"`
+	Enabled   int64  `json:"enabled"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 type SyncLog struct {
 	ID          int64          `json:"id"`
 	StartedAt   int64          `json:"started_at"`

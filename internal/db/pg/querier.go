@@ -11,12 +11,17 @@ import (
 type Querier interface {
 	CompleteSyncLog(ctx context.Context, arg CompleteSyncLogParams) error
 	CountTransactions(ctx context.Context) (int64, error)
+	// A rule pairs a condition (a kasas search query) with an action (a JSON object
+	// of labels to apply on a match). The API validates the query and normalizes the
+	// labels before storing. RETURNING * yields the generated id and timestamps.
+	CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error)
 	CreateSyncLog(ctx context.Context, arg CreateSyncLogParams) (SyncLog, error)
 	// Removes one key from every transaction that carries it.
 	DeleteLabelByKey(ctx context.Context, labelKey string) (int64, error)
 	// Removes the key only from transactions where it holds the given value (one
 	// value per key, so removing the key on a value match drops exactly that pair).
 	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
+	DeleteRule(ctx context.Context, id int64) (int64, error)
 	// Postgres-specific label queries. The `labels` column is TEXT (to keep the
 	// generated struct byte-identical to the SQLite backend's); JSON querying is done
 	// with an inline ::jsonb cast. `->>` extracts a key's value as text (NULL when
@@ -27,6 +32,7 @@ type Querier interface {
 	FilterTransactionsByLabelValue(ctx context.Context, arg FilterTransactionsByLabelValueParams) ([]Transaction, error)
 	GetAccount(ctx context.Context, id string) (Account, error)
 	GetOrganization(ctx context.Context, id string) (Organization, error)
+	GetRule(ctx context.Context, id int64) (Rule, error)
 	GetTransaction(ctx context.Context, id string) (Transaction, error)
 	// transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 	// transaction is a no-op. This keeps polling idempotent. labels is written as an
@@ -36,6 +42,9 @@ type Querier interface {
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
+	// The deterministic id order makes rule precedence predictable when several
+	// rules write the same label key (later rules win).
+	ListEnabledRules(ctx context.Context) ([]Rule, error)
 	// Returns the (id, labels) of every transaction that carries at least one label.
 	// The API explodes the JSON objects in Go to build the label vocabulary with
 	// per-pair transaction counts. Done in Go (not SQL) to stay portable across
@@ -46,12 +55,16 @@ type Querier interface {
 	// deterministic.
 	ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
+	ListRules(ctx context.Context) ([]Rule, error)
 	ListSyncLogs(ctx context.Context, rowLimit int32) ([]SyncLog, error)
 	// A bound of 0 disables that side of the date filter (so 0/0 returns all).
 	// The column comparison is written first so sqlc infers an integer type for
 	// the bound parameters from the `date` column.
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
 	ListTransactionsByAccount(ctx context.Context, arg ListTransactionsByAccountParams) ([]Transaction, error)
+	// Replaces the editable fields of a rule. :execrows lets the caller detect a
+	// missing id (0 rows affected).
+	UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, error)
 	// Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
 	// pending charge that has now posted, or a corrected amount). labels is
 	// intentionally NOT in the SET list, so user labels are never clobbered. The

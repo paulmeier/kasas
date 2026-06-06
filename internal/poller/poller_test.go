@@ -148,6 +148,76 @@ func TestSyncRefreshesExistingPreservingLabels(t *testing.T) {
 	assert.JSONEq(t, `{"category":"food"}`, got.Labels, "labels must not be clobbered by a sync")
 }
 
+// mustCreateRule inserts a labeling rule directly for tests.
+func mustCreateRule(t *testing.T, q db.Querier, query, labelsJSON string, enabled bool) db.Rule {
+	t.Helper()
+	en := int64(0)
+	if enabled {
+		en = 1
+	}
+	r, err := q.CreateRule(context.Background(), db.CreateRuleParams{
+		Query: query, Labels: labelsJSON, Enabled: en, CreatedAt: 1, UpdatedAt: 1,
+	})
+	require.NoError(t, err)
+	return r
+}
+
+func TestSyncAppliesRulesToNewTransactions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+	ctx := context.Background()
+
+	// An enabled rule labels coffee; a disabled rule that would label books must
+	// be skipped.
+	mustCreateRule(t, queries, "description:coffee", `{"category":"coffee"}`, true)
+	mustCreateRule(t, queries, "description:books", `{"category":"books"}`, false)
+
+	res, err := p.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.NewTransactions)
+	assert.Equal(t, 1, res.AutoLabeled, "only the coffee transaction matched an enabled rule")
+
+	coffee, err := queries.GetTransaction(ctx, "txn-1")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"category":"coffee"}`, coffee.Labels)
+
+	books, err := queries.GetTransaction(ctx, "txn-2")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, books.Labels, "the disabled rule must not apply")
+}
+
+func TestSyncRulesOnlyApplyToNewTransactions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+	ctx := context.Background()
+
+	// First sync inserts the transactions with no rules in place.
+	_, err := p.Sync(ctx)
+	require.NoError(t, err)
+
+	// Add a matching rule, then re-sync the identical data: the existing rows are
+	// not re-evaluated (rules apply only to brand-new inserts), preserving the
+	// "a sync never clobbers labels" invariant.
+	mustCreateRule(t, queries, "description:coffee", `{"category":"coffee"}`, true)
+
+	res, err := p.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.NewTransactions)
+	assert.Equal(t, 0, res.AutoLabeled)
+
+	coffee, err := queries.GetTransaction(ctx, "txn-1")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, coffee.Labels, "rules do not re-label existing transactions on re-sync")
+}
+
 func TestSetCredential(t *testing.T) {
 	ctx := context.Background()
 

@@ -136,6 +136,16 @@ func (s *Server) Router() http.Handler {
 		r.Get("/labels", s.handleListLabels)
 		r.Delete("/labels/{key}", s.handleDeleteLabel)
 
+		r.Get("/rules", s.handleListRules)
+		r.Post("/rules", s.handleCreateRule)
+		// Static /rules/run is registered before /rules/{id} so it isn't captured
+		// as a rule id (chi prefers static segments, but keep it explicit).
+		r.Post("/rules/run", s.handleRunAllRules)
+		r.Get("/rules/{id}", s.handleGetRule)
+		r.Put("/rules/{id}", s.handleUpdateRule)
+		r.Delete("/rules/{id}", s.handleDeleteRule)
+		r.Post("/rules/{id}/run", s.handleRunRule)
+
 		r.Get("/sync", s.handleSyncStatus)
 		r.Get("/sync/history", s.handleSyncHistory)
 		r.Post("/sync", s.handleTriggerSync)
