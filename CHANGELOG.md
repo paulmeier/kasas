@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/paulmeier/kasas/compare/v2.3.0...v2.4.0) (2026-06-06)
+
+
+### Features
+
+* authenticate the API, dashboard, and MCP with a dashboard token ([#38](https://github.com/paulmeier/kasas/issues/38)) ([30322c1](https://github.com/paulmeier/kasas/commit/30322c1b3e0225d630aed798ec465491259c75cd))
+
 ## [2.3.0](https://github.com/paulmeier/kasas/compare/v2.2.0...v2.3.0) (2026-06-06)
 
 
