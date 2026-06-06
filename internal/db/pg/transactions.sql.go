@@ -244,6 +244,54 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 	return items, nil
 }
 
+const updateTransactionFromSync = `-- name: UpdateTransactionFromSync :execrows
+UPDATE transactions
+SET account_id  = $1,
+    amount      = $2,
+    pending     = $3,
+    date        = $4,
+    description = $5,
+    payee       = $6,
+    memo        = $7,
+    synced_at   = $8
+WHERE id = $9
+`
+
+type UpdateTransactionFromSyncParams struct {
+	AccountID   string `json:"account_id"`
+	Amount      string `json:"amount"`
+	Pending     int64  `json:"pending"`
+	Date        int64  `json:"date"`
+	Description string `json:"description"`
+	Payee       string `json:"payee"`
+	Memo        string `json:"memo"`
+	SyncedAt    int64  `json:"synced_at"`
+	ID          string `json:"id"`
+}
+
+// Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
+// pending charge that has now posted, or a corrected amount). labels is
+// intentionally NOT in the SET list, so user labels are never clobbered. The
+// poller calls this only when InsertTransaction reports the row already existed
+// (ON CONFLICT DO NOTHING affected 0 rows).
+func (q *Queries) UpdateTransactionFromSync(ctx context.Context, arg UpdateTransactionFromSyncParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTransactionFromSync,
+		arg.AccountID,
+		arg.Amount,
+		arg.Pending,
+		arg.Date,
+		arg.Description,
+		arg.Payee,
+		arg.Memo,
+		arg.SyncedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateTransactionLabels = `-- name: UpdateTransactionLabels :execrows
 UPDATE transactions SET labels = $1 WHERE id = $2
 `

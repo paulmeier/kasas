@@ -108,7 +108,7 @@ func TestServeWasmNotBuilt(t *testing.T) {
 // bootstrap HTML rather than 404.
 func TestHandlerServesClientRoutes(t *testing.T) {
 	h := Handler(Options{Version: "test"})
-	for _, path := range []string{"/", "/labels", "/rules"} {
+	for _, path := range []string{"/", "/labels", "/rules", "/settings"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)

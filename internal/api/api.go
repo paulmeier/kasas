@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
@@ -20,6 +21,16 @@ import (
 // Syncer triggers an on-demand sync.
 type Syncer interface {
 	Sync(ctx context.Context) (poller.SyncResult, error)
+}
+
+// Connector manages the SimpleFIN connection credential at runtime. Implemented
+// by *poller.Poller. When provided, the Settings page can set the credential and
+// the config endpoint can report whether kasas is connected.
+type Connector interface {
+	// SetCredential stores a SimpleFIN setup token or access URL for future syncs.
+	SetCredential(ctx context.Context, input string) error
+	// CredentialConfigured reports whether an access URL is currently stored.
+	CredentialConfigured(ctx context.Context) (bool, error)
 }
 
 // UpdateChecker reports the running build's status against the latest release
@@ -33,6 +44,8 @@ type UpdateChecker interface {
 type Server struct {
 	store      db.Store
 	syncer     Syncer
+	connector  Connector      // nil when runtime credential management is unavailable
+	config     *config.Config // resolved config for the read-only Settings display
 	logger     *slog.Logger
 	version    string
 	mcpEnabled bool
@@ -49,6 +62,12 @@ type Options struct {
 	Logger     *slog.Logger
 	Version    string
 	MCPEnabled bool
+	// Connector, when non-nil, enables PUT /api/v1/simplefin/credential (set the
+	// SimpleFIN token/access URL) and the connected status in GET /api/v1/config.
+	Connector Connector
+	// Config, when non-nil, is exposed (with secrets redacted) by
+	// GET /api/v1/config to power the dashboard's read-only Settings view.
+	Config *config.Config
 	// Dashboard, when non-nil, serves the web UI as the catch-all route.
 	Dashboard http.Handler
 	// UpdateChecker, when non-nil, enables GET /api/v1/update (status for the
@@ -70,6 +89,8 @@ func New(opts Options) *Server {
 	return &Server{
 		store:      opts.Store,
 		syncer:     opts.Syncer,
+		connector:  opts.Connector,
+		config:     opts.Config,
 		logger:     logger,
 		version:    opts.Version,
 		mcpEnabled: opts.MCPEnabled,
@@ -115,6 +136,13 @@ func (s *Server) Router() http.Handler {
 		r.Get("/sync", s.handleSyncStatus)
 		r.Get("/sync/history", s.handleSyncHistory)
 		r.Post("/sync", s.handleTriggerSync)
+
+		// Read-only effective configuration (secrets redacted) for the Settings
+		// page, plus the runtime-writable SimpleFIN credential.
+		r.Get("/config", s.handleGetConfig)
+		if s.connector != nil {
+			r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
+		}
 
 		// Update status for the dashboard banner, and (optionally) apply.
 		if s.updates != nil {

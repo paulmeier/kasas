@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,10 @@ var (
 	txInserted = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "kasas_transactions_inserted_total",
 		Help: "Total number of new transactions inserted across all syncs.",
+	})
+	txUpdated = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kasas_transactions_updated_total",
+		Help: "Total number of existing transactions refreshed (bridge fields, not labels) across all syncs.",
 	})
 	lastSuccess = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "kasas_last_successful_sync_timestamp_seconds",
@@ -89,9 +94,10 @@ func New(opts Options) *Poller {
 
 // SyncResult summarizes a completed sync.
 type SyncResult struct {
-	Accounts        int           `json:"accounts"`
-	NewTransactions int           `json:"new_transactions"`
-	Duration        time.Duration `json:"duration"`
+	Accounts            int           `json:"accounts"`
+	NewTransactions     int           `json:"new_transactions"`
+	UpdatedTransactions int           `json:"updated_transactions"`
+	Duration            time.Duration `json:"duration"`
 }
 
 // Start schedules recurring syncs. Call Stop to release resources.
@@ -193,9 +199,11 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 
 	accountsGauge.Set(float64(result.Accounts))
 	txInserted.Add(float64(result.NewTransactions))
+	txUpdated.Add(float64(result.UpdatedTransactions))
 	p.logger.Info("sync complete",
 		"accounts", result.Accounts,
 		"new_transactions", result.NewTransactions,
+		"updated_transactions", result.UpdatedTransactions,
 		"duration", result.Duration.String(),
 	)
 	return result, nil
@@ -231,6 +239,12 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 			res.Accounts++
 
 			for _, t := range acct.Transactions {
+				// Insert is ON CONFLICT DO NOTHING, so n==1 means a brand-new
+				// transaction and n==0 means it already exists. For existing rows we
+				// refresh the bridge-owned fields (so a pending charge that posts, or
+				// a corrected amount, flows in) via UpdateTransactionFromSync, which
+				// deliberately leaves the labels column untouched — user labels are
+				// never clobbered by a sync.
 				n, err := q.InsertTransaction(ctx, db.InsertTransactionParams{
 					ID:          t.ID,
 					AccountID:   acct.ID,
@@ -245,7 +259,24 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				if err != nil {
 					return fmt.Errorf("insert transaction %q: %w", t.ID, err)
 				}
-				res.NewTransactions += int(n)
+				if n > 0 {
+					res.NewTransactions += int(n)
+					continue
+				}
+				if _, err := q.UpdateTransactionFromSync(ctx, db.UpdateTransactionFromSyncParams{
+					ID:          t.ID,
+					AccountID:   acct.ID,
+					Amount:      t.Amount,
+					Pending:     boolToInt(t.Pending),
+					Date:        transactionDate(t),
+					Description: t.Description,
+					Payee:       t.Payee,
+					Memo:        t.Memo,
+					SyncedAt:    syncedAt,
+				}); err != nil {
+					return fmt.Errorf("refresh transaction %q: %w", t.ID, err)
+				}
+				res.UpdatedTransactions++
 			}
 		}
 		return nil
@@ -288,6 +319,43 @@ func (p *Poller) resolveAccessURL(ctx context.Context) (string, error) {
 	}
 
 	return "", nil
+}
+
+// CredentialConfigured reports whether a SimpleFIN access URL is currently stored
+// in the secret store (i.e. kasas is connected to a bridge and a sync can run).
+func (p *Poller) CredentialConfigured(ctx context.Context) (bool, error) {
+	stored, err := p.secrets.AccessURL(ctx)
+	if err != nil {
+		return false, fmt.Errorf("read stored access URL: %w", err)
+	}
+	return stored != "", nil
+}
+
+// SetCredential stores a SimpleFIN credential so the next sync uses it, no restart
+// required. input may be either a ready access URL (starts with http:// or
+// https://, stored verbatim) or a base64 setup token (claimed for an access URL
+// first; the claim is a one-time exchange). Mirrors resolveAccessURL's handling so
+// the UI-driven path and the config-driven path behave identically.
+func (p *Poller) SetCredential(ctx context.Context, input string) error {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return errors.New("SimpleFIN credential is empty")
+	}
+
+	accessURL := input
+	if !strings.HasPrefix(input, "http://") && !strings.HasPrefix(input, "https://") {
+		p.logger.Info("claiming SimpleFIN setup token")
+		claimed, err := p.client.Claim(ctx, input)
+		if err != nil {
+			return fmt.Errorf("claim setup token: %w", err)
+		}
+		accessURL = claimed
+	}
+
+	if err := p.secrets.SetAccessURL(ctx, accessURL); err != nil {
+		return fmt.Errorf("store access URL: %w", err)
+	}
+	return nil
 }
 
 func boolToInt(b bool) int64 {

@@ -424,3 +424,95 @@ html, body {
 .empty-hint { margin: 0; font-size: 14px; }
 .placeholder p { margin: 0 0 8px; }
 .placeholder p:last-child { margin-bottom: 0; }
+
+/* --- Settings page --- */
+.settings-section { margin-bottom: 24px; max-width: 720px; }
+.settings-section.card { padding: 18px 20px; }
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.settings-title { font-size: 16px; margin: 0; color: var(--text); }
+.settings-help { color: var(--muted); font-size: 13px; margin: 0 0 14px; line-height: 1.5; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #0f1115;
+  border: none;
+  font-weight: 600;
+}
+.btn-primary:hover { border-color: transparent; opacity: 0.9; }
+.btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+/* Connection status chip. */
+.status-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.status-pill.connected {
+  color: var(--pos);
+  background: rgba(63, 185, 80, 0.12);
+  border-color: rgba(63, 185, 80, 0.40);
+}
+.status-pill.disconnected { color: var(--muted); background: var(--surface-2); }
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.settings-input {
+  flex: 1;
+  min-width: 220px;
+  max-width: 440px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 14px;
+}
+.settings-input:focus { outline: none; border-color: var(--accent); }
+.settings-ok { color: var(--pos); font-size: 13px; margin-top: 10px; }
+.settings-divider { height: 1px; background: var(--border); margin: 18px 0; }
+
+.sync-status { font-size: 13px; color: var(--muted); }
+.sync-status.ok { color: var(--pos); }
+.sync-status.err { color: var(--neg); }
+.sync-status.muted { color: var(--muted); }
+
+/* Read-only configuration cards. */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.config-card { padding: 14px 16px; }
+.config-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.config-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.config-key { color: var(--muted); white-space: nowrap; }
+.config-val {
+  color: var(--text);
+  text-align: right;
+  word-break: break-word;
+  font-variant-numeric: tabular-nums;
+}

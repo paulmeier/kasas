@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,13 @@ import (
 	"github.com/paulmeier/kasas/internal/testutil"
 	"github.com/paulmeier/kasas/internal/vault"
 )
+
+// refreshBody1/2 describe the same transaction (txn-1) across two syncs: it starts
+// pending with one amount, then posts with a corrected amount. Used to verify a
+// re-sync refreshes bridge fields while preserving user labels.
+const refreshBody1 = `{"errors":[],"accounts":[{"org":{"domain":"mybank.com","name":"My Bank","sfin-url":"https://sfin.mybank.com"},"id":"acct-1","name":"Checking","currency":"USD","balance":"100.00","balance-date":1700000000,"transactions":[{"id":"txn-1","posted":1699990000,"amount":"-10.00","description":"Pending coffee","payee":"Cafe","pending":true}]}]}`
+
+const refreshBody2 = `{"errors":[],"accounts":[{"org":{"domain":"mybank.com","name":"My Bank","sfin-url":"https://sfin.mybank.com"},"id":"acct-1","name":"Checking","currency":"USD","balance":"100.00","balance-date":1700000000,"transactions":[{"id":"txn-1","posted":1699990000,"amount":"-12.34","description":"Coffee","payee":"Cafe","pending":false}]}]}`
 
 const sampleAccounts = `{
   "errors": [],
@@ -89,6 +97,100 @@ func TestSyncPersistsAndIsIdempotent(t *testing.T) {
 	latest, err := queries.LatestSyncLog(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "success", latest.Status)
+}
+
+func TestSyncRefreshesExistingPreservingLabels(t *testing.T) {
+	ctx := context.Background()
+
+	var mu sync.Mutex
+	body := refreshBody1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		b := body
+		mu.Unlock()
+		_, _ = w.Write([]byte(b))
+	}))
+	defer srv.Close()
+
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+
+	// First sync inserts the pending transaction.
+	res, err := p.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.NewTransactions)
+	assert.Equal(t, 0, res.UpdatedTransactions)
+
+	// The user labels the transaction.
+	n, err := queries.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{
+		ID:     "txn-1",
+		Labels: `{"category":"food"}`,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+
+	// The bridge now reports the same transaction as posted with a corrected amount.
+	mu.Lock()
+	body = refreshBody2
+	mu.Unlock()
+
+	res2, err := p.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, res2.NewTransactions, "no new rows on re-sync")
+	assert.Equal(t, 1, res2.UpdatedTransactions, "existing row refreshed")
+
+	// Bridge-owned fields are refreshed...
+	got, err := queries.GetTransaction(ctx, "txn-1")
+	require.NoError(t, err)
+	assert.Equal(t, "-12.34", got.Amount, "amount refreshed")
+	assert.Equal(t, int64(0), got.Pending, "pending cleared after posting")
+	assert.Equal(t, "Coffee", got.Description, "description refreshed")
+	// ...while the user's label survives the sync untouched.
+	assert.JSONEq(t, `{"category":"food"}`, got.Labels, "labels must not be clobbered by a sync")
+}
+
+func TestSetCredential(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("stores an access url directly", func(t *testing.T) {
+		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+		p, _ := newPoller(t, Options{Secrets: store})
+
+		connected, err := p.CredentialConfigured(ctx)
+		require.NoError(t, err)
+		assert.False(t, connected)
+
+		require.NoError(t, p.SetCredential(ctx, "https://user:pass@bridge.example/simplefin"))
+
+		stored, err := store.AccessURL(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "https://user:pass@bridge.example/simplefin", stored)
+
+		connected, err = p.CredentialConfigured(ctx)
+		require.NoError(t, err)
+		assert.True(t, connected)
+	})
+
+	t.Run("claims a setup token", func(t *testing.T) {
+		claim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			require.Equal(t, http.MethodPost, r.Method)
+			_, _ = w.Write([]byte("https://claimed-access\n"))
+		}))
+		defer claim.Close()
+
+		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
+		p, _ := newPoller(t, Options{Secrets: store})
+
+		require.NoError(t, p.SetCredential(ctx, base64Encode(claim.URL)))
+
+		stored, err := store.AccessURL(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "https://claimed-access", stored)
+	})
+
+	t.Run("rejects an empty credential", func(t *testing.T) {
+		p, _ := newPoller(t, Options{})
+		require.Error(t, p.SetCredential(ctx, "   "))
+	})
 }
 
 func TestSyncFailsWithoutAccessURL(t *testing.T) {

@@ -57,6 +57,12 @@ type Querier interface {
 	// the bound parameters from the `date` column.
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
 	ListTransactionsByAccount(ctx context.Context, arg ListTransactionsByAccountParams) ([]Transaction, error)
+	// Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
+	// pending charge that has now posted, or a corrected amount). labels is
+	// intentionally NOT in the SET list, so user labels are never clobbered. The
+	// poller calls this only when InsertTransaction reports the row already existed
+	// (ON CONFLICT DO NOTHING affected 0 rows).
+	UpdateTransactionFromSync(ctx context.Context, arg UpdateTransactionFromSyncParams) (int64, error)
 	// Replaces the whole label set for one transaction. labels is a JSON object of
 	// key->value pairs; the API normalizes it before storing. :execrows lets the
 	// caller detect a missing id (0 rows affected). The poller never touches labels,
