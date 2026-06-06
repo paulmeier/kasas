@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/paulmeier/kasas/compare/v2.5.0...v2.6.0) (2026-06-06)
+
+
+### Features
+
+* immutable transaction history (full-snapshot versions, REST/MCP/dashboard) ([#42](https://github.com/paulmeier/kasas/issues/42)) ([e8c54db](https://github.com/paulmeier/kasas/commit/e8c54db90eb1956364c66a00a4f1c2d4cc26c395))
+
 ## [2.5.0](https://github.com/paulmeier/kasas/compare/v2.4.0...v2.5.0) (2026-06-06)
 
 
