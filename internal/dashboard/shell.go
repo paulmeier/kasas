@@ -17,6 +17,7 @@ const (
 	navLabels
 	navRules
 	navEvents
+	navWebhooks
 	navSettings
 )
 
@@ -310,6 +311,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 			navLink("/labels", "Labels", iconLabels(), active == navLabels),
 			navLink("/rules", "Rules", iconRules(), active == navRules),
 			navLink("/events", "Events", iconEvents(), active == navEvents),
+			navLink("/webhooks", "Webhooks", iconWebhooks(), active == navWebhooks),
 			navLink("/settings", "Settings", iconSettings(), active == navSettings),
 		),
 		app.Div().Class("sidebar-foot").Body(
@@ -372,6 +374,10 @@ func iconRules() app.UI {
 
 func iconEvents() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`)
+}
+
+func iconWebhooks() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/></svg>`)
 }
 
 func iconSettings() app.UI {

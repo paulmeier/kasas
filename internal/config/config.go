@@ -25,6 +25,7 @@ type Config struct {
 	Dashboard Dashboard
 	Update    Update
 	Events    Events
+	Webhooks  Webhooks
 }
 
 // Server holds HTTP server settings.
@@ -114,6 +115,18 @@ type Events struct {
 	HistoryRetentionDays int
 }
 
+// Webhooks controls outbound event delivery: kasas POSTs each matching event to
+// the HTTP endpoints registered via the REST/MCP/dashboard webhook APIs, HMAC-signed.
+// Enabled (the default) starts the delivery dispatcher; it is effective only when
+// events.enabled is also true, since webhooks consume the in-process event bus.
+// Timeout bounds each delivery attempt and MaxAttempts caps the retries before a
+// delivery is abandoned (consumers reconcile any gap via the /events cursor).
+type Webhooks struct {
+	Enabled     bool
+	Timeout     time.Duration
+	MaxAttempts int
+}
+
 // Update controls the periodic check for newer releases. It only logs a notice
 // when a newer version is published; upgrading is done explicitly via the
 // `kasas self-update` command. Docker deployments should disable it and update
@@ -157,6 +170,9 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("events.enabled", true)
 	v.SetDefault("events.retention_days", 0)
 	v.SetDefault("events.history_retention_days", 0)
+	v.SetDefault("webhooks.enabled", true)
+	v.SetDefault("webhooks.timeout", "10s")
+	v.SetDefault("webhooks.max_attempts", 5)
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -172,6 +188,11 @@ func Load(path string) (*Config, error) {
 	interval, err := time.ParseDuration(v.GetString("sync.interval"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid sync.interval %q: %w", v.GetString("sync.interval"), err)
+	}
+
+	webhookTimeout, err := time.ParseDuration(v.GetString("webhooks.timeout"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid webhooks.timeout %q: %w", v.GetString("webhooks.timeout"), err)
 	}
 
 	cfg := &Config{
@@ -216,6 +237,11 @@ func Load(path string) (*Config, error) {
 			RetentionDays:        v.GetInt("events.retention_days"),
 			HistoryRetentionDays: v.GetInt("events.history_retention_days"),
 		},
+		Webhooks: Webhooks{
+			Enabled:     v.GetBool("webhooks.enabled"),
+			Timeout:     webhookTimeout,
+			MaxAttempts: v.GetInt("webhooks.max_attempts"),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -256,6 +282,14 @@ func (c *Config) validate() error {
 	}
 	if c.Events.HistoryRetentionDays < 0 {
 		return fmt.Errorf("events.history_retention_days must not be negative, got %d", c.Events.HistoryRetentionDays)
+	}
+	if c.Webhooks.Enabled {
+		if c.Webhooks.Timeout <= 0 {
+			return fmt.Errorf("webhooks.timeout must be positive")
+		}
+		if c.Webhooks.MaxAttempts < 1 {
+			return fmt.Errorf("webhooks.max_attempts must be at least 1, got %d", c.Webhooks.MaxAttempts)
+		}
 	}
 	return nil
 }

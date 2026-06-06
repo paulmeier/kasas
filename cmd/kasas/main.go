@@ -44,6 +44,7 @@ import (
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/vault"
+	"github.com/paulmeier/kasas/internal/webhooks"
 	"github.com/paulmeier/kasas/migrations"
 )
 
@@ -212,6 +213,20 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 	// alongside the bus when events are enabled), so the bus being non-nil gates it.
 	if eventBus != nil && cfg.Events.HistoryRetentionDays > 0 {
 		go pruneTransactionVersions(ctx, logger, store, cfg.Events.HistoryRetentionDays)
+	}
+
+	// Webhook dispatcher: push committed events to registered endpoints, HMAC-signed.
+	// It rides the event bus (so it needs events enabled) and is best-effort —
+	// consumers reconcile any gap via the /events cursor. ctx cancellation stops it,
+	// and closing the bus on shutdown unblocks its subscription.
+	if eventBus != nil && cfg.Webhooks.Enabled {
+		dispatcher := webhooks.NewDispatcher(store, eventBus, webhooks.Options{
+			Timeout:     cfg.Webhooks.Timeout,
+			MaxAttempts: cfg.Webhooks.MaxAttempts,
+			UserAgent:   "kasas/" + version,
+		}, logger)
+		go dispatcher.Run(ctx)
+		logger.Info("webhook dispatcher started", "timeout", cfg.Webhooks.Timeout.String(), "max_attempts", cfg.Webhooks.MaxAttempts)
 	}
 
 	if cfg.Sync.Enabled {

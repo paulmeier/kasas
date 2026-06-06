@@ -129,10 +129,10 @@ func (s *Server) Router() http.Handler {
 
 	// The SSE event stream is long-lived, so it must NOT be wrapped in the request
 	// timeout (which cancels the request context after 60s and would tear the
-	// stream down). It gets only the dashboard-token gate; everything else is
-	// registered under the timeout group that follows.
+	// stream down). It is a read surface (the dashboard token or any API key);
+	// everything else is registered under the timeout group that follows.
 	r.Group(func(r chi.Router) {
-		r.Use(s.requireToken)
+		r.Use(s.requireRead)
 		r.Get("/api/v1/events/stream", s.handleEventStream)
 	})
 
@@ -144,15 +144,20 @@ func (s *Server) Router() http.Handler {
 		r.Get("/readyz", s.handleReady)
 		r.Handle("/metrics", promhttp.Handler())
 
-		// REST API.
+		// REST API. Routes are split into three access tiers: read (the dashboard
+		// token or any API key), write (the dashboard token or a read_write key), and
+		// admin/provisioning (the dashboard token only — API keys are never accepted,
+		// so a key cannot mint another key, manage webhooks, rotate the token, set the
+		// SimpleFIN credential, or trigger a self-update). All tiers are open when no
+		// token is configured.
 		r.Route("/api/v1", func(r chi.Router) {
 			// Auth status is intentionally open (no token required) so the dashboard
 			// can learn whether to show a login screen before it holds a token.
 			r.Get("/auth", s.handleAuthStatus)
 
-			// Everything else requires the dashboard token when one is configured.
+			// Read tier.
 			r.Group(func(r chi.Router) {
-				r.Use(s.requireToken)
+				r.Use(s.requireRead)
 
 				r.Get("/organizations", s.handleListOrganizations)
 
@@ -165,21 +170,12 @@ func (s *Server) Router() http.Handler {
 				// transaction id (chi prefers static segments, but keep it explicit).
 				r.Get("/transactions/search", s.handleSearchTransactions)
 				r.Get("/transactions/{id}", s.handleGetTransaction)
-				r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
 				r.Get("/transactions/{id}/history", s.handleGetTransactionHistory)
 
 				r.Get("/labels", s.handleListLabels)
-				r.Delete("/labels/{key}", s.handleDeleteLabel)
 
 				r.Get("/rules", s.handleListRules)
-				r.Post("/rules", s.handleCreateRule)
-				// Static /rules/run is registered before /rules/{id} so it isn't captured
-				// as a rule id (chi prefers static segments, but keep it explicit).
-				r.Post("/rules/run", s.handleRunAllRules)
 				r.Get("/rules/{id}", s.handleGetRule)
-				r.Put("/rules/{id}", s.handleUpdateRule)
-				r.Delete("/rules/{id}", s.handleDeleteRule)
-				r.Post("/rules/{id}/run", s.handleRunRule)
 
 				// Canonical event stream (poll/cursor). The live SSE tail is the
 				// separate /events/stream route above; chi prefers the static
@@ -189,11 +185,38 @@ func (s *Server) Router() http.Handler {
 
 				r.Get("/sync", s.handleSyncStatus)
 				r.Get("/sync/history", s.handleSyncHistory)
-				r.Post("/sync", s.handleTriggerSync)
 
-				// Read-only effective configuration (secrets redacted) for the Settings
-				// page, plus the runtime-writable SimpleFIN credential.
+				// Read-only effective configuration (secrets redacted) for the Settings page.
 				r.Get("/config", s.handleGetConfig)
+
+				if s.updates != nil {
+					r.Get("/update", s.handleUpdateStatus)
+				}
+			})
+
+			// Write tier.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireWrite)
+
+				r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
+				r.Delete("/labels/{key}", s.handleDeleteLabel)
+
+				r.Post("/rules", s.handleCreateRule)
+				// Static /rules/run is registered before /rules/{id} so it isn't captured
+				// as a rule id (chi prefers static segments, but keep it explicit).
+				r.Post("/rules/run", s.handleRunAllRules)
+				r.Put("/rules/{id}", s.handleUpdateRule)
+				r.Delete("/rules/{id}", s.handleDeleteRule)
+				r.Post("/rules/{id}/run", s.handleRunRule)
+
+				r.Post("/sync", s.handleTriggerSync)
+			})
+
+			// Admin / provisioning tier (dashboard token only).
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireToken)
+
+				// Runtime-writable SimpleFIN credential.
 				if s.connector != nil {
 					r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
 				}
@@ -205,12 +228,25 @@ func (s *Server) Router() http.Handler {
 					r.Delete("/security/token", s.handleClearToken)
 				}
 
-				// Update status for the dashboard banner, and (optionally) apply.
-				if s.updates != nil {
-					r.Get("/update", s.handleUpdateStatus)
-					if s.allowApply {
-						r.Post("/update", s.handleApplyUpdate)
-					}
+				// API key provisioning: mint (returns the secret once), list metadata,
+				// and revoke per-consumer credentials.
+				r.Post("/security/api-keys", s.handleCreateApiKey)
+				r.Get("/security/api-keys", s.handleListApiKeys)
+				r.Delete("/security/api-keys/{id}", s.handleRevokeApiKey)
+
+				// Webhook management: register endpoints, edit/rotate/test, and delete.
+				r.Get("/webhooks", s.handleListWebhooks)
+				r.Post("/webhooks", s.handleCreateWebhook)
+				// Static /webhooks subpaths are fine alongside /{id} (chi prefers static).
+				r.Get("/webhooks/{id}", s.handleGetWebhook)
+				r.Put("/webhooks/{id}", s.handleUpdateWebhook)
+				r.Delete("/webhooks/{id}", s.handleDeleteWebhook)
+				r.Post("/webhooks/{id}/test", s.handleTestWebhook)
+				r.Post("/webhooks/{id}/rotate-secret", s.handleRotateWebhookSecret)
+
+				// Apply a self-update (status is in the read tier above).
+				if s.updates != nil && s.allowApply {
+					r.Post("/update", s.handleApplyUpdate)
 				}
 			})
 		})

@@ -96,6 +96,46 @@ func (s *Server) MCPServer() *mcp.Server {
 		Description: "Trigger an immediate SimpleFIN sync and wait for it to finish.",
 	}, s.mcpTriggerSync)
 
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_api_keys",
+		Description: "List the provisioned API keys (metadata only: id, name, prefix, scope, created/last-used times). Secrets are never returned.",
+	}, s.mcpListApiKeys)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_api_key",
+		Description: "Provision a new API key for programmatic REST access, with scope read (GET only) or read_write (GET + mutations). Returns the full secret in `key` exactly once — it is stored only as a hash and cannot be retrieved again.",
+	}, s.mcpCreateApiKey)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "revoke_api_key",
+		Description: "Revoke (delete) an API key by id. The key stops working immediately.",
+	}, s.mcpRevokeApiKey)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_webhooks",
+		Description: "List the registered webhook endpoints (url, subscribed event types, enabled flag, and last-delivery health). Signing secrets are not returned.",
+	}, s.mcpListWebhooks)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_webhook",
+		Description: "Register a webhook: an absolute http(s) URL that kasas POSTs each subscribed event to, HMAC-signed (X-Kasas-Signature). Subscribe to specific types (transaction.created/updated, account.created/updated, label.applied/removed, rule.*, sync.completed) or use [\"*\"] / omit for all. Returns the signing secret.",
+	}, s.mcpCreateWebhook)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "update_webhook",
+		Description: "Replace a webhook's url, subscribed event types, and enabled flag by id. Does not change the signing secret.",
+	}, s.mcpUpdateWebhook)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_webhook",
+		Description: "Delete a webhook by id. Deliveries stop immediately.",
+	}, s.mcpDeleteWebhook)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "test_webhook",
+		Description: "Send a synthetic webhook.test event to a webhook's endpoint now and report the delivery status, so connectivity and signature handling can be verified.",
+	}, s.mcpTestWebhook)
+
 	return srv
 }
 

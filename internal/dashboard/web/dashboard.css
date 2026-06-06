@@ -673,6 +673,30 @@ html, body {
 .rule-form-actions { margin-top: 4px; }
 .rules-run-msg { margin: 0 0 16px; }
 
+/* Webhook event-type picker: a wrapping grid of checkbox labels. */
+.webhook-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 4px 0;
+}
+.webhook-type-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.webhook-type-option input { accent-color: var(--accent); cursor: pointer; }
+.webhook-type-all {
+  flex-basis: 100%;
+  font-family: inherit;
+  font-weight: 600;
+}
+.apikeys-table { margin-top: 16px; }
+
 .rules-table .rule-query {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.5px;

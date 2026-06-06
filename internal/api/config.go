@@ -25,6 +25,7 @@ type ConfigDTO struct {
 	Dashboard DashboardConfigDTO `json:"dashboard"`
 	Update    UpdateConfigDTO    `json:"update"`
 	Events    EventsConfigDTO    `json:"events"`
+	Webhooks  WebhooksConfigDTO  `json:"webhooks"`
 	Security  SecurityConfigDTO  `json:"security"`
 }
 
@@ -106,6 +107,13 @@ type EventsConfigDTO struct {
 	HistoryRetentionDays int  `json:"history_retention_days"`
 }
 
+// WebhooksConfigDTO mirrors config.Webhooks (timeout as a human-readable duration).
+type WebhooksConfigDTO struct {
+	Enabled     bool   `json:"enabled"`
+	Timeout     string `json:"timeout"`
+	MaxAttempts int    `json:"max_attempts"`
+}
+
 // toConfigDTO builds the redacted view of the effective configuration. connected
 // reflects whether a SimpleFIN access URL is currently stored; security reports
 // the dashboard-token state.
@@ -145,6 +153,11 @@ func toConfigDTO(cfg *config.Config, connected bool, security SecurityConfigDTO)
 			Enabled:              cfg.Events.Enabled,
 			RetentionDays:        cfg.Events.RetentionDays,
 			HistoryRetentionDays: cfg.Events.HistoryRetentionDays,
+		},
+		Webhooks: WebhooksConfigDTO{
+			Enabled:     cfg.Webhooks.Enabled,
+			Timeout:     cfg.Webhooks.Timeout.String(),
+			MaxAttempts: cfg.Webhooks.MaxAttempts,
 		},
 		Security: security,
 	}

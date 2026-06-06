@@ -265,6 +265,70 @@ func (a pgQuerier) DeleteTransactionVersionsBefore(ctx context.Context, cutoff i
 	return a.q.DeleteTransactionVersionsBefore(ctx, cutoff)
 }
 
+// API keys. All columns are int64/string, so ApiKey rows and InsertApiKeyParams
+// are byte-identical to the pg ones (whole-struct cast); no LIST has a LIMIT, so no
+// int32 hand-map is needed.
+func (a pgQuerier) InsertApiKey(ctx context.Context, arg InsertApiKeyParams) (ApiKey, error) {
+	row, err := a.q.InsertApiKey(ctx, pg.InsertApiKeyParams(arg))
+	return ApiKey(row), err
+}
+
+func (a pgQuerier) GetApiKeyByHash(ctx context.Context, keyHash string) (ApiKey, error) {
+	row, err := a.q.GetApiKeyByHash(ctx, keyHash)
+	return ApiKey(row), err
+}
+
+func (a pgQuerier) ListApiKeys(ctx context.Context) ([]ApiKey, error) {
+	rows, err := a.q.ListApiKeys(ctx)
+	return mapSlice(rows, func(r pg.ApiKey) ApiKey { return ApiKey(r) }), err
+}
+
+func (a pgQuerier) DeleteApiKey(ctx context.Context, id int64) (int64, error) {
+	return a.q.DeleteApiKey(ctx, id)
+}
+
+func (a pgQuerier) UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error {
+	return a.q.UpdateApiKeyLastUsed(ctx, pg.UpdateApiKeyLastUsedParams(arg))
+}
+
+// Webhooks. All columns are int64/string, so Webhook rows and the param structs are
+// byte-identical to the pg ones (whole-struct cast); no LIST has a LIMIT.
+func (a pgQuerier) InsertWebhook(ctx context.Context, arg InsertWebhookParams) (Webhook, error) {
+	row, err := a.q.InsertWebhook(ctx, pg.InsertWebhookParams(arg))
+	return Webhook(row), err
+}
+
+func (a pgQuerier) GetWebhook(ctx context.Context, id int64) (Webhook, error) {
+	row, err := a.q.GetWebhook(ctx, id)
+	return Webhook(row), err
+}
+
+func (a pgQuerier) ListWebhooks(ctx context.Context) ([]Webhook, error) {
+	rows, err := a.q.ListWebhooks(ctx)
+	return mapSlice(rows, func(r pg.Webhook) Webhook { return Webhook(r) }), err
+}
+
+func (a pgQuerier) ListEnabledWebhooks(ctx context.Context) ([]Webhook, error) {
+	rows, err := a.q.ListEnabledWebhooks(ctx)
+	return mapSlice(rows, func(r pg.Webhook) Webhook { return Webhook(r) }), err
+}
+
+func (a pgQuerier) UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) (int64, error) {
+	return a.q.UpdateWebhook(ctx, pg.UpdateWebhookParams(arg))
+}
+
+func (a pgQuerier) UpdateWebhookSecret(ctx context.Context, arg UpdateWebhookSecretParams) (int64, error) {
+	return a.q.UpdateWebhookSecret(ctx, pg.UpdateWebhookSecretParams(arg))
+}
+
+func (a pgQuerier) UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) error {
+	return a.q.UpdateWebhookDeliveryStatus(ctx, pg.UpdateWebhookDeliveryStatusParams(arg))
+}
+
+func (a pgQuerier) DeleteWebhook(ctx context.Context, id int64) (int64, error) {
+	return a.q.DeleteWebhook(ctx, id)
+}
+
 func mapSlice[T, U any](in []T, conv func(T) U) []U {
 	out := make([]U, len(in))
 	for i := range in {

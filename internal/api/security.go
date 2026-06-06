@@ -7,7 +7,16 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/paulmeier/kasas/internal/apikeys"
+	"github.com/paulmeier/kasas/internal/db"
 )
+
+// apiKeyTouchInterval throttles the last-used write: a key's last_used_at is bumped
+// at most this often (seconds), so verifying a key on every request does not amount
+// to a write per request.
+const apiKeyTouchInterval = 60
 
 // Authenticator gates the REST API and the MCP-over-HTTP server behind the
 // dashboard token. It is implemented by *auth.Guard. A nil Authenticator, or one
@@ -48,6 +57,67 @@ func (s *Server) requireToken(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requireRead gates a route to any authenticated principal: the dashboard token, or a
+// valid API key of any scope. Like requireToken it is a no-op when auth is disabled.
+func (s *Server) requireRead(next http.Handler) http.Handler {
+	return s.scopeGate(next, apikeys.ScopeRead)
+}
+
+// requireWrite gates a route to the dashboard token or a read_write API key. A
+// read-only key is authenticated but rejected with 403.
+func (s *Server) requireWrite(next http.Handler) http.Handler {
+	return s.scopeGate(next, apikeys.ScopeReadWrite)
+}
+
+// scopeGate admits the dashboard token (which always grants full access) or an API
+// key whose scope satisfies need; otherwise it rejects (401 unauthenticated, 403
+// authenticated-but-under-scoped). It is a no-op when auth is disabled, keeping the
+// API open by default. Admin/provisioning routes use requireToken instead, which
+// never accepts an API key, so a key can never escalate to managing credentials.
+func (s *Server) scopeGate(next http.Handler, need apikeys.Scope) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil || !s.auth.Required() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		presented := bearerToken(r)
+		if s.auth.Valid(presented) {
+			next.ServeHTTP(w, r) // dashboard token: full access
+			return
+		}
+		if key, ok := s.verifyAPIKey(r.Context(), presented); ok {
+			if apikeys.Scope(key.Scope).Satisfies(need) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			s.writeError(w, http.StatusForbidden, "this API key lacks the required scope ("+string(need)+")")
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="kasas"`)
+		s.writeError(w, http.StatusUnauthorized, "missing or invalid credentials")
+	})
+}
+
+// verifyAPIKey resolves a presented bearer to a stored API key by hashing it and
+// looking it up (an O(1) unique-index hit). On a match it touches the key's
+// last-used time, throttled so it is not a write per request. A miss (unknown key or
+// a read error) reports false, i.e. unauthorized.
+func (s *Server) verifyAPIKey(ctx context.Context, presented string) (db.ApiKey, bool) {
+	if presented == "" {
+		return db.ApiKey{}, false
+	}
+	key, err := s.store.GetApiKeyByHash(ctx, apikeys.Hash(presented))
+	if err != nil {
+		return db.ApiKey{}, false
+	}
+	if now := time.Now().Unix(); now-key.LastUsedAt >= apiKeyTouchInterval {
+		if uerr := s.store.UpdateApiKeyLastUsed(ctx, db.UpdateApiKeyLastUsedParams{LastUsedAt: now, ID: key.ID}); uerr != nil {
+			s.logger.Warn("update api key last_used failed", "key_id", key.ID, "error", uerr)
+		}
+	}
+	return key, true
 }
 
 // bearerToken extracts the token from an "Authorization: Bearer <token>" header,

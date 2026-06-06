@@ -448,6 +448,208 @@ func (c *apiClient) transactionHistory(ctx context.Context, id string) ([]versio
 	return out.Versions, nil
 }
 
+// webhook mirrors api.WebhookDTO: a registered delivery endpoint plus the health of
+// its most recent delivery. Secret is populated only by create, get, and rotate.
+type webhook struct {
+	ID            int64      `json:"id"`
+	URL           string     `json:"url"`
+	EventTypes    []string   `json:"event_types"`
+	Enabled       bool       `json:"enabled"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	LastStatus    int        `json:"last_status"`
+	LastError     string     `json:"last_error"`
+	LastAttemptAt *time.Time `json:"last_attempt_at"`
+	LastSuccessAt *time.Time `json:"last_success_at"`
+	Secret        string     `json:"secret"`
+}
+
+// webhookPayload is the create/update request body (mirrors api.webhookInput).
+type webhookPayload struct {
+	URL        string   `json:"url"`
+	EventTypes []string `json:"event_types"`
+	Enabled    bool     `json:"enabled"`
+}
+
+// webhookTestResult mirrors api.webhookTestResult: the outcome of a test delivery.
+type webhookTestResult struct {
+	Status    int    `json:"status"`
+	Delivered bool   `json:"delivered"`
+	Error     string `json:"error"`
+}
+
+func (c *apiClient) listWebhooks(ctx context.Context) ([]webhook, error) {
+	var out struct {
+		Webhooks []webhook `json:"webhooks"`
+	}
+	if err := c.get(ctx, "/api/v1/webhooks", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Webhooks, nil
+}
+
+func (c *apiClient) getWebhook(ctx context.Context, id int64) (webhook, error) {
+	var out webhook
+	if err := c.get(ctx, "/api/v1/webhooks/"+strconv.FormatInt(id, 10), nil, &out); err != nil {
+		return webhook{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) createWebhook(ctx context.Context, p webhookPayload) (webhook, error) {
+	return c.sendWebhook(ctx, http.MethodPost, "/api/v1/webhooks", p)
+}
+
+func (c *apiClient) updateWebhook(ctx context.Context, id int64, p webhookPayload) (webhook, error) {
+	return c.sendWebhook(ctx, http.MethodPut, "/api/v1/webhooks/"+strconv.FormatInt(id, 10), p)
+}
+
+// sendWebhook POSTs or PUTs a webhook payload and decodes the returned webhook,
+// surfacing the server's error message (e.g. an invalid URL) on failure.
+func (c *apiClient) sendWebhook(ctx context.Context, method, path string, p webhookPayload) (webhook, error) {
+	body, err := json.Marshal(p)
+	if err != nil {
+		return webhook{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(body))
+	if err != nil {
+		return webhook{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return webhook{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return webhook{}, decodeAPIError(resp, "save webhook")
+	}
+	var out webhook
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return webhook{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) deleteWebhook(ctx context.Context, id int64) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/webhooks/"+strconv.FormatInt(id, 10), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "delete webhook")
+	}
+	return nil
+}
+
+func (c *apiClient) testWebhook(ctx context.Context, id int64) (webhookTestResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/webhooks/"+strconv.FormatInt(id, 10)+"/test", nil)
+	if err != nil {
+		return webhookTestResult{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return webhookTestResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return webhookTestResult{}, decodeAPIError(resp, "test webhook")
+	}
+	var out webhookTestResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return webhookTestResult{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) rotateWebhookSecret(ctx context.Context, id int64) (webhook, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/webhooks/"+strconv.FormatInt(id, 10)+"/rotate-secret", nil)
+	if err != nil {
+		return webhook{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return webhook{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return webhook{}, decodeAPIError(resp, "rotate webhook secret")
+	}
+	var out webhook
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return webhook{}, err
+	}
+	return out, nil
+}
+
+// apiKey mirrors api.ApiKeyDTO: a provisioned credential. Key (the full secret) is
+// populated only in the create response; lists return metadata only.
+type apiKey struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Prefix     string     `json:"prefix"`
+	Scope      string     `json:"scope"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	Key        string     `json:"key"`
+}
+
+func (c *apiClient) listApiKeys(ctx context.Context) ([]apiKey, error) {
+	var out struct {
+		APIKeys []apiKey `json:"api_keys"`
+	}
+	if err := c.get(ctx, "/api/v1/security/api-keys", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.APIKeys, nil
+}
+
+func (c *apiClient) createApiKey(ctx context.Context, name, scope string) (apiKey, error) {
+	body, err := json.Marshal(map[string]string{"name": name, "scope": scope})
+	if err != nil {
+		return apiKey{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/security/api-keys", bytes.NewReader(body))
+	if err != nil {
+		return apiKey{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return apiKey{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return apiKey{}, decodeAPIError(resp, "create api key")
+	}
+	var out apiKey
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return apiKey{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) revokeApiKey(ctx context.Context, id int64) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/security/api-keys/"+strconv.FormatInt(id, 10), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "revoke api key")
+	}
+	return nil
+}
+
 // decodeAPIError reads a non-2xx response's {"error": "..."} body and returns it
 // as an error, falling back to the status code.
 func decodeAPIError(resp *http.Response, op string) error {
@@ -475,6 +677,7 @@ type configData struct {
 	Dashboard dashboardConfig `json:"dashboard"`
 	Update    updateConfig    `json:"update"`
 	Events    eventsConfig    `json:"events"`
+	Webhooks  webhooksConfig  `json:"webhooks"`
 	Security  securityConfig  `json:"security"`
 }
 
@@ -525,6 +728,11 @@ type eventsConfig struct {
 	Enabled              bool `json:"enabled"`
 	RetentionDays        int  `json:"retention_days"`
 	HistoryRetentionDays int  `json:"history_retention_days"`
+}
+type webhooksConfig struct {
+	Enabled     bool   `json:"enabled"`
+	Timeout     string `json:"timeout"`
+	MaxAttempts int    `json:"max_attempts"`
 }
 type securityConfig struct {
 	AuthRequired bool   `json:"auth_required"`

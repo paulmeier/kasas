@@ -62,6 +62,8 @@ func TestMCPListsAllTools(t *testing.T) {
 		"list_labels", "list_organizations", "sync_status", "trigger_sync",
 		"list_rules", "create_rule", "update_rule", "delete_rule", "run_rules",
 		"list_events", "get_transaction_history",
+		"list_api_keys", "create_api_key", "revoke_api_key",
+		"list_webhooks", "create_webhook", "update_webhook", "delete_webhook", "test_webhook",
 	}, names)
 }
 
