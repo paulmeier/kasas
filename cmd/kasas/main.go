@@ -41,6 +41,7 @@ import (
 	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/plugins"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/vault"
@@ -152,6 +153,24 @@ func run(command, configPath string) error {
 		})
 	}
 
+	// Plugin manager: loads plugins from disk and runs them in a sandboxed VM,
+	// reacting to committed events off the bus (so it needs events enabled, like the
+	// webhook dispatcher). A nil manager is a no-op; the API server holds it to
+	// expose plugin management across REST/MCP/dashboard.
+	var pluginManager *plugins.Manager
+	if cfg.Plugins.Enabled && eventBus != nil {
+		pluginManager = plugins.NewManager(plugins.Options{
+			Store:       store,
+			Emitter:     emitter,
+			Bus:         eventBus,
+			Dir:         cfg.Plugins.Dir,
+			Runtimes:    map[string]plugins.Runtime{plugins.RuntimeLua: plugins.NewLuaRuntime()},
+			HookTimeout: cfg.Plugins.HookTimeout,
+			QueueSize:   cfg.Plugins.QueueSize,
+			Logger:      logger,
+		})
+	}
+
 	apiOpts := api.Options{
 		Store:      store,
 		Syncer:     p,
@@ -163,6 +182,8 @@ func run(command, configPath string) error {
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
 		Dashboard:  dashboardHandler,
+		// nil when the plugin system is disabled; gates the plugin REST/MCP surface.
+		PluginManager: pluginManager,
 	}
 	// Assign the interface field only when non-nil to avoid a typed-nil that
 	// would read as non-nil inside the Server.
@@ -175,7 +196,7 @@ func run(command, configPath string) error {
 
 	switch command {
 	case "", "serve":
-		return serve(cfg, logger, p, srv, updateChecker, guard, store, eventBus)
+		return serve(cfg, logger, p, srv, updateChecker, guard, store, eventBus, pluginManager)
 	case "migrate":
 		logger.Info("migrations applied")
 		return nil
@@ -191,7 +212,7 @@ func run(command, configPath string) error {
 
 // serve runs the HTTP server plus the background sync scheduler until an
 // interrupt or SIGTERM is received, then shuts down gracefully.
-func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard, store db.Store, eventBus *events.Bus) error {
+func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard, store db.Store, eventBus *events.Bus, pluginManager *plugins.Manager) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -227,6 +248,14 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 		}, logger)
 		go dispatcher.Run(ctx)
 		logger.Info("webhook dispatcher started", "timeout", cfg.Webhooks.Timeout.String(), "max_attempts", cfg.Webhooks.MaxAttempts)
+	}
+
+	// Plugin manager: discovers plugins, loads the enabled ones, and runs their
+	// hooks against committed events. Like the dispatcher it rides the event bus and
+	// stops when ctx is cancelled / the bus closes on shutdown.
+	if pluginManager != nil {
+		go pluginManager.Run(ctx)
+		logger.Info("plugin manager started", "dir", cfg.Plugins.Dir, "hook_timeout", cfg.Plugins.HookTimeout.String())
 	}
 
 	if cfg.Sync.Enabled {

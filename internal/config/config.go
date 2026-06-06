@@ -26,6 +26,7 @@ type Config struct {
 	Update    Update
 	Events    Events
 	Webhooks  Webhooks
+	Plugins   Plugins
 }
 
 // Server holds HTTP server settings.
@@ -127,6 +128,21 @@ type Webhooks struct {
 	MaxAttempts int
 }
 
+// Plugins controls the plugin runtime: kasas loads plugins from Dir and runs them
+// in a sandboxed language VM, reacting to committed events off the bus (the async
+// counterpart to the rules engine and webhooks). It is effective only when
+// events.enabled is also true, since plugins consume the in-process event bus.
+// Enabled defaults to FALSE because a plugin is third-party code; enabling the
+// subsystem and each individual plugin is opt-in. HookTimeout bounds a single hook
+// invocation, and QueueSize is the per-plugin job-queue depth (a slow plugin drops
+// jobs rather than stalling the bus; consumers reconcile via the /events cursor).
+type Plugins struct {
+	Enabled     bool
+	Dir         string
+	HookTimeout time.Duration
+	QueueSize   int
+}
+
 // Update controls the periodic check for newer releases. It only logs a notice
 // when a newer version is published; upgrading is done explicitly via the
 // `kasas self-update` command. Docker deployments should disable it and update
@@ -173,6 +189,10 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("webhooks.enabled", true)
 	v.SetDefault("webhooks.timeout", "10s")
 	v.SetDefault("webhooks.max_attempts", 5)
+	v.SetDefault("plugins.enabled", false) // opt-in: plugins are third-party code
+	v.SetDefault("plugins.dir", "/data/plugins")
+	v.SetDefault("plugins.hook_timeout", "5s")
+	v.SetDefault("plugins.queue_size", 256)
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -193,6 +213,11 @@ func Load(path string) (*Config, error) {
 	webhookTimeout, err := time.ParseDuration(v.GetString("webhooks.timeout"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid webhooks.timeout %q: %w", v.GetString("webhooks.timeout"), err)
+	}
+
+	pluginHookTimeout, err := time.ParseDuration(v.GetString("plugins.hook_timeout"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugins.hook_timeout %q: %w", v.GetString("plugins.hook_timeout"), err)
 	}
 
 	cfg := &Config{
@@ -242,6 +267,12 @@ func Load(path string) (*Config, error) {
 			Timeout:     webhookTimeout,
 			MaxAttempts: v.GetInt("webhooks.max_attempts"),
 		},
+		Plugins: Plugins{
+			Enabled:     v.GetBool("plugins.enabled"),
+			Dir:         v.GetString("plugins.dir"),
+			HookTimeout: pluginHookTimeout,
+			QueueSize:   v.GetInt("plugins.queue_size"),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -289,6 +320,17 @@ func (c *Config) validate() error {
 		}
 		if c.Webhooks.MaxAttempts < 1 {
 			return fmt.Errorf("webhooks.max_attempts must be at least 1, got %d", c.Webhooks.MaxAttempts)
+		}
+	}
+	if c.Plugins.Enabled {
+		if c.Plugins.Dir == "" {
+			return fmt.Errorf("plugins.dir must not be empty when plugins are enabled")
+		}
+		if c.Plugins.HookTimeout <= 0 {
+			return fmt.Errorf("plugins.hook_timeout must be positive")
+		}
+		if c.Plugins.QueueSize < 1 {
+			return fmt.Errorf("plugins.queue_size must be at least 1, got %d", c.Plugins.QueueSize)
 		}
 	}
 	return nil

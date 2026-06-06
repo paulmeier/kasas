@@ -588,6 +588,100 @@ Manage webhooks over REST (`GET`/`POST`/`PUT`/`DELETE /api/v1/webhooks`, plus
 (`list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`,
 `test_webhook`). Webhooks ride on the event stream, so they require `events.enabled`.
 
+## Plugins
+
+Plugins are the **in-process** counterpart to webhooks: instead of pushing events to
+an external service, a plugin runs *inside* kasas, in a sandboxed language VM, and
+reacts to the same committed events. They let developers extend kasas — tax,
+budgeting, forecasting, notifications — without bloating the core ledger. v1 ships
+the **Lua** runtime ([gopher-lua], pure Go, no cgo); JavaScript/TypeScript and Go
+(via WASM) are planned behind the same adapter seam.
+
+Plugins run **asynchronously, after commit** (like webhooks, not like the synchronous
+rules engine): a slow or crashing plugin can never block or corrupt a sync. Each
+plugin runs on its own goroutine with a per-hook timeout, and a panic becomes a
+recorded error, not a crash.
+
+**Install** a plugin by dropping a directory into the plugins folder
+(`plugins.dir`, default `/data/plugins`):
+
+```
+/data/plugins/
+  budgeting/
+    plugin.toml      # manifest (required)
+    main.lua         # entrypoint (manifest `entrypoint`, default main.lua)
+```
+
+The `plugin.toml` declares the lifecycle **hooks** the plugin implements and the
+**capabilities** it needs:
+
+```toml
+name        = "budgeting"          # must match the directory name
+version     = "0.1.0"
+description = "Auto-categorize spending"
+runtime     = "lua"
+entrypoint  = "main.lua"
+
+# Hooks fired by the matching events: OnTransactionCreate (transaction.created),
+# OnTransactionUpdate (transaction.updated), OnSyncComplete (sync.completed).
+hooks = ["OnTransactionCreate", "OnTransactionUpdate"]
+
+# Capabilities the host grants (and enforces): transactions:read, labels:write,
+# extensions:write. A call to a host function the plugin wasn't granted errors.
+capabilities = ["transactions:read", "labels:write"]
+
+[config]                            # arbitrary config, exposed to the plugin as kasas.config
+keyword = "coffee"
+```
+
+The plugin implements its declared hooks as global functions and acts through the
+capability-checked `kasas` **host API** (`kasas.get_transaction`, `kasas.search`,
+`kasas.apply_labels`, `kasas.remove_labels`, `kasas.set_extension`,
+`kasas.remove_extension`, `kasas.log`, and `kasas.config`):
+
+```lua
+function OnTransactionCreate(txn)
+  if string.find(string.lower(txn.description), kasas.config.keyword, 1, true) then
+    kasas.apply_labels(txn.id, { category = "food" })   -- routes through the normal
+    kasas.log("info", "tagged", { id = txn.id })        -- emitter: emits label.applied
+  end
+end
+
+function OnTransactionUpdate(txn) OnTransactionCreate(txn) end
+```
+
+Because a plugin's writes go through the same emitter as a REST or rules edit, they
+produce the normal `label.applied` / `extension.set` events and transaction history
+— and flow to webhooks and other consumers.
+
+**Enable** is per-plugin and opt-in (a plugin is third-party code). Discovered
+plugins start **disabled**; enabling one loads and runs its code, so that action is
+**admin-only** (the dashboard token, never an API key):
+
+```sh
+curl -s -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" http://localhost:8080/api/v1/plugins
+# -> {"plugins":[{"id":1,"name":"budgeting","state":"disabled","hooks":[…],…}]}
+
+curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  http://localhost:8080/api/v1/plugins/1/enable
+# -> {"id":1,"name":"budgeting","enabled":true,"loaded":true,"state":"loaded",…}
+```
+
+Manage plugins on the dashboard **Plugins** page (status/health, enable/disable
+toggle, reload), over REST (`GET /api/v1/plugins`, `GET /api/v1/plugins/{id}`, and
+admin-tier `POST /api/v1/plugins/{id}/{enable,disable,reload}`), or the MCP tools
+(`list_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `reload_plugin`).
+Plugins ride the event bus, so they require `events.enabled` and `plugins.enabled`.
+
+**Sandbox & limits (v1).** The Lua VM opens only safe libraries — no filesystem,
+process, network, or dynamic code loading — and each hook is bounded by
+`plugins.hook_timeout`. It is **not** a hard memory sandbox (a buggy plugin can still
+allocate without bound), so the v1 trust model is *operator-installed, opt-in* plugins;
+a stronger WASM sandbox with hard resource caps (and a plugin marketplace) is the
+planned next step.
+
+[gopher-lua]: https://github.com/yuin/gopher-lua
+
 ## MCP server
 
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the

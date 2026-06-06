@@ -1,6 +1,7 @@
 package events
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -160,4 +161,53 @@ func (r *Recorder) VersionChange(ctx context.Context, q db.Querier, txnID string
 		}
 	}
 	return r.Version(ctx, q, txnID, next, kind)
+}
+
+// EmitLabelDiff records a label.applied event for every key that was added or
+// changed and a label.removed for every key that was dropped between a
+// transaction's old and new label sets. The event entity is the transaction. This
+// is the shared label-change emission for every mutation seam — the REST handlers,
+// the rules engine, and plugin host writes — so they all derive the per-key diff
+// identically. The caller is responsible for writing the labels column in the same
+// transaction; this only emits the change events.
+func (r *Recorder) EmitLabelDiff(ctx context.Context, q db.Querier, txnID string, oldLabels, newLabels map[string]string) error {
+	for k, v := range newLabels {
+		if oldLabels[k] != v {
+			if err := r.Emit(ctx, q, TypeLabelApplied, EntityTransaction, txnID, LabelPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	for k, v := range oldLabels {
+		if _, ok := newLabels[k]; !ok {
+			if err := r.Emit(ctx, q, TypeLabelRemoved, EntityTransaction, txnID, LabelPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// EmitExtensionDiff records an extension.set event for every key that was added or
+// changed and an extension.removed for every key that was dropped between a
+// transaction's old and new schema-extension sets. Values are compared as raw JSON
+// bytes (already compacted by normalization). The event entity is the transaction.
+// Like EmitLabelDiff, the caller writes the extensions column in the same
+// transaction; this only emits the change events.
+func (r *Recorder) EmitExtensionDiff(ctx context.Context, q db.Querier, txnID string, oldExt, newExt map[string]json.RawMessage) error {
+	for k, v := range newExt {
+		if old, ok := oldExt[k]; !ok || !bytes.Equal(old, v) {
+			if err := r.Emit(ctx, q, TypeExtensionSet, EntityTransaction, txnID, ExtensionPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	for k, v := range oldExt {
+		if _, ok := newExt[k]; !ok {
+			if err := r.Emit(ctx, q, TypeExtensionRemoved, EntityTransaction, txnID, ExtensionPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

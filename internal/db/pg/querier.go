@@ -32,6 +32,7 @@ type Querier interface {
 	// Removes the key only from transactions where it holds the given value (one
 	// value per key, so removing the key on a value match drops exactly that pair).
 	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
+	DeletePlugin(ctx context.Context, id int64) (int64, error)
 	DeleteRule(ctx context.Context, id int64) (int64, error)
 	// Retention prune: drops versions that occurred before the cutoff (unix seconds).
 	// :execrows reports how many rows were removed, for logging. Only runs when
@@ -51,6 +52,8 @@ type Querier interface {
 	GetApiKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
 	GetEventBySequence(ctx context.Context, id int64) (Event, error)
 	GetOrganization(ctx context.Context, id string) (Organization, error)
+	GetPlugin(ctx context.Context, id int64) (Plugin, error)
+	GetPluginByName(ctx context.Context, name string) (Plugin, error)
 	GetRule(ctx context.Context, id int64) (Rule, error)
 	GetTransaction(ctx context.Context, id string) (Transaction, error)
 	GetWebhook(ctx context.Context, id int64) (Webhook, error)
@@ -63,6 +66,10 @@ type Querier interface {
 	// just-committed event to live SSE subscribers. event_id is a caller-supplied
 	// UUID (unique); data is a JSON object.
 	InsertEvent(ctx context.Context, arg InsertEventParams) (Event, error)
+	// Registers a newly-discovered plugin. Discovery seeds granted_capabilities from
+	// the manifest's requested set; enabled defaults to 0 (running third-party code is
+	// opt-in). RETURNING * yields the generated id and timestamps.
+	InsertPlugin(ctx context.Context, arg InsertPluginParams) (Plugin, error)
 	// transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 	// transaction is a no-op. This keeps polling idempotent. labels and extensions
 	// are written as explicit empty objects so new rows never depend on the column
@@ -82,6 +89,7 @@ type Querier interface {
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
 	// Newest first, for the dashboard list (the secret is never returned, only metadata).
 	ListApiKeys(ctx context.Context) ([]ApiKey, error)
+	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
 	// The deterministic id order makes rule precedence predictable when several
 	// rules write the same label key (later rules win).
 	ListEnabledRules(ctx context.Context) ([]Rule, error)
@@ -111,6 +119,7 @@ type Querier interface {
 	// deterministic.
 	ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
+	ListPlugins(ctx context.Context) ([]Plugin, error)
 	// The most recent events, newest first. Powers "what just happened" views (the
 	// dashboard live feed) that want the tail of the stream without first discovering
 	// its head. Callers that want chronological order reverse the result.
@@ -127,8 +136,21 @@ type Querier interface {
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
 	ListTransactionsByAccount(ctx context.Context, arg ListTransactionsByAccountParams) ([]Transaction, error)
 	ListWebhooks(ctx context.Context) ([]Webhook, error)
+	// Toggles execution. :execrows lets the caller detect a missing id.
+	SetPluginEnabled(ctx context.Context, arg SetPluginEnabledParams) (int64, error)
 	// Best-effort touch of the last-used timestamp after a successful verification.
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
+	// Sets the operator config overrides (a JSON object merged over the manifest's).
+	UpdatePluginConfig(ctx context.Context, arg UpdatePluginConfigParams) (int64, error)
+	// Sets the approved capability grant (the marketplace approval flow writes this).
+	UpdatePluginGrantedCapabilities(ctx context.Context, arg UpdatePluginGrantedCapabilitiesParams) (int64, error)
+	// Refreshes the manifest-derived fields on re-discovery WITHOUT touching operator
+	// state (enabled, granted_capabilities, config).
+	UpdatePluginManifest(ctx context.Context, arg UpdatePluginManifestParams) (int64, error)
+	// Records the outcome of the most recent hook invocation on the plugin row (the
+	// lean alternative to a per-invocation table). last_success_at is only advanced on
+	// a successful run; the caller passes the existing value otherwise.
+	UpdatePluginRunStatus(ctx context.Context, arg UpdatePluginRunStatusParams) error
 	// Replaces the editable fields of a rule. :execrows lets the caller detect a
 	// missing id (0 rows affected).
 	UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, error)

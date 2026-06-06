@@ -122,3 +122,26 @@ timeout = "10s"
 # Delivery is best-effort: a consumer that misses one (its endpoint was down, or
 # kasas restarted) reconciles by replaying from its cursor via GET /api/v1/events.
 max_attempts = 5
+
+[plugins]
+# Plugin runtime: kasas loads plugins from `dir` and runs them in a sandboxed
+# language VM (Lua in v1, via gopher-lua), reacting to committed events off the bus
+# — the async counterpart to rules and webhooks. A plugin declares the lifecycle
+# hooks it implements (OnTransactionCreate, OnTransactionUpdate, OnSyncComplete) and
+# the capabilities it needs (transactions:read, labels:write, extensions:write); a
+# capability-checked host API (kasas.apply_labels, kasas.search, ...) is the only way
+# it can touch your data. Effective only when [events].enabled is also true.
+#
+# Disabled by default: a plugin is third-party code. Enabling the subsystem here
+# only makes plugins discoverable; each plugin must still be enabled individually
+# (dashboard Plugins page, POST /api/v1/plugins/{id}/enable, or the enable_plugin
+# MCP tool) — and enabling one runs its code, so that action is admin-only.
+enabled = false
+# Directory scanned for plugin subdirectories (each a plugin.toml plus its source).
+dir = "/data/plugins"
+# Wall-clock limit for a single hook invocation (a runaway pure-Lua loop is
+# interrupted at this deadline).
+hook_timeout = "5s"
+# Per-plugin job-queue depth. A slow plugin drops jobs rather than stalling the bus;
+# consumers reconcile any gap via the /events cursor.
+queue_size = 256

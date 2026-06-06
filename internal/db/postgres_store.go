@@ -342,6 +342,57 @@ func (a pgQuerier) DeleteWebhook(ctx context.Context, id int64) (int64, error) {
 	return a.q.DeleteWebhook(ctx, id)
 }
 
+// Plugins. All columns are int64/string, so Plugin rows and the param structs are
+// structurally identical to the pg-generated ones and convert with a cast.
+func (a pgQuerier) InsertPlugin(ctx context.Context, arg InsertPluginParams) (Plugin, error) {
+	row, err := a.q.InsertPlugin(ctx, pg.InsertPluginParams(arg))
+	return Plugin(row), err
+}
+
+func (a pgQuerier) GetPlugin(ctx context.Context, id int64) (Plugin, error) {
+	row, err := a.q.GetPlugin(ctx, id)
+	return Plugin(row), err
+}
+
+func (a pgQuerier) GetPluginByName(ctx context.Context, name string) (Plugin, error) {
+	row, err := a.q.GetPluginByName(ctx, name)
+	return Plugin(row), err
+}
+
+func (a pgQuerier) ListPlugins(ctx context.Context) ([]Plugin, error) {
+	rows, err := a.q.ListPlugins(ctx)
+	return mapSlice(rows, func(r pg.Plugin) Plugin { return Plugin(r) }), err
+}
+
+func (a pgQuerier) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
+	rows, err := a.q.ListEnabledPlugins(ctx)
+	return mapSlice(rows, func(r pg.Plugin) Plugin { return Plugin(r) }), err
+}
+
+func (a pgQuerier) SetPluginEnabled(ctx context.Context, arg SetPluginEnabledParams) (int64, error) {
+	return a.q.SetPluginEnabled(ctx, pg.SetPluginEnabledParams(arg))
+}
+
+func (a pgQuerier) UpdatePluginManifest(ctx context.Context, arg UpdatePluginManifestParams) (int64, error) {
+	return a.q.UpdatePluginManifest(ctx, pg.UpdatePluginManifestParams(arg))
+}
+
+func (a pgQuerier) UpdatePluginGrantedCapabilities(ctx context.Context, arg UpdatePluginGrantedCapabilitiesParams) (int64, error) {
+	return a.q.UpdatePluginGrantedCapabilities(ctx, pg.UpdatePluginGrantedCapabilitiesParams(arg))
+}
+
+func (a pgQuerier) UpdatePluginConfig(ctx context.Context, arg UpdatePluginConfigParams) (int64, error) {
+	return a.q.UpdatePluginConfig(ctx, pg.UpdatePluginConfigParams(arg))
+}
+
+func (a pgQuerier) UpdatePluginRunStatus(ctx context.Context, arg UpdatePluginRunStatusParams) error {
+	return a.q.UpdatePluginRunStatus(ctx, pg.UpdatePluginRunStatusParams(arg))
+}
+
+func (a pgQuerier) DeletePlugin(ctx context.Context, id int64) (int64, error) {
+	return a.q.DeletePlugin(ctx, id)
+}
+
 func mapSlice[T, U any](in []T, conv func(T) U) []U {
 	out := make([]U, len(in))
 	for i := range in {
