@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/paulmeier/kasas/compare/v2.6.0...v2.7.0) (2026-06-06)
+
+
+### Features
+
+* webhooks + scoped API key provisioning ([#44](https://github.com/paulmeier/kasas/issues/44)) ([15de699](https://github.com/paulmeier/kasas/commit/15de699eb5cf24e5119b03cbea778e7a65ddcb97))
+
 ## [2.6.0](https://github.com/paulmeier/kasas/compare/v2.5.0...v2.6.0) (2026-06-06)
 
 
