@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/labels"
 	"github.com/paulmeier/kasas/internal/rules"
 	"github.com/paulmeier/kasas/internal/search"
@@ -61,6 +62,7 @@ type Options struct {
 	Store           db.Store
 	Secrets         vault.SecretStore
 	Logger          *slog.Logger
+	Emitter         *events.Emitter // nil disables event recording (events.enabled=false)
 	Interval        time.Duration
 	LookbackDays    int
 	ConfigAccessURL string // simplefin.access_url from config, if any
@@ -73,6 +75,7 @@ type Poller struct {
 	store        db.Store
 	secrets      vault.SecretStore
 	logger       *slog.Logger
+	emitter      *events.Emitter
 	interval     time.Duration
 	lookbackDays int
 	configURL    string
@@ -93,6 +96,7 @@ func New(opts Options) *Poller {
 		store:        opts.Store,
 		secrets:      opts.Secrets,
 		logger:       logger,
+		emitter:      opts.Emitter,
 		interval:     opts.Interval,
 		lookbackDays: opts.LookbackDays,
 		configURL:    opts.ConfigAccessURL,
@@ -205,6 +209,7 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 		return SyncResult{}, err
 	}
 	result.Duration = time.Since(start)
+	p.emitSyncCompleted(ctx, entry.ID, result)
 
 	accountsGauge.Set(float64(result.Accounts))
 	txInserted.Add(float64(result.NewTransactions))
@@ -220,11 +225,14 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 	return result, nil
 }
 
-// persist writes accounts and transactions in a single transaction.
+// persist writes accounts and transactions in a single transaction, recording an
+// event for each meaningful change (account.created/updated, transaction.created/
+// updated, and label.applied from auto-labeling) so a change and its event commit
+// atomically. With the emitter disabled it is a plain transaction with no events.
 func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (SyncResult, error) {
 	var res SyncResult
 
-	err := p.store.RunInTx(ctx, func(q db.Querier) error {
+	err := p.emitter.Record(ctx, p.store, func(q db.Querier, rec *events.Recorder) error {
 		// Compile the enabled labeling rules once per sync; matching rules are
 		// applied to each brand-new transaction below.
 		compiledRules, err := p.loadEnabledRules(ctx, q)
@@ -243,7 +251,15 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				return fmt.Errorf("upsert organization %q: %w", org.StableOrgID(), err)
 			}
 
-			if err := q.UpsertAccount(ctx, db.UpsertAccountParams{
+			// Learn whether this account is new (and otherwise what changed) before
+			// the upsert, so we can emit account.created vs account.updated.
+			prevAcct, getErr := q.GetAccount(ctx, acct.ID)
+			isNewAccount := errors.Is(getErr, sql.ErrNoRows)
+			if getErr != nil && !isNewAccount {
+				return fmt.Errorf("get account %q: %w", acct.ID, getErr)
+			}
+
+			newAcct := db.Account{
 				ID:          acct.ID,
 				OrgID:       org.StableOrgID(),
 				Name:        acct.Name,
@@ -251,10 +267,22 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				Balance:     acct.Balance,
 				BalanceDate: acct.BalanceDate,
 				SyncedAt:    syncedAt,
-			}); err != nil {
+			}
+			if err := q.UpsertAccount(ctx, db.UpsertAccountParams(newAcct)); err != nil {
 				return fmt.Errorf("upsert account %q: %w", acct.ID, err)
 			}
 			res.Accounts++
+
+			switch {
+			case isNewAccount:
+				if err := rec.Emit(ctx, q, events.TypeAccountCreated, events.EntityAccount, acct.ID, events.AccountSnapshot(newAcct)); err != nil {
+					return err
+				}
+			case accountChanged(prevAcct, newAcct):
+				if err := rec.Emit(ctx, q, events.TypeAccountUpdated, events.EntityAccount, acct.ID, events.AccountSnapshot(newAcct)); err != nil {
+					return err
+				}
+			}
 
 			for _, t := range acct.Transactions {
 				// Insert is ON CONFLICT DO NOTHING, so n==1 means a brand-new
@@ -279,10 +307,15 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				}
 				if n > 0 {
 					res.NewTransactions += int(n)
-					// A brand-new row starts with no labels ('{}'); apply any
-					// matching rules. Re-synced (existing) rows are left alone so a
-					// sync never clobbers labels.
-					labeled, err := p.applyRulesToNewTxn(ctx, q, compiledRules, acct, t, syncedAt)
+					// A brand-new row starts with no labels ('{}').
+					created := newTransactionRow(acct, t, syncedAt, "{}")
+					if err := rec.Emit(ctx, q, events.TypeTransactionCreated, events.EntityTransaction, t.ID, events.TransactionSnapshot(created)); err != nil {
+						return err
+					}
+					// Apply any matching rules (emitting label.applied per label).
+					// Re-synced (existing) rows are left alone so a sync never
+					// clobbers labels.
+					labeled, err := p.applyRulesToNewTxn(ctx, q, rec, compiledRules, acct, t, syncedAt)
 					if err != nil {
 						return fmt.Errorf("apply rules to transaction %q: %w", t.ID, err)
 					}
@@ -290,6 +323,12 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 						res.AutoLabeled++
 					}
 					continue
+				}
+				// Existing row: fetch it first so we can tell whether this refresh
+				// actually changed a bridge field, and thus whether to emit.
+				prevTxn, err := q.GetTransaction(ctx, t.ID)
+				if err != nil {
+					return fmt.Errorf("get transaction %q: %w", t.ID, err)
 				}
 				if _, err := q.UpdateTransactionFromSync(ctx, db.UpdateTransactionFromSyncParams{
 					ID:          t.ID,
@@ -305,6 +344,13 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 					return fmt.Errorf("refresh transaction %q: %w", t.ID, err)
 				}
 				res.UpdatedTransactions++
+				// The refresh preserves existing labels; carry them in the snapshot.
+				updated := newTransactionRow(acct, t, syncedAt, prevTxn.Labels)
+				if transactionBridgeChanged(prevTxn, updated) {
+					if err := rec.Emit(ctx, q, events.TypeTransactionUpdated, events.EntityTransaction, t.ID, events.TransactionSnapshot(updated)); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		return nil
@@ -338,8 +384,9 @@ func (p *Poller) loadEnabledRules(ctx context.Context, q db.Querier) ([]rules.Co
 
 // applyRulesToNewTxn applies the compiled rules to one just-inserted transaction
 // (whose labels are still empty) and writes the merged label set when any rule
-// matched. It reports whether the transaction was labeled.
-func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, compiled []rules.Compiled, acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) (bool, error) {
+// matched, emitting a label.applied event per applied label. It reports whether
+// the transaction was labeled.
+func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) (bool, error) {
 	if len(compiled) == 0 {
 		return false, nil
 	}
@@ -354,7 +401,75 @@ func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, compiled 
 	if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ID, Labels: encoded}); err != nil {
 		return false, err
 	}
+	// The transaction had no labels before, so every merged label is newly applied.
+	for k, v := range merged {
+		if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, t.ID, events.LabelPayload{TransactionID: t.ID, Key: k, Value: v}); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
+}
+
+// accountChanged reports whether any consumer-meaningful field of an account
+// differs (synced_at, which changes every sync, is intentionally ignored).
+func accountChanged(prev, next db.Account) bool {
+	return prev.Name != next.Name ||
+		prev.Currency != next.Currency ||
+		prev.Balance != next.Balance ||
+		prev.BalanceDate != next.BalanceDate ||
+		prev.OrgID != next.OrgID
+}
+
+// transactionBridgeChanged reports whether a re-sync actually changed a
+// bridge-owned field. synced_at (always changes) and labels (never touched by a
+// sync) are excluded, so a no-op refresh emits no transaction.updated event.
+func transactionBridgeChanged(prev, next db.Transaction) bool {
+	return prev.AccountID != next.AccountID ||
+		prev.Amount != next.Amount ||
+		prev.Pending != next.Pending ||
+		prev.Date != next.Date ||
+		prev.Description != next.Description ||
+		prev.Payee != next.Payee ||
+		prev.Memo != next.Memo
+}
+
+// newTransactionRow assembles a db.Transaction from a synced SimpleFIN transaction
+// for use as an event snapshot, carrying the given labels JSON (the new-row default
+// '{}' for an insert, or the existing labels for a refresh).
+func newTransactionRow(acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64, labelsJSON string) db.Transaction {
+	return db.Transaction{
+		ID:          t.ID,
+		AccountID:   acct.ID,
+		Amount:      t.Amount,
+		Pending:     boolToInt(t.Pending),
+		Date:        transactionDate(t),
+		Description: t.Description,
+		Payee:       t.Payee,
+		Memo:        t.Memo,
+		SyncedAt:    syncedAt,
+		Labels:      labelsJSON,
+	}
+}
+
+// emitSyncCompleted records a sync.completed event summarizing the run. It runs in
+// its own short transaction after the data has committed, so a failure to record it
+// is logged but never fails the sync. No-op when the emitter is disabled.
+func (p *Poller) emitSyncCompleted(ctx context.Context, syncLogID int64, res SyncResult) {
+	if p.emitter == nil {
+		return
+	}
+	err := p.emitter.Record(ctx, p.store, func(q db.Querier, rec *events.Recorder) error {
+		return rec.Emit(ctx, q, events.TypeSyncCompleted, events.EntitySync, events.EntityID(syncLogID), events.SyncCompletedPayload{
+			Accounts:            res.Accounts,
+			NewTransactions:     res.NewTransactions,
+			UpdatedTransactions: res.UpdatedTransactions,
+			AutoLabeled:         res.AutoLabeled,
+			Duration:            res.Duration.String(),
+		})
+	})
+	if err != nil {
+		p.logger.Error("failed to record sync.completed event", "error", err, "sync_id", syncLogID)
+	}
 }
 
 // newSearchRecord adapts a SimpleFIN account + transaction into the search

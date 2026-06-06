@@ -18,6 +18,16 @@ type Account struct {
 	SyncedAt    int64  `json:"synced_at"`
 }
 
+type Event struct {
+	ID         int64  `json:"id"`
+	EventID    string `json:"event_id"`
+	EventType  string `json:"event_type"`
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+	OccurredAt int64  `json:"occurred_at"`
+	Data       string `json:"data"`
+}
+
 type Organization struct {
 	ID      string `json:"id"`
 	Domain  string `json:"domain"`

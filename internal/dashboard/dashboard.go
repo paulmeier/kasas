@@ -48,6 +48,7 @@ func Routes() {
 	app.Route("/search", func() app.Composer { return &searchView{} })
 	app.Route("/labels", func() app.Composer { return &labelsView{} })
 	app.Route("/rules", func() app.Composer { return &rulesView{} })
+	app.Route("/events", func() app.Composer { return &eventsView{} })
 	app.Route("/settings", func() app.Composer { return &settingsView{} })
 }
 

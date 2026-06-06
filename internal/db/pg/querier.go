@@ -16,6 +16,9 @@ type Querier interface {
 	// labels before storing. RETURNING * yields the generated id and timestamps.
 	CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error)
 	CreateSyncLog(ctx context.Context, arg CreateSyncLogParams) (SyncLog, error)
+	// Retention prune: drops events that occurred before the cutoff (unix seconds).
+	// :execrows reports how many rows were removed, for logging.
+	DeleteEventsBefore(ctx context.Context, cutoff int64) (int64, error)
 	// Removes one key from every transaction that carries it.
 	DeleteLabelByKey(ctx context.Context, labelKey string) (int64, error)
 	// Removes the key only from transactions where it holds the given value (one
@@ -31,9 +34,15 @@ type Querier interface {
 	FilterTransactionsByLabelKey(ctx context.Context, arg FilterTransactionsByLabelKeyParams) ([]Transaction, error)
 	FilterTransactionsByLabelValue(ctx context.Context, arg FilterTransactionsByLabelValueParams) ([]Transaction, error)
 	GetAccount(ctx context.Context, id string) (Account, error)
+	GetEventBySequence(ctx context.Context, id int64) (Event, error)
 	GetOrganization(ctx context.Context, id string) (Organization, error)
 	GetRule(ctx context.Context, id int64) (Rule, error)
 	GetTransaction(ctx context.Context, id string) (Transaction, error)
+	// Appends one immutable event to the canonical stream. The generated id
+	// (sequence) and the stored row are returned so the caller can broadcast the
+	// just-committed event to live SSE subscribers. event_id is a caller-supplied
+	// UUID (unique); data is a JSON object.
+	InsertEvent(ctx context.Context, arg InsertEventParams) (Event, error)
 	// transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 	// transaction is a no-op. This keeps polling idempotent. labels is written as an
 	// explicit empty object so new rows never depend on the column default (SQLite
@@ -45,6 +54,13 @@ type Querier interface {
 	// The deterministic id order makes rule precedence predictable when several
 	// rules write the same label key (later rules win).
 	ListEnabledRules(ctx context.Context) ([]Rule, error)
+	// The cursor read: every event whose sequence is greater than `after`, in stream
+	// order, with optional exact-match filters (an empty string disables that filter).
+	// Mirrors the ListTransactions optional-filter shape - the column is written first
+	// so sqlc infers a non-null type for each bound parameter, keeping the generated
+	// params struct byte-identical across SQLite and Postgres (row_limit aside, which
+	// the pg adapter casts to int32). row_limit caps the page size.
+	ListEventsAfter(ctx context.Context, arg ListEventsAfterParams) ([]Event, error)
 	// Returns the (id, labels) of every transaction that carries at least one label.
 	// The API explodes the JSON objects in Go to build the label vocabulary with
 	// per-pair transaction counts. Done in Go (not SQL) to stay portable across
@@ -55,6 +71,10 @@ type Querier interface {
 	// deterministic.
 	ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
+	// The most recent events, newest first. Powers "what just happened" views (the
+	// dashboard live feed) that want the tail of the stream without first discovering
+	// its head. Callers that want chronological order reverse the result.
+	ListRecentEvents(ctx context.Context, rowLimit int32) ([]Event, error)
 	ListRules(ctx context.Context) ([]Rule, error)
 	ListSyncLogs(ctx context.Context, rowLimit int32) ([]SyncLog, error)
 	// A bound of 0 disables that side of the date filter (so 0/0 returns all).

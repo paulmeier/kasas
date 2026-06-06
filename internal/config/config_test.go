@@ -26,6 +26,25 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Empty(t, cfg.Dashboard.Token)
 	assert.False(t, cfg.Vault.Enabled)
 	assert.Equal(t, "secret", cfg.Vault.Mount)
+	assert.True(t, cfg.Events.Enabled)
+	assert.Equal(t, 0, cfg.Events.RetentionDays, "keep events forever by default")
+}
+
+func TestLoadEventsConfig(t *testing.T) {
+	t.Setenv("KASAS_EVENTS_ENABLED", "false")
+	t.Setenv("KASAS_EVENTS_RETENTION_DAYS", "30")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.False(t, cfg.Events.Enabled)
+	assert.Equal(t, 30, cfg.Events.RetentionDays)
+}
+
+func TestNegativeRetentionRejected(t *testing.T) {
+	t.Setenv("KASAS_EVENTS_RETENTION_DAYS", "-1")
+	_, err := Load("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "events.retention_days")
 }
 
 func TestLoadEnvOverride(t *testing.T) {

@@ -209,6 +209,39 @@ func (a pgQuerier) DeleteRule(ctx context.Context, id int64) (int64, error) {
 	return a.q.DeleteRule(ctx, id)
 }
 
+// Event stream. The events table columns are all int64/string, so Event rows and
+// InsertEventParams are byte-identical to the pg ones (whole-struct cast); only
+// ListEventsAfter's row_limit needs the int32 hand-map (pg infers int32 for LIMIT).
+func (a pgQuerier) InsertEvent(ctx context.Context, arg InsertEventParams) (Event, error) {
+	row, err := a.q.InsertEvent(ctx, pg.InsertEventParams(arg))
+	return Event(row), err
+}
+
+func (a pgQuerier) GetEventBySequence(ctx context.Context, id int64) (Event, error) {
+	row, err := a.q.GetEventBySequence(ctx, id)
+	return Event(row), err
+}
+
+func (a pgQuerier) ListEventsAfter(ctx context.Context, arg ListEventsAfterParams) ([]Event, error) {
+	rows, err := a.q.ListEventsAfter(ctx, pg.ListEventsAfterParams{
+		After:      arg.After,
+		EventType:  arg.EventType,
+		EntityType: arg.EntityType,
+		EntityID:   arg.EntityID,
+		RowLimit:   int32(arg.RowLimit),
+	})
+	return mapSlice(rows, func(r pg.Event) Event { return Event(r) }), err
+}
+
+func (a pgQuerier) ListRecentEvents(ctx context.Context, rowLimit int64) ([]Event, error) {
+	rows, err := a.q.ListRecentEvents(ctx, int32(rowLimit))
+	return mapSlice(rows, func(r pg.Event) Event { return Event(r) }), err
+}
+
+func (a pgQuerier) DeleteEventsBefore(ctx context.Context, cutoff int64) (int64, error) {
+	return a.q.DeleteEventsBefore(ctx, cutoff)
+}
+
 func mapSlice[T, U any](in []T, conv func(T) U) []U {
 	out := make([]U, len(in))
 	for i := range in {

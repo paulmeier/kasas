@@ -24,6 +24,7 @@ type Config struct {
 	MCP       MCP
 	Dashboard Dashboard
 	Update    Update
+	Events    Events
 }
 
 // Server holds HTTP server settings.
@@ -94,6 +95,17 @@ type Dashboard struct {
 	Token   string
 }
 
+// Events controls the canonical event stream (REST /api/v1/events, the SSE
+// /api/v1/events/stream tail, and the list_events MCP tool). When Enabled (the
+// default) every meaningful change is recorded as an immutable, append-only event.
+// RetentionDays, when > 0, prunes events older than that many days on a periodic
+// schedule; 0 (the default) keeps them forever so the stream stays fully
+// replayable.
+type Events struct {
+	Enabled       bool
+	RetentionDays int
+}
+
 // Update controls the periodic check for newer releases. It only logs a notice
 // when a newer version is published; upgrading is done explicitly via the
 // `kasas self-update` command. Docker deployments should disable it and update
@@ -134,6 +146,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("update.check", true)
 	v.SetDefault("update.allow_apply", true)
 	v.SetDefault("update.repository", "paulmeier/kasas")
+	v.SetDefault("events.enabled", true)
+	v.SetDefault("events.retention_days", 0)
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -188,6 +202,10 @@ func Load(path string) (*Config, error) {
 			AllowApply: v.GetBool("update.allow_apply"),
 			Repository: v.GetString("update.repository"),
 		},
+		Events: Events{
+			Enabled:       v.GetBool("events.enabled"),
+			RetentionDays: v.GetInt("events.retention_days"),
+		},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -222,6 +240,9 @@ func (c *Config) validate() error {
 	}
 	if c.Update.Check && !strings.Contains(c.Update.Repository, "/") {
 		return fmt.Errorf("update.repository must be in owner/name form, got %q", c.Update.Repository)
+	}
+	if c.Events.RetentionDays < 0 {
+		return fmt.Errorf("events.retention_days must not be negative, got %d", c.Events.RetentionDays)
 	}
 	return nil
 }

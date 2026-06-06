@@ -768,3 +768,50 @@ html, body {
 .login-input { width: 100%; min-width: 0; max-width: none; }
 .login-btn { width: 100%; }
 .login-err { color: var(--neg); font-size: 13px; }
+
+/* --- Events page (live event stream feed) --- */
+.events-table td.evt-seq, .events-table th.evt-seq {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  width: 1%;
+}
+.events-table td.evt-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.events-table td.evt-entity { color: var(--muted); white-space: nowrap; }
+.badge.evt-type {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.badge.evt-type.evt-txn   { color: var(--accent); border-color: rgba(110, 168, 254, 0.35); }
+.badge.evt-type.evt-acct  { color: var(--pos); border-color: rgba(63, 185, 80, 0.35); }
+.badge.evt-type.evt-label { color: #d29922; border-color: rgba(210, 153, 34, 0.35); }
+.badge.evt-type.evt-rule  { color: #bc8cff; border-color: rgba(188, 140, 255, 0.35); }
+.badge.evt-type.evt-sync  { color: var(--muted); }
+.evt-data details > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+  user-select: none;
+}
+.evt-json {
+  margin: 8px 0 2px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 520px;
+  overflow-x: auto;
+}

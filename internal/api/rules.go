@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/rules"
 	"github.com/paulmeier/kasas/internal/search"
 )
@@ -157,12 +158,12 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
-	n, err := s.store.DeleteRule(r.Context(), id)
+	deleted, err := s.deleteRule(r.Context(), id)
 	if err != nil {
 		s.serverError(w, "delete rule", err)
 		return
 	}
-	if n == 0 {
+	if !deleted {
 		s.writeError(w, http.StatusNotFound, "rule not found")
 		return
 	}
@@ -192,7 +193,7 @@ func (s *Server) handleRunRule(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "compile rule", err)
 		return
 	}
-	matched, updated, err := s.applyRules(r.Context(), []rules.Compiled{compiled})
+	matched, updated, err := s.applyRules(r.Context(), []rules.Compiled{compiled}, id)
 	if err != nil {
 		s.serverError(w, "run rule", err)
 		return
@@ -207,7 +208,7 @@ func (s *Server) handleRunAllRules(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "load rules", err)
 		return
 	}
-	matched, updated, err := s.applyRules(r.Context(), compiled)
+	matched, updated, err := s.applyRules(r.Context(), compiled, 0)
 	if err != nil {
 		s.serverError(w, "run rules", err)
 		return
@@ -242,14 +243,26 @@ func (s *Server) createRule(ctx context.Context, in ruleInput) (db.Rule, error) 
 		enabled = *in.Enabled
 	}
 	now := time.Now().Unix()
-	return s.store.CreateRule(ctx, db.CreateRuleParams{
-		Name:      strings.TrimSpace(in.Name),
-		Query:     query,
-		Labels:    encoded,
-		Enabled:   boolToInt64(enabled),
-		CreatedAt: now,
-		UpdatedAt: now,
+	var created db.Rule
+	err = s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
+		var cerr error
+		created, cerr = q.CreateRule(ctx, db.CreateRuleParams{
+			Name:      strings.TrimSpace(in.Name),
+			Query:     query,
+			Labels:    encoded,
+			Enabled:   boolToInt64(enabled),
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+		if cerr != nil {
+			return cerr
+		}
+		return rec.Emit(ctx, q, events.TypeRuleCreated, events.EntityRule, events.EntityID(created.ID), events.RuleSnapshot(created))
 	})
+	if err != nil {
+		return db.Rule{}, err
+	}
+	return created, nil
 }
 
 // updateRule validates and replaces a rule's editable fields, returning the
@@ -263,21 +276,59 @@ func (s *Server) updateRule(ctx context.Context, id int64, in ruleInput) (db.Rul
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
-	n, err := s.store.UpdateRule(ctx, db.UpdateRuleParams{
-		ID:        id,
-		Name:      strings.TrimSpace(in.Name),
-		Query:     query,
-		Labels:    encoded,
-		Enabled:   boolToInt64(enabled),
-		UpdatedAt: time.Now().Unix(),
+	var updated db.Rule
+	err = s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
+		n, uerr := q.UpdateRule(ctx, db.UpdateRuleParams{
+			ID:        id,
+			Name:      strings.TrimSpace(in.Name),
+			Query:     query,
+			Labels:    encoded,
+			Enabled:   boolToInt64(enabled),
+			UpdatedAt: time.Now().Unix(),
+		})
+		if uerr != nil {
+			return uerr
+		}
+		if n == 0 {
+			return errRuleNotFound
+		}
+		var gerr error
+		updated, gerr = q.GetRule(ctx, id)
+		if gerr != nil {
+			return gerr
+		}
+		return rec.Emit(ctx, q, events.TypeRuleUpdated, events.EntityRule, events.EntityID(id), events.RuleSnapshot(updated))
 	})
 	if err != nil {
 		return db.Rule{}, err
 	}
-	if n == 0 {
-		return db.Rule{}, errRuleNotFound
-	}
-	return s.store.GetRule(ctx, id)
+	return updated, nil
+}
+
+// deleteRule deletes a rule by id, emitting rule.deleted (carrying the rule's last
+// state) when one was actually removed. It reports whether a rule was deleted so
+// callers can map a miss to 404 / a not-found tool error. Shared by REST and MCP.
+func (s *Server) deleteRule(ctx context.Context, id int64) (bool, error) {
+	deleted := false
+	err := s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
+		rule, gerr := q.GetRule(ctx, id)
+		if errors.Is(gerr, sql.ErrNoRows) {
+			return nil // not found; deleted stays false
+		}
+		if gerr != nil {
+			return gerr
+		}
+		n, derr := q.DeleteRule(ctx, id)
+		if derr != nil {
+			return derr
+		}
+		if n == 0 {
+			return nil
+		}
+		deleted = true
+		return rec.Emit(ctx, q, events.TypeRuleDeleted, events.EntityRule, events.EntityID(id), events.RuleSnapshot(rule))
+	})
+	return deleted, err
 }
 
 // applyRules runs the compiled rules over every stored transaction, writing the
@@ -285,7 +336,7 @@ func (s *Server) updateRule(ctx context.Context, id int64, in ruleInput) (db.Rul
 // transaction. It returns the number of transactions matched by at least one
 // rule and the number actually updated (a match whose label was already present
 // is matched but not updated).
-func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled) (matched, updated int, err error) {
+func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled, ruleID int64) (matched, updated int, err error) {
 	if len(compiled) == 0 {
 		return 0, 0, nil
 	}
@@ -304,13 +355,14 @@ func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled) (mat
 		return 0, 0, err
 	}
 
-	err = s.store.RunInTx(ctx, func(q db.Querier) error {
+	err = s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
 		for _, t := range txns {
-			rec := toSearchRecord(t, names[t.AccountID])
-			if anyMatch(compiled, rec) {
+			sr := toSearchRecord(t, names[t.AccountID])
+			if anyMatch(compiled, sr) {
 				matched++
 			}
-			merged, changed := rules.Apply(compiled, rec, decodeLabels(t.Labels))
+			old := decodeLabels(t.Labels)
+			merged, changed := rules.Apply(compiled, sr, old)
 			if !changed {
 				continue
 			}
@@ -325,8 +377,20 @@ func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled) (mat
 				return eerr
 			}
 			updated++
+			if eerr := emitLabelDiff(ctx, q, rec, t.ID, old, merged); eerr != nil {
+				return eerr
+			}
 		}
-		return nil
+		// One rule.executed summarizes the run (ruleID 0 means run-all-enabled).
+		entityID := ""
+		if ruleID > 0 {
+			entityID = events.EntityID(ruleID)
+		}
+		return rec.Emit(ctx, q, events.TypeRuleExecuted, events.EntityRule, entityID, events.RuleExecutedPayload{
+			RuleID:  ruleID,
+			Matched: matched,
+			Updated: updated,
+		})
 	})
 	if err != nil {
 		return 0, 0, err
