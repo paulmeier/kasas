@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/paulmeier/kasas/compare/v2.1.0...v2.2.0) (2026-06-06)
+
+
+### Features
+
+* transaction search page with shared REST + MCP query language ([#34](https://github.com/paulmeier/kasas/issues/34)) ([5e1686a](https://github.com/paulmeier/kasas/commit/5e1686a9eed46347d107191de5ca94f945ea6a5a))
+
 ## [2.1.0](https://github.com/paulmeier/kasas/compare/v2.0.0...v2.1.0) (2026-06-06)
 
 
