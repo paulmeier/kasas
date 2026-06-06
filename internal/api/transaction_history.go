@@ -34,17 +34,21 @@ type VersionDTO struct {
 }
 
 // VersionDiffDTO is the wire form of events.VersionDiff: the scalar field changes
-// and the label add/remove/change deltas from the previous version. The first
-// version diffs against an empty snapshot (a "birth" diff), so every entry —
-// including v1 — carries a diff.
+// plus the label and schema-extension add/remove/change deltas from the previous
+// version. The first version diffs against an empty snapshot (a "birth" diff), so
+// every entry — including v1 — carries a diff.
 type VersionDiffDTO struct {
-	Fields        []events.FieldChange      `json:"fields"`
-	LabelsAdded   map[string]string         `json:"labels_added"`
-	LabelsRemoved map[string]string         `json:"labels_removed"`
-	LabelsChanged map[string]LabelChangeDTO `json:"labels_changed"`
+	Fields            []events.FieldChange      `json:"fields"`
+	LabelsAdded       map[string]string         `json:"labels_added"`
+	LabelsRemoved     map[string]string         `json:"labels_removed"`
+	LabelsChanged     map[string]LabelChangeDTO `json:"labels_changed"`
+	ExtensionsAdded   map[string]string         `json:"extensions_added"`
+	ExtensionsRemoved map[string]string         `json:"extensions_removed"`
+	ExtensionsChanged map[string]LabelChangeDTO `json:"extensions_changed"`
 }
 
-// LabelChangeDTO is a single label whose value changed between versions.
+// LabelChangeDTO is a single label or extension whose value changed between
+// versions (extension values are rendered as strings — see events.VersionDiff).
 type LabelChangeDTO struct {
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -83,6 +87,9 @@ func decodeSnapshot(data string) events.TransactionPayload {
 	if p.Labels == nil {
 		p.Labels = map[string]string{}
 	}
+	if p.Extensions == nil {
+		p.Extensions = map[string]any{}
+	}
 	return p
 }
 
@@ -94,15 +101,22 @@ func toVersionDiffDTO(d events.VersionDiff) VersionDiffDTO {
 	for k, v := range d.LabelsChanged {
 		changed[k] = LabelChangeDTO{From: v[0], To: v[1]}
 	}
+	extChanged := make(map[string]LabelChangeDTO, len(d.ExtensionsChanged))
+	for k, v := range d.ExtensionsChanged {
+		extChanged[k] = LabelChangeDTO{From: v[0], To: v[1]}
+	}
 	fields := d.Fields
 	if fields == nil {
 		fields = []events.FieldChange{}
 	}
 	return VersionDiffDTO{
-		Fields:        fields,
-		LabelsAdded:   d.LabelsAdded,
-		LabelsRemoved: d.LabelsRemoved,
-		LabelsChanged: changed,
+		Fields:            fields,
+		LabelsAdded:       d.LabelsAdded,
+		LabelsRemoved:     d.LabelsRemoved,
+		LabelsChanged:     changed,
+		ExtensionsAdded:   d.ExtensionsAdded,
+		ExtensionsRemoved: d.ExtensionsRemoved,
+		ExtensionsChanged: extChanged,
 	}
 }
 

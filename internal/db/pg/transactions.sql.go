@@ -21,7 +21,7 @@ func (q *Queries) CountTransactions(ctx context.Context) (int64, error) {
 }
 
 const getTransaction = `-- name: GetTransaction :one
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
 WHERE id = $1
 `
 
@@ -39,6 +39,7 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 		&i.Memo,
 		&i.SyncedAt,
 		&i.Labels,
+		&i.Extensions,
 	)
 	return i, err
 }
@@ -46,12 +47,12 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 const insertTransaction = `-- name: InsertTransaction :execrows
 INSERT INTO transactions (
     id, account_id, amount, pending, date, description, payee, memo, synced_at,
-    labels
+    labels, extensions
 )
 VALUES (
     $1, $2, $3, $4,
     $5, $6, $7, $8,
-    $9, '{}'
+    $9, '{}', '{}'
 )
 ON CONFLICT (id) DO NOTHING
 `
@@ -69,9 +70,10 @@ type InsertTransactionParams struct {
 }
 
 // transactions.id is the SimpleFIN transaction ID, so re-syncing the same
-// transaction is a no-op. This keeps polling idempotent. labels is written as an
-// explicit empty object so new rows never depend on the column default (SQLite
-// can't cheaply change a STRICT table's default; see the 00003 migration).
+// transaction is a no-op. This keeps polling idempotent. labels and extensions
+// are written as explicit empty objects so new rows never depend on the column
+// default (SQLite can't cheaply change a STRICT table's default; see the 00003
+// and 00009 migrations).
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, insertTransaction,
 		arg.ID,
@@ -88,6 +90,44 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const listExtendedTransactions = `-- name: ListExtendedTransactions :many
+SELECT id, extensions FROM transactions WHERE extensions <> '{}' ORDER BY id
+`
+
+type ListExtendedTransactionsRow struct {
+	ID         string `json:"id"`
+	Extensions string `json:"extensions"`
+}
+
+// Returns the (id, extensions) of every transaction carrying at least one
+// extension. The API explodes the JSON objects in Go to build the extension
+// vocabulary (one entry per distinct key, with a transaction count). Done in Go,
+// like ListLabeledTransactions, to stay portable across SQLite and Postgres
+// (json_each vs jsonb_each infer different column types, which would break the
+// byte-identical pgstore adapter). ORDER BY makes the row order deterministic.
+func (q *Queries) ListExtendedTransactions(ctx context.Context) ([]ListExtendedTransactionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listExtendedTransactions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExtendedTransactionsRow{}
+	for rows.Next() {
+		var i ListExtendedTransactionsRow
+		if err := rows.Scan(&i.ID, &i.Extensions); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listLabeledTransactions = `-- name: ListLabeledTransactions :many
@@ -131,7 +171,7 @@ func (q *Queries) ListLabeledTransactions(ctx context.Context) ([]ListLabeledTra
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
 WHERE (date >= $1 OR $1 = 0)
   AND (date <= $2 OR $2 = 0)
 ORDER BY date DESC, id
@@ -173,6 +213,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Memo,
 			&i.SyncedAt,
 			&i.Labels,
+			&i.Extensions,
 		); err != nil {
 			return nil, err
 		}
@@ -188,7 +229,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
 WHERE account_id = $1
   AND (date >= $2 OR $2 = 0)
   AND (date <= $3 OR $3 = 0)
@@ -230,6 +271,7 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 			&i.Memo,
 			&i.SyncedAt,
 			&i.Labels,
+			&i.Extensions,
 		); err != nil {
 			return nil, err
 		}
@@ -242,6 +284,27 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateTransactionExtensions = `-- name: UpdateTransactionExtensions :execrows
+UPDATE transactions SET extensions = $1 WHERE id = $2
+`
+
+type UpdateTransactionExtensionsParams struct {
+	Extensions string `json:"extensions"`
+	ID         string `json:"id"`
+}
+
+// Replaces the whole schema-extensions object for one transaction. extensions is
+// a JSON object of namespaced key->arbitrary-JSON-value pairs; the API normalizes
+// it before storing. :execrows lets the caller detect a missing id (0 rows
+// affected). The poller never touches extensions, so this is the only writer.
+func (q *Queries) UpdateTransactionExtensions(ctx context.Context, arg UpdateTransactionExtensionsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTransactionExtensions, arg.Extensions, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateTransactionFromSync = `-- name: UpdateTransactionFromSync :execrows

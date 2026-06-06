@@ -69,9 +69,10 @@ type Querier interface {
 	// UUID (unique); data is a JSON object.
 	InsertEvent(ctx context.Context, arg InsertEventParams) (Event, error)
 	// transactions.id is the SimpleFIN transaction ID, so re-syncing the same
-	// transaction is a no-op. This keeps polling idempotent. labels is written as an
-	// explicit empty object so new rows never depend on the column default (SQLite
-	// can't cheaply change a STRICT table's default; see the 00003 migration).
+	// transaction is a no-op. This keeps polling idempotent. labels and extensions
+	// are written as explicit empty objects so new rows never depend on the column
+	// default (SQLite can't cheaply change a STRICT table's default; see the 00003
+	// and 00009 migrations).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error)
 	// Appends one immutable snapshot to a transaction's history. The generated id
 	// (insert order) and the stored row are returned. There is no per-transaction
@@ -98,6 +99,13 @@ type Querier interface {
 	// params struct byte-identical across SQLite and Postgres (row_limit aside, which
 	// the pg adapter casts to int32). row_limit caps the page size.
 	ListEventsAfter(ctx context.Context, arg ListEventsAfterParams) ([]Event, error)
+	// Returns the (id, extensions) of every transaction carrying at least one
+	// extension. The API explodes the JSON objects in Go to build the extension
+	// vocabulary (one entry per distinct key, with a transaction count). Done in Go,
+	// like ListLabeledTransactions, to stay portable across SQLite and Postgres
+	// (json_each vs jsonb_each infer different column types, which would break the
+	// byte-identical pgstore adapter). ORDER BY makes the row order deterministic.
+	ListExtendedTransactions(ctx context.Context) ([]ListExtendedTransactionsRow, error)
 	// Returns the (id, labels) of every transaction that carries at least one label.
 	// The API explodes the JSON objects in Go to build the label vocabulary with
 	// per-pair transaction counts. Done in Go (not SQL) to stay portable across
@@ -129,6 +137,11 @@ type Querier interface {
 	// Replaces the editable fields of a rule. :execrows lets the caller detect a
 	// missing id (0 rows affected).
 	UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, error)
+	// Replaces the whole schema-extensions object for one transaction. extensions is
+	// a JSON object of namespaced key->arbitrary-JSON-value pairs; the API normalizes
+	// it before storing. :execrows lets the caller detect a missing id (0 rows
+	// affected). The poller never touches extensions, so this is the only writer.
+	UpdateTransactionExtensions(ctx context.Context, arg UpdateTransactionExtensionsParams) (int64, error)
 	// Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
 	// pending charge that has now posted, or a corrected amount). labels is
 	// intentionally NOT in the SET list, so user labels are never clobbered. The

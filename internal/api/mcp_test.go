@@ -59,7 +59,8 @@ func TestMCPListsAllTools(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{
 		"list_accounts", "get_account", "list_transactions", "search_transactions",
-		"list_labels", "list_organizations", "sync_status", "trigger_sync",
+		"list_labels", "set_transaction_extensions", "list_extensions",
+		"list_organizations", "sync_status", "trigger_sync",
 		"list_rules", "create_rule", "update_rule", "delete_rule", "run_rules",
 		"list_events", "get_transaction_history",
 		"list_api_keys", "create_api_key", "revoke_api_key",

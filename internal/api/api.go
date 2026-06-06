@@ -173,6 +173,7 @@ func (s *Server) Router() http.Handler {
 				r.Get("/transactions/{id}/history", s.handleGetTransactionHistory)
 
 				r.Get("/labels", s.handleListLabels)
+				r.Get("/extensions", s.handleListExtensions)
 
 				r.Get("/rules", s.handleListRules)
 				r.Get("/rules/{id}", s.handleGetRule)
@@ -200,6 +201,8 @@ func (s *Server) Router() http.Handler {
 
 				r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
 				r.Delete("/labels/{key}", s.handleDeleteLabel)
+
+				r.Put("/transactions/{id}/extensions", s.handleUpdateTransactionExtensions)
 
 				r.Post("/rules", s.handleCreateRule)
 				// Static /rules/run is registered before /rules/{id} so it isn't captured

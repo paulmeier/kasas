@@ -183,6 +183,8 @@ func TestParseErrors(t *testing.T) {
 		{"empty description value", "description:"},
 		{"empty label key", "label:=food"},
 		{"empty shorthand value", "category:"},
+		{"empty ext key", "ext:=meal"},
+		{"empty ext value", "ext:tax.category="},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -205,5 +207,50 @@ func TestQueryStringAndNilMatch(t *testing.T) {
 	var nilQ *Query
 	if !nilQ.Match(coffee) {
 		t.Fatal("nil query should match all records")
+	}
+}
+
+func TestExtensionMatching(t *testing.T) {
+	// Extensions arrive at the matcher pre-stringified with lowercased keys (see
+	// the api/dashboard adapters): a JSON string by its text, other JSON values by
+	// their compact encoding.
+	a := Record{ID: "a", Extensions: map[string]string{"tax.category": "meal", "forecast.recurring": "true", "custom.myapp.score": "88"}}
+	b := Record{ID: "b", Extensions: map[string]string{"tax.category": "travel"}}
+	c := Record{ID: "c"} // no extensions
+	recs := []Record{a, b, c}
+
+	run := func(query string) []string {
+		q, err := Parse(query)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", query, err)
+		}
+		var out []string
+		for _, r := range recs {
+			if q.Match(r) {
+				out = append(out, r.ID)
+			}
+		}
+		return out
+	}
+
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{"ext:tax.category=meal", []string{"a"}},
+		{"ext:tax.category", []string{"a", "b"}},                           // presence
+		{"ext:forecast.recurring=true", []string{"a"}},                     // boolean, stringified
+		{"ext:custom.myapp.score=88", []string{"a"}},                       // number, stringified
+		{"ext:tax.category!=meal", []string{"b", "c"}},                     // a missing key satisfies !=
+		{"ext:tax.category~me", []string{"a"}},                             // contains
+		{"ext:Tax.Category=MEAL", []string{"a"}},                           // case-insensitive key and value
+		{"NOT ext:tax.category", []string{"c"}},                            // negation
+		{"meal", []string{"a"}},                                            // bare word matches an extension value
+		{"ext:tax.category=meal ext:custom.myapp.score=88", []string{"a"}}, // implicit AND
+	}
+	for _, tc := range cases {
+		if got := run(tc.query); !equalIDs(got, tc.want) {
+			t.Errorf("query %q = %v, want %v", tc.query, got, tc.want)
+		}
 	}
 }

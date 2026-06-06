@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/rules"
 )
 
@@ -33,18 +35,28 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_transactions",
-		Description: "List transactions, optionally filtered by account, date range, and label (key, or key+value).",
+		Description: "List transactions, optionally filtered by account, date range, and label (key, or key+value). Each transaction includes its labels and schema extensions.",
 	}, s.mcpListTransactions)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "search_transactions",
-		Description: "Search transactions with the kasas query language: free text plus field filters (description:, payee:, memo:, account:, id:, amount:>10, date:2024-03, pending:true) and label filters (label:key=value, label:key for presence, or the key:value shorthand), combined with AND / OR / NOT and parentheses. An empty query matches all.",
+		Description: "Search transactions with the kasas query language: free text plus field filters (description:, payee:, memo:, account:, id:, amount:>10, date:2024-03, pending:true), label filters (label:key=value, label:key for presence, or the key:value shorthand), and schema-extension filters (ext:tax.category=meal, ext:forecast.recurring=true, ext:custom.myapp.score for presence, ext:key~substr for contains), combined with AND / OR / NOT and parentheses. An empty query matches all.",
 	}, s.mcpSearchTransactions)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_labels",
 		Description: "List the label vocabulary: every key/value pair in use with the number of transactions carrying it.",
 	}, s.mcpListLabels)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "set_transaction_extensions",
+		Description: "Replace a transaction's schema extensions: arbitrary, app-owned namespaced metadata whose values may be any JSON (e.g. {\"tax.category\":\"meal\",\"forecast.recurring\":true,\"custom.myapp.score\":88}). Replaces the WHOLE set — send the full desired object; an empty object clears it. Extensions are parallel to labels (which are strict key:value strings for categorization); use these for app/agent-owned data. Returns the updated transaction.",
+	}, s.mcpSetTransactionExtensions)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_extensions",
+		Description: "List the schema-extension vocabulary: every namespaced key in use, with its namespace (the part before the first dot) and the number of transactions carrying it.",
+	}, s.mcpListExtensions)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_rules",
@@ -182,6 +194,15 @@ type listLabelsOutput struct {
 	Labels []LabelDTO `json:"labels"`
 }
 
+type setTransactionExtensionsInput struct {
+	TransactionID string         `json:"transaction_id" jsonschema:"the id of the transaction whose extensions to replace"`
+	Extensions    map[string]any `json:"extensions" jsonschema:"the full namespaced metadata object to store; keys are namespaced (e.g. tax.category) and values may be any JSON (string, number, boolean, object, array); an empty object clears all extensions"`
+}
+
+type listExtensionsOutput struct {
+	Extensions []ExtensionDTO `json:"extensions"`
+}
+
 type listRulesOutput struct {
 	Rules []RuleDTO `json:"rules"`
 }
@@ -303,6 +324,35 @@ func (s *Server) mcpListLabels(ctx context.Context, _ *mcp.CallToolRequest, _ em
 		sets[i] = row.Labels
 	}
 	return &mcp.CallToolResult{}, listLabelsOutput{Labels: labelCounts(sets)}, nil
+}
+
+func (s *Server) mcpSetTransactionExtensions(ctx context.Context, _ *mcp.CallToolRequest, in setTransactionExtensionsInput) (*mcp.CallToolResult, TransactionDTO, error) {
+	// Round-trip the decoded values back to raw JSON so the shared write path can
+	// normalize/validate them losslessly.
+	b, err := json.Marshal(in.Extensions)
+	if err != nil {
+		return nil, TransactionDTO{}, err
+	}
+	next, notFound, err := s.setExtensions(ctx, in.TransactionID, extensions.Decode(string(b)))
+	if err != nil {
+		return nil, TransactionDTO{}, err
+	}
+	if notFound {
+		return nil, TransactionDTO{}, fmt.Errorf("transaction %q not found", in.TransactionID)
+	}
+	return &mcp.CallToolResult{}, toTransactionDTO(next), nil
+}
+
+func (s *Server) mcpListExtensions(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listExtensionsOutput, error) {
+	rows, err := s.store.ListExtendedTransactions(ctx)
+	if err != nil {
+		return nil, listExtensionsOutput{}, err
+	}
+	sets := make([]string, len(rows))
+	for i, row := range rows {
+		sets[i] = row.Extensions
+	}
+	return &mcp.CallToolResult{}, listExtensionsOutput{Extensions: extensionCounts(sets)}, nil
 }
 
 func (s *Server) mcpListRules(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listRulesOutput, error) {

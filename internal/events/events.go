@@ -55,6 +55,12 @@ const (
 	TypeLabelApplied = "label.applied"
 	TypeLabelRemoved = "label.removed"
 
+	// Schema extensions: arbitrary, app-owned namespaced metadata set or removed on
+	// a single transaction (via the REST API or the set_transaction_extensions MCP
+	// tool). The event entity is the transaction.
+	TypeExtensionSet     = "extension.set"
+	TypeExtensionRemoved = "extension.removed"
+
 	TypeRuleCreated  = "rule.created"
 	TypeRuleUpdated  = "rule.updated"
 	TypeRuleDeleted  = "rule.deleted"
@@ -75,8 +81,8 @@ const (
 // The change kinds stamped on each immutable transaction version (the
 // transaction_versions table). They name the *cause* of a version, coarsely:
 // the per-field detail is the diff between consecutive snapshots, and finer
-// provenance (which rule, which label) lives in the event stream. There are
-// exactly three because there are exactly three transaction mutation seams.
+// provenance (which rule, which label) lives in the event stream. There is one
+// per transaction mutation seam.
 const (
 	// ChangeImported is the first version of a transaction: the poller inserted it
 	// (folding in any birth labels a rule applied), or it is the synthesized v1
@@ -88,4 +94,7 @@ const (
 	// ChangeLabeled is a change to the transaction's labels (via the REST API or the
 	// rules engine).
 	ChangeLabeled = "labeled"
+	// ChangeExtended is a change to the transaction's schema extensions (via the
+	// REST API or the set_transaction_extensions MCP tool).
+	ChangeExtended = "extended"
 )

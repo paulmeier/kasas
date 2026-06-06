@@ -1,16 +1,17 @@
 -- name: InsertTransaction :execrows
 -- transactions.id is the SimpleFIN transaction ID, so re-syncing the same
--- transaction is a no-op. This keeps polling idempotent. labels is written as an
--- explicit empty object so new rows never depend on the column default (SQLite
--- can't cheaply change a STRICT table's default; see the 00003 migration).
+-- transaction is a no-op. This keeps polling idempotent. labels and extensions
+-- are written as explicit empty objects so new rows never depend on the column
+-- default (SQLite can't cheaply change a STRICT table's default; see the 00003
+-- and 00009 migrations).
 INSERT INTO transactions (
     id, account_id, amount, pending, date, description, payee, memo, synced_at,
-    labels
+    labels, extensions
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(account_id), sqlc.arg(amount), sqlc.arg(pending),
     sqlc.arg(date), sqlc.arg(description), sqlc.arg(payee), sqlc.arg(memo),
-    sqlc.arg(synced_at), '{}'
+    sqlc.arg(synced_at), '{}', '{}'
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -73,3 +74,19 @@ UPDATE transactions SET labels = sqlc.arg(labels) WHERE id = sqlc.arg(id);
 -- per-dialect queries/{sqlite,postgres}/labels.sql). ORDER BY makes the row order
 -- deterministic.
 SELECT id, labels FROM transactions WHERE labels <> '{}' ORDER BY id;
+
+-- name: UpdateTransactionExtensions :execrows
+-- Replaces the whole schema-extensions object for one transaction. extensions is
+-- a JSON object of namespaced key->arbitrary-JSON-value pairs; the API normalizes
+-- it before storing. :execrows lets the caller detect a missing id (0 rows
+-- affected). The poller never touches extensions, so this is the only writer.
+UPDATE transactions SET extensions = sqlc.arg(extensions) WHERE id = sqlc.arg(id);
+
+-- name: ListExtendedTransactions :many
+-- Returns the (id, extensions) of every transaction carrying at least one
+-- extension. The API explodes the JSON objects in Go to build the extension
+-- vocabulary (one entry per distinct key, with a transaction count). Done in Go,
+-- like ListLabeledTransactions, to stay portable across SQLite and Postgres
+-- (json_each vs jsonb_each infer different column types, which would break the
+-- byte-identical pgstore adapter). ORDER BY makes the row order deterministic.
+SELECT id, extensions FROM transactions WHERE extensions <> '{}' ORDER BY id;

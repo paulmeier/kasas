@@ -252,6 +252,39 @@ html, body {
 }
 .label-remove:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
 
+/* Schema extensions: read-only, app-owned namespaced metadata. A distinct
+   (greenish) tone from the blue label chips, and no remove control — the
+   dashboard only displays extensions; apps write them via the API/MCP. */
+.txns th.ext-col { white-space: nowrap; }
+.txns td.ext-cell { min-width: 160px; }
+.ext-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  vertical-align: middle;
+}
+.ext-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 280px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(63, 185, 80, 0.10);
+  border: 1px solid rgba(63, 185, 80, 0.30);
+  color: var(--text);
+  vertical-align: middle;
+}
+.ext-key { color: var(--muted); }
+.ext-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .label-input {
   background: transparent;
   color: var(--text);
