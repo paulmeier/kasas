@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -82,14 +81,7 @@ func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAccountTransactions(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	p := parseListParams(r)
-	txns, err := s.store.ListTransactionsByAccount(r.Context(), db.ListTransactionsByAccountParams{
-		AccountID: id,
-		Since:     p.since,
-		Until:     p.until,
-		RowLimit:  p.limit,
-		RowOffset: p.offset,
-	})
+	txns, err := s.queryTransactions(r.Context(), id, parseListParams(r), parseLabelFilter(r))
 	if err != nil {
 		s.serverError(w, "list account transactions", err)
 		return
@@ -98,29 +90,8 @@ func (s *Server) handleListAccountTransactions(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleListTransactions(w http.ResponseWriter, r *http.Request) {
-	p := parseListParams(r)
-	if accountID := r.URL.Query().Get("account_id"); accountID != "" {
-		txns, err := s.store.ListTransactionsByAccount(r.Context(), db.ListTransactionsByAccountParams{
-			AccountID: accountID,
-			Since:     p.since,
-			Until:     p.until,
-			RowLimit:  p.limit,
-			RowOffset: p.offset,
-		})
-		if err != nil {
-			s.serverError(w, "list transactions", err)
-			return
-		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"transactions": toTransactionDTOs(txns)})
-		return
-	}
-
-	txns, err := s.store.ListTransactions(r.Context(), db.ListTransactionsParams{
-		Since:     p.since,
-		Until:     p.until,
-		RowLimit:  p.limit,
-		RowOffset: p.offset,
-	})
+	accountID := r.URL.Query().Get("account_id")
+	txns, err := s.queryTransactions(r.Context(), accountID, parseListParams(r), parseLabelFilter(r))
 	if err != nil {
 		s.serverError(w, "list transactions", err)
 		return
@@ -142,35 +113,35 @@ func (s *Server) handleGetTransaction(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, toTransactionDTO(txn))
 }
 
-// updateTagsRequest is the body of PUT /transactions/{id}/tags. It replaces the
-// transaction's entire tag set with the (normalized) tags provided.
-type updateTagsRequest struct {
-	Tags []string `json:"tags"`
+// updateLabelsRequest is the body of PUT /transactions/{id}/labels. It replaces
+// the transaction's entire label set with the (normalized) key:value pairs.
+type updateLabelsRequest struct {
+	Labels map[string]string `json:"labels"`
 }
 
-func (s *Server) handleUpdateTransactionTags(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateTransactionLabels(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var req updateTagsRequest
+	var req updateLabelsRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)) // 16 KiB is plenty
 	if err := dec.Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	tags := normalizeTags(req.Tags)
-	encoded, err := encodeTags(tags)
+	labels := normalizeLabels(req.Labels)
+	encoded, err := encodeLabels(labels)
 	if err != nil {
-		s.serverError(w, "encode tags", err)
+		s.serverError(w, "encode labels", err)
 		return
 	}
 
-	n, err := s.store.UpdateTransactionTags(r.Context(), db.UpdateTransactionTagsParams{
-		ID:   id,
-		Tags: encoded,
+	n, err := s.store.UpdateTransactionLabels(r.Context(), db.UpdateTransactionLabelsParams{
+		ID:     id,
+		Labels: encoded,
 	})
 	if err != nil {
-		s.serverError(w, "update transaction tags", err)
+		s.serverError(w, "update transaction labels", err)
 		return
 	}
 	if n == 0 {
@@ -178,65 +149,54 @@ func (s *Server) handleUpdateTransactionTags(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "tags": tags})
+	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "labels": labels})
 }
 
-func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.ListTaggedTransactions(r.Context())
+func (s *Server) handleListLabels(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.ListLabeledTransactions(r.Context())
 	if err != nil {
-		s.serverError(w, "list tags", err)
+		s.serverError(w, "list labels", err)
 		return
 	}
 	sets := make([]string, len(rows))
 	for i, row := range rows {
-		sets[i] = row.Tags
+		sets[i] = row.Labels
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"tags": tagCounts(sets)})
+	s.writeJSON(w, http.StatusOK, map[string]any{"labels": labelCounts(sets)})
 }
 
-// handleDeleteTag removes a tag from the vocabulary by stripping it from every
-// transaction that carries it (case-insensitive). With tags stored as JSON
-// arrays on transactions, deleting a tag IS removing it everywhere; there is no
-// separate tags table. It is idempotent: an unknown tag affects 0 rows and still
-// returns 200.
-func (s *Server) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(chi.URLParam(r, "name"))
-	if name == "" {
-		s.writeError(w, http.StatusBadRequest, "tag name required")
+// handleDeleteLabel removes a label from the vocabulary by stripping it from
+// every transaction that carries it, pushed down to SQL. DELETE /labels/{key}
+// removes the key (any value); adding ?value=<v> removes it only where it holds
+// that value. Labels live on the transactions themselves (no separate table), so
+// deleting a label IS removing it everywhere. Idempotent: an unknown label
+// affects 0 rows and still returns 200.
+func (s *Server) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
+	key := normalizeKey(chi.URLParam(r, "key"))
+	if key == "" {
+		s.writeError(w, http.StatusBadRequest, "label key required")
 		return
 	}
 
-	var removed int
-	err := s.store.RunInTx(r.Context(), func(q db.Querier) error {
-		rows, err := q.ListTaggedTransactions(r.Context())
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			tags := decodeTags(row.Tags)
-			if !containsFold(tags, name) {
-				continue
-			}
-			encoded, err := encodeTags(removeFold(tags, name))
-			if err != nil {
-				return err
-			}
-			if _, err := q.UpdateTransactionTags(r.Context(), db.UpdateTransactionTagsParams{
-				ID:   row.ID,
-				Tags: encoded,
-			}); err != nil {
-				return err
-			}
-			removed++
-		}
-		return nil
-	})
+	resp := map[string]any{"key": key}
+	var removed int64
+	var err error
+	if r.URL.Query().Has("value") {
+		value := normalizeValue(r.URL.Query().Get("value"))
+		resp["value"] = value
+		removed, err = s.store.DeleteLabelByValue(r.Context(), db.DeleteLabelByValueParams{
+			LabelKey:   key,
+			LabelValue: value,
+		})
+	} else {
+		removed, err = s.store.DeleteLabelByKey(r.Context(), key)
+	}
 	if err != nil {
-		s.serverError(w, "delete tag", err)
+		s.serverError(w, "delete label", err)
 		return
 	}
-
-	s.writeJSON(w, http.StatusOK, map[string]any{"name": name, "removed_from": removed})
+	resp["removed_from"] = removed
+	s.writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
@@ -319,6 +279,71 @@ func parseListParams(r *http.Request) listParams {
 	p.since = parseTimeParam(q.Get("since"))
 	p.until = parseTimeParam(q.Get("until"))
 	return p
+}
+
+// labelFilter is an optional drill-down by label. key == "" means no filter.
+// hasValue distinguishes "key present with any value" from "key equals value"
+// (an empty value is not a valid label, so the param's presence is the signal).
+type labelFilter struct {
+	key      string
+	value    string
+	hasValue bool
+}
+
+// parseLabelFilter reads label_key / label_value query params, canonicalizing
+// them the same way stored labels are so they match.
+func parseLabelFilter(r *http.Request) labelFilter {
+	q := r.URL.Query()
+	lf := labelFilter{key: normalizeKey(q.Get("label_key"))}
+	if q.Has("label_value") {
+		lf.hasValue = true
+		lf.value = normalizeValue(q.Get("label_value"))
+	}
+	return lf
+}
+
+// queryTransactions selects transactions for an optional account filter, date
+// range, pagination, and optional label drill-down. A label filter (when set)
+// is pushed down to SQL via the per-dialect FilterTransactionsByLabel* queries,
+// which also honor the account/date/pagination bounds. accountID == "" disables
+// the account filter.
+func (s *Server) queryTransactions(ctx context.Context, accountID string, p listParams, lf labelFilter) ([]db.Transaction, error) {
+	switch {
+	case lf.key != "" && lf.hasValue:
+		return s.store.FilterTransactionsByLabelValue(ctx, db.FilterTransactionsByLabelValueParams{
+			LabelKey:   lf.key,
+			LabelValue: lf.value,
+			AccountID:  accountID,
+			Since:      p.since,
+			Until:      p.until,
+			RowLimit:   p.limit,
+			RowOffset:  p.offset,
+		})
+	case lf.key != "":
+		return s.store.FilterTransactionsByLabelKey(ctx, db.FilterTransactionsByLabelKeyParams{
+			LabelKey:  lf.key,
+			AccountID: accountID,
+			Since:     p.since,
+			Until:     p.until,
+			RowLimit:  p.limit,
+			RowOffset: p.offset,
+		})
+	case accountID != "":
+		return s.store.ListTransactionsByAccount(ctx, db.ListTransactionsByAccountParams{
+			AccountID: accountID,
+			Since:     p.since,
+			Until:     p.until,
+			RowLimit:  p.limit,
+			RowOffset: p.offset,
+		})
+	default:
+		return s.store.ListTransactions(ctx, db.ListTransactionsParams{
+			Since:     p.since,
+			Until:     p.until,
+			RowLimit:  p.limit,
+			RowOffset: p.offset,
+		})
+	}
 }
 
 // parseTimeParam accepts a unix timestamp, an RFC3339 datetime, or a YYYY-MM-DD

@@ -177,10 +177,10 @@ func TestSortHeaderMarksActiveColumn(t *testing.T) {
 	}
 }
 
-// TestTagsColumnNotSortable verifies the Tags column is a plain header: the four
-// data columns (Date, Account, Description, Amount) remain sortable, but Tags is
-// not built with sortHeader and carries no sortable affordance.
-func TestTagsColumnNotSortable(t *testing.T) {
+// TestLabelsColumnNotSortable verifies the Labels column is a plain header: the
+// four data columns (Date, Account, Description, Amount) remain sortable, but
+// Labels is not built with sortHeader and carries no sortable affordance.
+func TestLabelsColumnNotSortable(t *testing.T) {
 	v := &dashboardView{
 		txns:     []transaction{{ID: "tx-1", Amount: "1.00", Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
 		pageSize: 10,
@@ -189,75 +189,97 @@ func TestTagsColumnNotSortable(t *testing.T) {
 	app.PrintHTML(&buf, v.renderTable())
 	html := buf.String()
 
-	if !strings.Contains(html, "tags-col") || !strings.Contains(html, "Tags") {
-		t.Fatalf("Tags column header missing.\nHTML:\n%s", html)
+	if !strings.Contains(html, "labels-col") || !strings.Contains(html, "Labels") {
+		t.Fatalf("Labels column header missing.\nHTML:\n%s", html)
 	}
-	// Exactly four headers are sortable; Tags must not be among them.
+	// Exactly four headers are sortable; Labels must not be among them.
 	if got := strings.Count(html, "sortable"); got != 4 {
 		t.Fatalf("expected 4 sortable headers, got %d.\nHTML:\n%s", got, html)
 	}
-	if strings.Contains(html, "tags-col sortable") || strings.Contains(html, "sortable tags-col") {
-		t.Fatalf("Tags header must not be sortable.\nHTML:\n%s", html)
+	if strings.Contains(html, "labels-col sortable") || strings.Contains(html, "sortable labels-col") {
+		t.Fatalf("Labels header must not be sortable.\nHTML:\n%s", html)
 	}
 }
 
-func TestFilterTagSuggestions(t *testing.T) {
-	all := []string{"coffee", "food", "Groceries", "rent"}
+func TestFilterLabelSuggestions(t *testing.T) {
+	all := []string{"category: food", "category: rent", "person: dad", "tag: coffee"}
 
 	t.Run("case-insensitive substring match", func(t *testing.T) {
-		if got := filterTagSuggestions(all, "OO", nil); !reflect.DeepEqual(got, []string{"food"}) {
-			t.Fatalf("got %q, want [food]", got)
+		if got := filterLabelSuggestions(all, "FOOD", nil); !reflect.DeepEqual(got, []string{"category: food"}) {
+			t.Fatalf("got %q, want [category: food]", got)
 		}
 	})
-	t.Run("excludes already-applied tags (case-insensitive)", func(t *testing.T) {
-		// "r" matches both "Groceries" and "rent"; rent is applied, so it drops.
-		if got := filterTagSuggestions(all, "r", []string{"RENT"}); !reflect.DeepEqual(got, []string{"Groceries"}) {
-			t.Fatalf("got %q, want [Groceries]", got)
+	t.Run("excludes already-applied labels", func(t *testing.T) {
+		// "category" matches both category pairs; category:food is applied, so it drops.
+		got := filterLabelSuggestions(all, "category", map[string]string{"category": "food"})
+		if !reflect.DeepEqual(got, []string{"category: rent"}) {
+			t.Fatalf("got %q, want [category: rent]", got)
 		}
 	})
 	t.Run("blank draft yields no suggestions", func(t *testing.T) {
-		if got := filterTagSuggestions(all, "   ", nil); got != nil {
+		if got := filterLabelSuggestions(all, "   ", nil); got != nil {
 			t.Fatalf("got %q, want nil", got)
 		}
 	})
 	t.Run("caps the list", func(t *testing.T) {
 		many := make([]string, 12)
 		for i := range many {
-			many[i] = fmt.Sprintf("tag%02d", i)
+			many[i] = fmt.Sprintf("k: v%02d", i)
 		}
-		if got := filterTagSuggestions(many, "tag", nil); len(got) != 8 {
+		if got := filterLabelSuggestions(many, "v", nil); len(got) != 8 {
 			t.Fatalf("len = %d, want 8 (capped)", len(got))
 		}
 	})
 }
 
-// TestRenderTagsCellChips checks the cell renders a chip with a remove button per
-// tag, and that the add-tag input is hidden until the cell is being edited (it
-// appears on click, not on every row).
-func TestRenderTagsCellChips(t *testing.T) {
+// TestRenderLabelsCellChips checks the cell renders a "key: value" chip with a
+// remove button per label, and that the add-label input is hidden until the cell
+// is being edited (it appears on click, not on every row).
+func TestRenderLabelsCellChips(t *testing.T) {
 	v := &dashboardView{}
 
 	// Not editing: chips + remove buttons, marked editable, but no input.
 	var buf bytes.Buffer
-	app.PrintHTML(&buf, v.renderTagsCell(transaction{ID: "tx-1", Tags: []string{"food", "rent"}}))
+	app.PrintHTML(&buf, v.renderLabelsCell(transaction{ID: "tx-1", Labels: map[string]string{"category": "food", "tag": "rent"}}))
 	html := buf.String()
-	for _, want := range []string{"tag-chip", "tag-remove", "food", "rent", "editable"} {
+	for _, want := range []string{"label-chip", "label-remove", "category: food", "tag: rent", "editable"} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("tags cell missing %q.\nHTML:\n%s", want, html)
+			t.Fatalf("labels cell missing %q.\nHTML:\n%s", want, html)
 		}
 	}
-	if strings.Contains(html, "tag-input") {
-		t.Fatalf("add-tag input should not render until the cell is clicked.\nHTML:\n%s", html)
+	if strings.Contains(html, "label-input") {
+		t.Fatalf("add-label input should not render until the cell is clicked.\nHTML:\n%s", html)
 	}
 
 	// Editing this row: the id-stamped input appears (for focus + clear).
-	v.tagEditID = "tx-1"
+	v.labelEditID = "tx-1"
 	buf.Reset()
-	app.PrintHTML(&buf, v.renderTagsCell(transaction{ID: "tx-1", Tags: []string{"food"}}))
+	app.PrintHTML(&buf, v.renderLabelsCell(transaction{ID: "tx-1", Labels: map[string]string{"category": "food"}}))
 	html = buf.String()
-	for _, want := range []string{"tag-input", `id="tag-input-tx-1"`} {
+	for _, want := range []string{"label-input", `id="label-input-tx-1"`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("editing cell missing %q.\nHTML:\n%s", want, html)
+		}
+	}
+}
+
+// TestParseLabel covers the strict key:value parsing used by the inline editor.
+func TestParseLabel(t *testing.T) {
+	cases := []struct {
+		in   string
+		k, v string
+		ok   bool
+	}{
+		{"category: food", "category", "food", true},
+		{"  tag :  coffee ", "tag", "coffee", true},
+		{"no colon", "", "", false},
+		{": value", "", "", false},
+		{"key:", "", "", false},
+	}
+	for _, c := range cases {
+		k, v, ok := parseLabel(c.in)
+		if k != c.k || v != c.v || ok != c.ok {
+			t.Fatalf("parseLabel(%q) = (%q,%q,%v), want (%q,%q,%v)", c.in, k, v, ok, c.k, c.v, c.ok)
 		}
 	}
 }

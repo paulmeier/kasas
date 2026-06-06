@@ -1,13 +1,16 @@
 -- name: InsertTransaction :execrows
 -- transactions.id is the SimpleFIN transaction ID, so re-syncing the same
--- transaction is a no-op. This keeps polling idempotent.
+-- transaction is a no-op. This keeps polling idempotent. labels is written as an
+-- explicit empty object so new rows never depend on the column default (SQLite
+-- can't cheaply change a STRICT table's default; see the 00003 migration).
 INSERT INTO transactions (
-    id, account_id, amount, pending, date, description, payee, memo, synced_at
+    id, account_id, amount, pending, date, description, payee, memo, synced_at,
+    labels
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(account_id), sqlc.arg(amount), sqlc.arg(pending),
     sqlc.arg(date), sqlc.arg(description), sqlc.arg(payee), sqlc.arg(memo),
-    sqlc.arg(synced_at)
+    sqlc.arg(synced_at), '{}'
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -36,19 +39,20 @@ WHERE id = sqlc.arg(id);
 -- name: CountTransactions :one
 SELECT COUNT(*) FROM transactions;
 
--- name: UpdateTransactionTags :execrows
--- Replaces the whole tag set for one transaction. tags is a JSON array of
--- strings; the API normalizes it before storing. :execrows lets the caller
--- detect a missing id (0 rows affected). The poller never touches tags, so this
--- is the only writer.
-UPDATE transactions SET tags = sqlc.arg(tags) WHERE id = sqlc.arg(id);
+-- name: UpdateTransactionLabels :execrows
+-- Replaces the whole label set for one transaction. labels is a JSON object of
+-- key->value pairs; the API normalizes it before storing. :execrows lets the
+-- caller detect a missing id (0 rows affected). The poller never touches labels,
+-- so this is the only writer.
+UPDATE transactions SET labels = sqlc.arg(labels) WHERE id = sqlc.arg(id);
 
--- name: ListTaggedTransactions :many
--- Returns the (id, tags) of every transaction that carries at least one tag. The
--- API explodes the JSON arrays in Go to build the tag vocabulary with per-tag
--- transaction counts, and reuses the same rows to strip a tag from every
--- transaction on delete. Done in Go (not SQL) to stay portable across SQLite and
--- Postgres (no JSON functions or dialect-specific aggregation). ORDER BY makes
--- the row order deterministic, so the spelling kept for a case-insensitively
--- duplicated tag is stable.
-SELECT id, tags FROM transactions WHERE tags <> '[]' ORDER BY id;
+-- name: ListLabeledTransactions :many
+-- Returns the (id, labels) of every transaction that carries at least one label.
+-- The API explodes the JSON objects in Go to build the label vocabulary with
+-- per-pair transaction counts. Done in Go (not SQL) to stay portable across
+-- SQLite and Postgres: json_each (SQLite) and jsonb_each_text (Postgres) infer
+-- different column types, which would break the byte-identical pgstore adapter.
+-- Filtering and deletion, by contrast, are pushed down to SQL (see the
+-- per-dialect queries/{sqlite,postgres}/labels.sql). ORDER BY makes the row order
+-- deterministic.
+SELECT id, labels FROM transactions WHERE labels <> '{}' ORDER BY id;

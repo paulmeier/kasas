@@ -19,12 +19,12 @@ func renderSidebarHTML(t *testing.T, c *chrome, active navItem) string {
 // client-side route links go-app needs to navigate without a full reload.
 func TestSidebarRendersNav(t *testing.T) {
 	html := renderSidebarHTML(t, &chrome{}, navDashboard)
-	for _, label := range []string{"Dashboard", "Tags", "Rules"} {
+	for _, label := range []string{"Dashboard", "Labels", "Rules"} {
 		if !strings.Contains(html, ">"+label+"<") {
 			t.Fatalf("sidebar missing nav label %q\nHTML:\n%s", label, html)
 		}
 	}
-	for _, href := range []string{`href="/"`, `href="/tags"`, `href="/rules"`} {
+	for _, href := range []string{`href="/"`, `href="/labels"`, `href="/rules"`} {
 		if !strings.Contains(html, href) {
 			t.Fatalf("sidebar missing %s\nHTML:\n%s", href, html)
 		}
@@ -35,16 +35,16 @@ func TestSidebarRendersNav(t *testing.T) {
 // tracks the requested page.
 func TestSidebarActiveItem(t *testing.T) {
 	dash := renderSidebarHTML(t, &chrome{}, navDashboard)
-	tags := renderSidebarHTML(t, &chrome{}, navTags)
+	labels := renderSidebarHTML(t, &chrome{}, navLabels)
 
 	if got := strings.Count(dash, "nav-item active"); got != 1 {
 		t.Fatalf("Dashboard render: %d active items, want 1\nHTML:\n%s", got, dash)
 	}
-	if got := strings.Count(tags, "nav-item active"); got != 1 {
-		t.Fatalf("Tags render: %d active items, want 1\nHTML:\n%s", got, tags)
+	if got := strings.Count(labels, "nav-item active"); got != 1 {
+		t.Fatalf("Labels render: %d active items, want 1\nHTML:\n%s", got, labels)
 	}
-	if dash == tags {
-		t.Fatal("active item did not move between Dashboard and Tags")
+	if dash == labels {
+		t.Fatal("active item did not move between Dashboard and Labels")
 	}
 }
 

@@ -74,15 +74,51 @@ func (a pgQuerier) InsertTransaction(ctx context.Context, arg InsertTransactionP
 	return a.q.InsertTransaction(ctx, pg.InsertTransactionParams(arg))
 }
 
-func (a pgQuerier) UpdateTransactionTags(ctx context.Context, arg UpdateTransactionTagsParams) (int64, error) {
-	return a.q.UpdateTransactionTags(ctx, pg.UpdateTransactionTagsParams(arg))
+func (a pgQuerier) UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error) {
+	return a.q.UpdateTransactionLabels(ctx, pg.UpdateTransactionLabelsParams(arg))
 }
 
-func (a pgQuerier) ListTaggedTransactions(ctx context.Context) ([]ListTaggedTransactionsRow, error) {
-	rows, err := a.q.ListTaggedTransactions(ctx)
-	return mapSlice(rows, func(r pg.ListTaggedTransactionsRow) ListTaggedTransactionsRow {
-		return ListTaggedTransactionsRow(r)
+func (a pgQuerier) ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error) {
+	rows, err := a.q.ListLabeledTransactions(ctx)
+	return mapSlice(rows, func(r pg.ListLabeledTransactionsRow) ListLabeledTransactionsRow {
+		return ListLabeledTransactionsRow(r)
 	}), err
+}
+
+// FilterTransactionsByLabelKey / ByLabelValue and DeleteLabelBy* push label
+// querying down to SQL. The filter params are hand-mapped (not whole-struct cast)
+// because pg emits int32 for limit/offset where db emits int64.
+func (a pgQuerier) FilterTransactionsByLabelKey(ctx context.Context, arg FilterTransactionsByLabelKeyParams) ([]Transaction, error) {
+	rows, err := a.q.FilterTransactionsByLabelKey(ctx, pg.FilterTransactionsByLabelKeyParams{
+		LabelKey:  arg.LabelKey,
+		AccountID: arg.AccountID,
+		Since:     arg.Since,
+		Until:     arg.Until,
+		RowOffset: int32(arg.RowOffset),
+		RowLimit:  int32(arg.RowLimit),
+	})
+	return mapSlice(rows, func(r pg.Transaction) Transaction { return Transaction(r) }), err
+}
+
+func (a pgQuerier) FilterTransactionsByLabelValue(ctx context.Context, arg FilterTransactionsByLabelValueParams) ([]Transaction, error) {
+	rows, err := a.q.FilterTransactionsByLabelValue(ctx, pg.FilterTransactionsByLabelValueParams{
+		LabelKey:   arg.LabelKey,
+		LabelValue: arg.LabelValue,
+		AccountID:  arg.AccountID,
+		Since:      arg.Since,
+		Until:      arg.Until,
+		RowOffset:  int32(arg.RowOffset),
+		RowLimit:   int32(arg.RowLimit),
+	})
+	return mapSlice(rows, func(r pg.Transaction) Transaction { return Transaction(r) }), err
+}
+
+func (a pgQuerier) DeleteLabelByKey(ctx context.Context, labelKey string) (int64, error) {
+	return a.q.DeleteLabelByKey(ctx, labelKey)
+}
+
+func (a pgQuerier) DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error) {
+	return a.q.DeleteLabelByValue(ctx, pg.DeleteLabelByValueParams(arg))
 }
 
 func (a pgQuerier) LatestSyncLog(ctx context.Context) (SyncLog, error) {

@@ -125,4 +125,57 @@ func TestPostgresStore(t *testing.T) {
 		_, err = store.GetOrganization(ctx, "rollback-org")
 		require.ErrorIs(t, err, sql.ErrNoRows)
 	})
+
+	// Exercises the Postgres JSON label SQL (labels::jsonb ->> / -). This is the
+	// only place the pg label queries run against a real Postgres.
+	t.Run("labels: default, filter, list, delete", func(t *testing.T) {
+		tx4, err := store.GetTransaction(ctx, "tx-4")
+		require.NoError(t, err)
+		assert.JSONEq(t, "{}", tx4.Labels) // InsertTransaction wrote the '{}' literal
+
+		set := func(id, labels string) {
+			n, err := store.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: id, Labels: labels})
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+		}
+		set("tx-1", `{"category":"food","tag":"coffee"}`)
+		set("tx-2", `{"category":"rent"}`)
+		set("tx-3", `{"tag":"coffee"}`)
+
+		byKey, err := store.FilterTransactionsByLabelKey(ctx, db.FilterTransactionsByLabelKeyParams{
+			LabelKey: "category", RowLimit: 100,
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"tx-1", "tx-2"}, txIDs(byKey))
+
+		byValue, err := store.FilterTransactionsByLabelValue(ctx, db.FilterTransactionsByLabelValueParams{
+			LabelKey: "tag", LabelValue: "coffee", RowLimit: 100,
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"tx-1", "tx-3"}, txIDs(byValue))
+
+		labeled, err := store.ListLabeledTransactions(ctx)
+		require.NoError(t, err)
+		ids := make([]string, len(labeled))
+		for i, r := range labeled {
+			ids[i] = r.ID
+		}
+		assert.ElementsMatch(t, []string{"tx-1", "tx-2", "tx-3"}, ids)
+
+		// Delete by value drops only the matching key (one value per key).
+		n, err := store.DeleteLabelByValue(ctx, db.DeleteLabelByValueParams{LabelKey: "tag", LabelValue: "coffee"})
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n)
+		tx1, err := store.GetTransaction(ctx, "tx-1")
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"category":"food"}`, tx1.Labels)
+
+		// Delete by key removes it everywhere.
+		n, err = store.DeleteLabelByKey(ctx, "category")
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n)
+		tx1, err = store.GetTransaction(ctx, "tx-1")
+		require.NoError(t, err)
+		assert.JSONEq(t, `{}`, tx1.Labels)
+	})
 }

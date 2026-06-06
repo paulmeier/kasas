@@ -12,7 +12,7 @@ type navItem int
 
 const (
 	navDashboard navItem = iota
-	navTags
+	navLabels
 	navRules
 )
 
@@ -93,7 +93,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 		),
 		app.Div().Class("nav").Body(
 			navLink("/", "Dashboard", iconDashboard(), active == navDashboard),
-			navLink("/tags", "Tags", iconTags(), active == navTags),
+			navLink("/labels", "Labels", iconLabels(), active == navLabels),
 			navLink("/rules", "Rules", iconRules(), active == navRules),
 		),
 		app.Div().Class("sidebar-foot").Body(
@@ -142,7 +142,7 @@ func iconDashboard() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>`)
 }
 
-func iconTags() app.UI {
+func iconLabels() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.586-6.586a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>`)
 }
 

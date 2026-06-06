@@ -12,35 +12,56 @@ type Querier interface {
 	CompleteSyncLog(ctx context.Context, arg CompleteSyncLogParams) error
 	CountTransactions(ctx context.Context) (int64, error)
 	CreateSyncLog(ctx context.Context, arg CreateSyncLogParams) (SyncLog, error)
+	// Removes one key from every transaction that carries it.
+	DeleteLabelByKey(ctx context.Context, labelKey string) (int64, error)
+	// Removes the key only from transactions where it holds the given value (one
+	// value per key, so removing the key on a value match drops exactly that pair).
+	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
+	// SQLite-specific label queries. Labels are a JSON object (key->value) stored in
+	// the TEXT `labels` column; these push filtering and deletion down to SQL via
+	// SQLite's JSON1 functions.
+	//
+	// Why json_extract with a built path rather than the `->>` operator: SQLite's
+	// `->>` only resolves its right operand as an object label when that operand is a
+	// string LITERAL. With a bound parameter it is treated as a JSON path and fails
+	// to match, so we build a quoted path (`$."<key>"`) explicitly. The quotes also
+	// make arbitrary keys (dots, spaces) safe; the API strips `"`/`\` from keys.
+	// CAST(... AS TEXT) keeps the key parameter a non-null string (a bare `||`
+	// operand is inferred nullable by sqlc).
+	FilterTransactionsByLabelKey(ctx context.Context, arg FilterTransactionsByLabelKeyParams) ([]Transaction, error)
+	FilterTransactionsByLabelValue(ctx context.Context, arg FilterTransactionsByLabelValueParams) ([]Transaction, error)
 	GetAccount(ctx context.Context, id string) (Account, error)
 	GetOrganization(ctx context.Context, id string) (Organization, error)
 	GetTransaction(ctx context.Context, id string) (Transaction, error)
 	// transactions.id is the SimpleFIN transaction ID, so re-syncing the same
-	// transaction is a no-op. This keeps polling idempotent.
+	// transaction is a no-op. This keeps polling idempotent. labels is written as an
+	// explicit empty object so new rows never depend on the column default (SQLite
+	// can't cheaply change a STRICT table's default; see the 00003 migration).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error)
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
+	// Returns the (id, labels) of every transaction that carries at least one label.
+	// The API explodes the JSON objects in Go to build the label vocabulary with
+	// per-pair transaction counts. Done in Go (not SQL) to stay portable across
+	// SQLite and Postgres: json_each (SQLite) and jsonb_each_text (Postgres) infer
+	// different column types, which would break the byte-identical pgstore adapter.
+	// Filtering and deletion, by contrast, are pushed down to SQL (see the
+	// per-dialect queries/{sqlite,postgres}/labels.sql). ORDER BY makes the row order
+	// deterministic.
+	ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListSyncLogs(ctx context.Context, rowLimit int64) ([]SyncLog, error)
-	// Returns the (id, tags) of every transaction that carries at least one tag. The
-	// API explodes the JSON arrays in Go to build the tag vocabulary with per-tag
-	// transaction counts, and reuses the same rows to strip a tag from every
-	// transaction on delete. Done in Go (not SQL) to stay portable across SQLite and
-	// Postgres (no JSON functions or dialect-specific aggregation). ORDER BY makes
-	// the row order deterministic, so the spelling kept for a case-insensitively
-	// duplicated tag is stable.
-	ListTaggedTransactions(ctx context.Context) ([]ListTaggedTransactionsRow, error)
 	// A bound of 0 disables that side of the date filter (so 0/0 returns all).
 	// The column comparison is written first so sqlc infers an integer type for
 	// the bound parameters from the `date` column.
 	ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error)
 	ListTransactionsByAccount(ctx context.Context, arg ListTransactionsByAccountParams) ([]Transaction, error)
-	// Replaces the whole tag set for one transaction. tags is a JSON array of
-	// strings; the API normalizes it before storing. :execrows lets the caller
-	// detect a missing id (0 rows affected). The poller never touches tags, so this
-	// is the only writer.
-	UpdateTransactionTags(ctx context.Context, arg UpdateTransactionTagsParams) (int64, error)
+	// Replaces the whole label set for one transaction. labels is a JSON object of
+	// key->value pairs; the API normalizes it before storing. :execrows lets the
+	// caller detect a missing id (0 rows affected). The poller never touches labels,
+	// so this is the only writer.
+	UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error)
 	UpsertAccount(ctx context.Context, arg UpsertAccountParams) error
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error
 }

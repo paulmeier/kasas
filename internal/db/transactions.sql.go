@@ -21,7 +21,7 @@ func (q *Queries) CountTransactions(ctx context.Context) (int64, error) {
 }
 
 const getTransaction = `-- name: GetTransaction :one
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, tags FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels FROM transactions
 WHERE id = ?1
 `
 
@@ -38,19 +38,20 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 		&i.Payee,
 		&i.Memo,
 		&i.SyncedAt,
-		&i.Tags,
+		&i.Labels,
 	)
 	return i, err
 }
 
 const insertTransaction = `-- name: InsertTransaction :execrows
 INSERT INTO transactions (
-    id, account_id, amount, pending, date, description, payee, memo, synced_at
+    id, account_id, amount, pending, date, description, payee, memo, synced_at,
+    labels
 )
 VALUES (
     ?1, ?2, ?3, ?4,
     ?5, ?6, ?7, ?8,
-    ?9
+    ?9, '{}'
 )
 ON CONFLICT (id) DO NOTHING
 `
@@ -68,7 +69,9 @@ type InsertTransactionParams struct {
 }
 
 // transactions.id is the SimpleFIN transaction ID, so re-syncing the same
-// transaction is a no-op. This keeps polling idempotent.
+// transaction is a no-op. This keeps polling idempotent. labels is written as an
+// explicit empty object so new rows never depend on the column default (SQLite
+// can't cheaply change a STRICT table's default; see the 00003 migration).
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, insertTransaction,
 		arg.ID,
@@ -87,32 +90,33 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 	return result.RowsAffected()
 }
 
-const listTaggedTransactions = `-- name: ListTaggedTransactions :many
-SELECT id, tags FROM transactions WHERE tags <> '[]' ORDER BY id
+const listLabeledTransactions = `-- name: ListLabeledTransactions :many
+SELECT id, labels FROM transactions WHERE labels <> '{}' ORDER BY id
 `
 
-type ListTaggedTransactionsRow struct {
-	ID   string `json:"id"`
-	Tags string `json:"tags"`
+type ListLabeledTransactionsRow struct {
+	ID     string `json:"id"`
+	Labels string `json:"labels"`
 }
 
-// Returns the (id, tags) of every transaction that carries at least one tag. The
-// API explodes the JSON arrays in Go to build the tag vocabulary with per-tag
-// transaction counts, and reuses the same rows to strip a tag from every
-// transaction on delete. Done in Go (not SQL) to stay portable across SQLite and
-// Postgres (no JSON functions or dialect-specific aggregation). ORDER BY makes
-// the row order deterministic, so the spelling kept for a case-insensitively
-// duplicated tag is stable.
-func (q *Queries) ListTaggedTransactions(ctx context.Context) ([]ListTaggedTransactionsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listTaggedTransactions)
+// Returns the (id, labels) of every transaction that carries at least one label.
+// The API explodes the JSON objects in Go to build the label vocabulary with
+// per-pair transaction counts. Done in Go (not SQL) to stay portable across
+// SQLite and Postgres: json_each (SQLite) and jsonb_each_text (Postgres) infer
+// different column types, which would break the byte-identical pgstore adapter.
+// Filtering and deletion, by contrast, are pushed down to SQL (see the
+// per-dialect queries/{sqlite,postgres}/labels.sql). ORDER BY makes the row order
+// deterministic.
+func (q *Queries) ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLabeledTransactions)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListTaggedTransactionsRow{}
+	items := []ListLabeledTransactionsRow{}
 	for rows.Next() {
-		var i ListTaggedTransactionsRow
-		if err := rows.Scan(&i.ID, &i.Tags); err != nil {
+		var i ListLabeledTransactionsRow
+		if err := rows.Scan(&i.ID, &i.Labels); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -127,7 +131,7 @@ func (q *Queries) ListTaggedTransactions(ctx context.Context) ([]ListTaggedTrans
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, tags FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels FROM transactions
 WHERE (date >= ?1 OR ?1 = 0)
   AND (date <= ?2 OR ?2 = 0)
 ORDER BY date DESC, id
@@ -168,7 +172,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Payee,
 			&i.Memo,
 			&i.SyncedAt,
-			&i.Tags,
+			&i.Labels,
 		); err != nil {
 			return nil, err
 		}
@@ -184,7 +188,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, tags FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels FROM transactions
 WHERE account_id = ?1
   AND (date >= ?2 OR ?2 = 0)
   AND (date <= ?3 OR ?3 = 0)
@@ -225,7 +229,7 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 			&i.Payee,
 			&i.Memo,
 			&i.SyncedAt,
-			&i.Tags,
+			&i.Labels,
 		); err != nil {
 			return nil, err
 		}
@@ -240,21 +244,21 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 	return items, nil
 }
 
-const updateTransactionTags = `-- name: UpdateTransactionTags :execrows
-UPDATE transactions SET tags = ?1 WHERE id = ?2
+const updateTransactionLabels = `-- name: UpdateTransactionLabels :execrows
+UPDATE transactions SET labels = ?1 WHERE id = ?2
 `
 
-type UpdateTransactionTagsParams struct {
-	Tags string `json:"tags"`
-	ID   string `json:"id"`
+type UpdateTransactionLabelsParams struct {
+	Labels string `json:"labels"`
+	ID     string `json:"id"`
 }
 
-// Replaces the whole tag set for one transaction. tags is a JSON array of
-// strings; the API normalizes it before storing. :execrows lets the caller
-// detect a missing id (0 rows affected). The poller never touches tags, so this
-// is the only writer.
-func (q *Queries) UpdateTransactionTags(ctx context.Context, arg UpdateTransactionTagsParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateTransactionTags, arg.Tags, arg.ID)
+// Replaces the whole label set for one transaction. labels is a JSON object of
+// key->value pairs; the API normalizes it before storing. :execrows lets the
+// caller detect a missing id (0 rows affected). The poller never touches labels,
+// so this is the only writer.
+func (q *Queries) UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTransactionLabels, arg.Labels, arg.ID)
 	if err != nil {
 		return 0, err
 	}

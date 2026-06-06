@@ -18,8 +18,8 @@ REST API and a built-in [MCP](https://modelcontextprotocol.io/) server.
 - **SQLite or Postgres** — zero-dependency on embedded SQLite by default, or
   point it at a Postgres server with one config change. Same binary either way.
 - **Web dashboard** at `/` — an account overview + a filterable, sortable,
-  paginated transactions table with inline, editable transaction **tags**
-  (typeahead suggestions), built with [go-app](https://go-app.dev)
+  paginated transactions table with inline, editable transaction **labels**
+  (key:value pairs, with typeahead suggestions), built with [go-app](https://go-app.dev)
   (Go → WebAssembly, embedded in the binary; no Node/JS build).
 - **One small container** (`scratch` base — ~12 MB pulled, ~24 MB on disk for
   linux/amd64; the embedded WASM dashboard adds ~5 MB) with a bind-mounted
@@ -188,14 +188,17 @@ at the root path (`/`). A collapsible left sidebar navigates between three pages
 - **Dashboard** — a balance card per account, and a transactions table (date,
   account, payee/description, color-coded amount, pending badge) with an account
   filter, sortable columns, a selectable page size (10/20/50/100), and pagination.
-- **Tags** — every tag with the number of transactions carrying it, and a delete
-  that strips the tag from all of them. (Tags are created on the Dashboard.)
-- **Rules** — a placeholder for upcoming automatic tagging.
+- **Labels** — every label (a `key: value` pair) with the number of transactions
+  carrying it, and a delete that strips it from all of them. (Labels are created
+  on the Dashboard.)
+- **Rules** — a placeholder for upcoming automatic labeling.
 
 The sidebar collapses to an icon rail; the choice is remembered across pages.
-Browsing is read-only except for **tags**: each transaction has an editable Tags
-cell where you can add or remove tags, with typeahead suggestions drawn from your
-existing tags (the Tags column itself is not sortable). It's a
+Browsing is read-only except for **labels**: each transaction has an editable
+Labels cell where you can add or remove `key: value` labels (type e.g.
+`category: food`, or `tag: groceries` for a simple label), with typeahead
+suggestions drawn from your existing labels (the Labels column itself is not
+sortable). It's a
 [go-app](https://go-app.dev) PWA — the UI is written in Go, compiled to
 WebAssembly, embedded in the binary (served gzipped, ~3 MB), and reads from the
 same-origin REST API. Turn it off with `KASAS_DASHBOARD_ENABLED=false` (the WASM
@@ -215,11 +218,11 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/accounts` | List accounts (`?org_id=` to filter) |
 | `GET /api/v1/accounts/{id}` | Get one account |
 | `GET /api/v1/accounts/{id}/transactions` | Transactions for an account |
-| `GET /api/v1/transactions` | List transactions |
+| `GET /api/v1/transactions` | List transactions (`?label_key=` and optional `?label_value=` to drill down) |
 | `GET /api/v1/transactions/{id}` | Get one transaction |
-| `PUT /api/v1/transactions/{id}/tags` | Replace a transaction's tags (`{"tags":[...]}`) |
-| `GET /api/v1/tags` | List tags with per-tag transaction counts (`[{"name","transaction_count"}]`) |
-| `DELETE /api/v1/tags/{name}` | Remove a tag from every transaction that carries it |
+| `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`) |
+| `GET /api/v1/labels` | List labels with per-pair transaction counts (`[{"key","value","transaction_count"}]`) |
+| `DELETE /api/v1/labels/{key}` | Remove a label key from every transaction (add `?value=` to scope to one value) |
 | `GET /api/v1/sync` | Latest sync status |
 | `GET /api/v1/sync/history` | Recent sync runs (`?limit=`) |
 | `POST /api/v1/sync` | Trigger a sync (runs async, returns `202`) |
@@ -229,15 +232,24 @@ decimal strings as returned by SimpleFIN.
 List endpoints accept `?limit=` (default 100, max 1000), `?offset=`, and
 `?since=`/`?until=` (a `YYYY-MM-DD` date, RFC 3339, or unix seconds).
 
+Labels are strict `key: value` pairs (both non-empty strings) stored as a JSON
+object per transaction. Keys are canonicalized to lowercase; value matching is
+exact (case-sensitive). Drill down with `?label_key=` (any value) plus an
+optional `?label_value=` for an exact match — the filter is pushed down to JSON
+SQL in both the SQLite and Postgres backends, so callers can build their own
+views without scanning every row.
+
 ```sh
 curl "localhost:8080/api/v1/transactions?since=2024-01-01&limit=50"
+curl "localhost:8080/api/v1/transactions?label_key=category&label_value=food"
 ```
 
 ## MCP server
 
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the
 streamable-HTTP transport. It exposes tools: `list_accounts`, `get_account`,
-`list_transactions`, `list_organizations`, `sync_status`, and `trigger_sync`.
+`list_transactions` (with optional `label_key`/`label_value` drill-down),
+`list_labels`, `list_organizations`, `sync_status`, and `trigger_sync`.
 
 For desktop MCP clients that launch a subprocess, run it over stdio instead:
 

@@ -8,8 +8,6 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/paulmeier/kasas/internal/db"
 )
 
 // MCPServer builds the MCP server with all kasas tools registered. It is used
@@ -33,8 +31,13 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_transactions",
-		Description: "List transactions, optionally filtered by account and date range.",
+		Description: "List transactions, optionally filtered by account, date range, and label (key, or key+value).",
 	}, s.mcpListTransactions)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_labels",
+		Description: "List the label vocabulary: every key/value pair in use with the number of transactions carrying it.",
+	}, s.mcpListLabels)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_organizations",
@@ -81,14 +84,20 @@ type getAccountInput struct {
 }
 
 type listTransactionsInput struct {
-	AccountID string `json:"account_id,omitempty" jsonschema:"filter to a single account id (optional)"`
-	Since     string `json:"since,omitempty" jsonschema:"lower bound as YYYY-MM-DD, RFC3339, or unix seconds (optional)"`
-	Until     string `json:"until,omitempty" jsonschema:"upper bound as YYYY-MM-DD, RFC3339, or unix seconds (optional)"`
-	Limit     int64  `json:"limit,omitempty" jsonschema:"maximum number of transactions to return (default 100)"`
+	AccountID  string `json:"account_id,omitempty" jsonschema:"filter to a single account id (optional)"`
+	Since      string `json:"since,omitempty" jsonschema:"lower bound as YYYY-MM-DD, RFC3339, or unix seconds (optional)"`
+	Until      string `json:"until,omitempty" jsonschema:"upper bound as YYYY-MM-DD, RFC3339, or unix seconds (optional)"`
+	Limit      int64  `json:"limit,omitempty" jsonschema:"maximum number of transactions to return (default 100)"`
+	LabelKey   string `json:"label_key,omitempty" jsonschema:"filter to transactions carrying this label key (optional)"`
+	LabelValue string `json:"label_value,omitempty" jsonschema:"with label_key, require this exact value; omit to match any value (optional)"`
 }
 
 type listTransactionsOutput struct {
 	Transactions []TransactionDTO `json:"transactions"`
+}
+
+type listLabelsOutput struct {
+	Labels []LabelDTO `json:"labels"`
 }
 
 type listOrganizationsOutput struct {
@@ -130,33 +139,34 @@ func (s *Server) mcpListTransactions(ctx context.Context, _ *mcp.CallToolRequest
 	if limit > maxLimit {
 		limit = maxLimit
 	}
-	since := parseTimeParam(in.Since)
-	until := parseTimeParam(in.Until)
-
-	var (
-		txns []db.Transaction
-		err  error
-	)
-	if in.AccountID != "" {
-		txns, err = s.store.ListTransactionsByAccount(ctx, db.ListTransactionsByAccountParams{
-			AccountID: in.AccountID,
-			Since:     since,
-			Until:     until,
-			RowLimit:  limit,
-			RowOffset: 0,
-		})
-	} else {
-		txns, err = s.store.ListTransactions(ctx, db.ListTransactionsParams{
-			Since:     since,
-			Until:     until,
-			RowLimit:  limit,
-			RowOffset: 0,
-		})
+	p := listParams{
+		limit: limit,
+		since: parseTimeParam(in.Since),
+		until: parseTimeParam(in.Until),
 	}
+	lf := labelFilter{key: normalizeKey(in.LabelKey)}
+	if in.LabelValue != "" {
+		lf.hasValue = true
+		lf.value = normalizeValue(in.LabelValue)
+	}
+
+	txns, err := s.queryTransactions(ctx, in.AccountID, p, lf)
 	if err != nil {
 		return nil, listTransactionsOutput{}, err
 	}
 	return &mcp.CallToolResult{}, listTransactionsOutput{Transactions: toTransactionDTOs(txns)}, nil
+}
+
+func (s *Server) mcpListLabels(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listLabelsOutput, error) {
+	rows, err := s.store.ListLabeledTransactions(ctx)
+	if err != nil {
+		return nil, listLabelsOutput{}, err
+	}
+	sets := make([]string, len(rows))
+	for i, row := range rows {
+		sets[i] = row.Labels
+	}
+	return &mcp.CallToolResult{}, listLabelsOutput{Labels: labelCounts(sets)}, nil
 }
 
 func (s *Server) mcpListOrganizations(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {

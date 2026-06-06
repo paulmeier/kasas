@@ -27,22 +27,23 @@ type AccountDTO struct {
 
 // TransactionDTO is the JSON representation of a transaction.
 type TransactionDTO struct {
-	ID          string    `json:"id"`
-	AccountID   string    `json:"account_id"`
-	Amount      string    `json:"amount"`
-	Pending     bool      `json:"pending"`
-	Date        time.Time `json:"date"`
-	Description string    `json:"description"`
-	Payee       string    `json:"payee"`
-	Memo        string    `json:"memo"`
-	SyncedAt    time.Time `json:"synced_at"`
-	Tags        []string  `json:"tags"`
+	ID          string            `json:"id"`
+	AccountID   string            `json:"account_id"`
+	Amount      string            `json:"amount"`
+	Pending     bool              `json:"pending"`
+	Date        time.Time         `json:"date"`
+	Description string            `json:"description"`
+	Payee       string            `json:"payee"`
+	Memo        string            `json:"memo"`
+	SyncedAt    time.Time         `json:"synced_at"`
+	Labels      map[string]string `json:"labels"`
 }
 
-// TagDTO is the JSON representation of a tag in the global vocabulary: its
-// display name and the number of transactions that carry it.
-type TagDTO struct {
-	Name             string `json:"name"`
+// LabelDTO is the JSON representation of one label in the global vocabulary: a
+// key/value pair and the number of transactions that carry it.
+type LabelDTO struct {
+	Key              string `json:"key"`
+	Value            string `json:"value"`
 	TransactionCount int    `json:"transaction_count"`
 }
 
@@ -86,7 +87,7 @@ func toTransactionDTO(t db.Transaction) TransactionDTO {
 		Payee:       t.Payee,
 		Memo:        t.Memo,
 		SyncedAt:    unixTime(t.SyncedAt),
-		Tags:        decodeTags(t.Tags),
+		Labels:      decodeLabels(t.Labels),
 	}
 }
 
