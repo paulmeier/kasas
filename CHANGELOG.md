@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/paulmeier/kasas/compare/v2.8.0...v2.9.0) (2026-06-06)
+
+
+### Features
+
+* plugin system — sandboxed Lua plugins that react to ledger events ([#48](https://github.com/paulmeier/kasas/issues/48)) ([da36018](https://github.com/paulmeier/kasas/commit/da36018f9f91189616114d2a89044aa70867eb17))
+
 ## [2.8.0](https://github.com/paulmeier/kasas/compare/v2.7.0...v2.8.0) (2026-06-06)
 
 
