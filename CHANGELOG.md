@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/paulmeier/kasas/compare/v2.0.0...v2.1.0) (2026-06-06)
+
+
+### Features
+
+* dashboard Settings page (SimpleFIN connect, force-sync, label-safe refresh) ([#32](https://github.com/paulmeier/kasas/issues/32)) ([386a7a1](https://github.com/paulmeier/kasas/commit/386a7a1a0b4b3a87392aa85551edc7bb573f67dd))
+
 ## [2.0.0](https://github.com/paulmeier/kasas/compare/v1.6.0...v2.0.0) (2026-06-06)
 
 
