@@ -277,12 +277,14 @@ Managed by embedded [goose](https://github.com/pressly/goose) migrations under
 ```
 organizations  id, domain, name, sfin_url
 accounts       id, org_id, name, currency, balance, balance_date, synced_at
-transactions   id, account_id, amount, pending, date, description, payee, memo, synced_at
+transactions   id, account_id, amount, pending, date, description, payee, memo, synced_at, labels
 sync_log       id, started_at, completed_at, status, error
 ```
 
-Type-safe access code is generated from the shared [`queries/`](queries) by
-[sqlc](https://sqlc.dev) for both dialects: SQLite into
+`labels` is a JSON object of `key: value` pairs (see [REST API](#rest-api)).
+Type-safe access code is generated from [`queries/`](queries) — shared queries
+plus per-dialect `queries/sqlite` and `queries/postgres` for the JSON label
+filtering — by [sqlc](https://sqlc.dev) for both dialects: SQLite into
 [`internal/db/`](internal/db) and Postgres into
 [`internal/db/pg/`](internal/db/pg). A small `db.Store` abstraction lets the rest
 of the app stay backend-agnostic.
