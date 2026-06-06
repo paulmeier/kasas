@@ -23,6 +23,10 @@ REST API and a built-in [MCP](https://modelcontextprotocol.io/) server.
   robust query language over any field and label combination, built with
   [go-app](https://go-app.dev)
   (Go → WebAssembly, embedded in the binary; no Node/JS build).
+- **Extensible without a schema change** — strict `key:value` **labels** for
+  categorization, plus **[schema extensions](#schema-extensions)**: arbitrary,
+  namespaced JSON metadata any app can attach to a transaction, so integrations
+  innovate independently.
 - **One small container** (`scratch` base — ~12 MB pulled, ~24 MB on disk for
   linux/amd64; the embedded WASM dashboard adds ~5 MB) with a bind-mounted
   SQLite file.
@@ -315,9 +319,11 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/transactions/search` | Search transactions with the query language (`?q=`); returns `{query, total, transactions}` |
 | `GET /api/v1/transactions/{id}` | Get one transaction |
 | `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`) |
+| `PUT /api/v1/transactions/{id}/extensions` | Replace a transaction's [schema extensions](#schema-extensions) (`{"extensions":{"tax.category":"meal"}}`) |
 | `GET /api/v1/transactions/{id}/history` | The transaction's [version history](#transaction-history): full snapshots + per-version diffs |
 | `GET /api/v1/labels` | List labels with per-pair transaction counts (`[{"key","value","transaction_count"}]`) |
 | `DELETE /api/v1/labels/{key}` | Remove a label key from every transaction (add `?value=` to scope to one value) |
+| `GET /api/v1/extensions` | List the extension vocabulary with per-key transaction counts (`[{"namespace","key","transaction_count"}]`) |
 | `GET /api/v1/rules` | List labeling rules |
 | `POST /api/v1/rules` | Create a rule (`{"name","query","labels":{…},"enabled"}`); validates the query, 400 on error |
 | `GET /api/v1/rules/{id}` | Get one rule |
@@ -352,6 +358,41 @@ curl "localhost:8080/api/v1/transactions?label_key=category&label_value=food"
 curl "localhost:8080/api/v1/transactions/search?q=coffee%20amount:%3C0%20date:2024"
 ```
 
+## Schema extensions
+
+Rigid schemas kill platform adoption, so kasas lets any app attach its own
+**namespaced metadata** to a transaction without a schema change. Extensions are
+a JSON object of dotted keys to **arbitrary JSON values** (string, number,
+boolean, null, object, array):
+
+```json
+{
+  "id": "…",
+  "amount": "-45.23",
+  "extensions": {
+    "tax.category": "meal",
+    "forecast.recurring": true,
+    "custom.myapp.score": 88
+  }
+}
+```
+
+They are **parallel to labels, not a replacement**: labels are strict
+`key: value` *strings* for user categorization; extensions are app-owned data, so
+keys are namespaced and **case-preserved** and values keep their JSON type. A
+`PUT` replaces the whole set (send the full object; `{}` clears it); the values
+are stored verbatim. Re-syncs never touch them. Write via the REST API or the
+`set_transaction_extensions` MCP tool; the dashboard displays them read-only.
+Filter on them with the search language's `ext:` field (below).
+
+```sh
+curl -X PUT localhost:8080/api/v1/transactions/<id>/extensions \
+  -H 'content-type: application/json' \
+  -d '{"extensions":{"tax.category":"meal","forecast.recurring":true,"custom.myapp.score":88}}'
+curl "localhost:8080/api/v1/extensions"
+curl "localhost:8080/api/v1/transactions/search?q=ext:tax.category=meal"
+```
+
 ## Search syntax
 
 The Search page and the `/transactions/search` endpoint (and the
@@ -361,7 +402,7 @@ combinations. Matching is case-insensitive; an empty query matches everything.
 
 | Form | Meaning |
 | --- | --- |
-| `coffee` / `"whole foods"` | free text across description, payee, memo, account, id, and labels |
+| `coffee` / `"whole foods"` | free text across description, payee, memo, account, id, labels, and extensions |
 | `description:` `payee:` `memo:` `account:` `id:` | substring on that field (quote for phrases) |
 | `amount:>50` `amount:<0` `amount:10..50` | numeric compare (`> >= < <= = !=`) or range (sign-aware) |
 | `date:2024` `date:2024-03` `date:>=2024-01-01` `date:2024-01..2024-06` | year / month / day, compare, or range |
@@ -369,6 +410,9 @@ combinations. Matching is case-insensitive; an empty query matches everything.
 | `label:category=food` / `category:food` | label key = value (the second is shorthand) |
 | `label:category` | label key present (any value) |
 | `label:store~whole` / `label:category!=food` | label value contains / not-equal |
+| `ext:tax.category=meal` | extension key = value (values matched as text; e.g. `ext:forecast.recurring=true`) |
+| `ext:custom.myapp.score` | extension key present (any value) |
+| `ext:tax.category~me` / `ext:tax.category!=meal` | extension value contains / not-equal |
 | `a OR b`, `a b` (implicit AND), `-a` / `NOT a`, `(a OR b) c` | boolean combine, negate, group |
 
 ```sh
@@ -423,10 +467,11 @@ carries the entity's last-known state):
 
 Event types: `transaction.created` / `transaction.updated` (and the reserved
 `transaction.deleted`), `account.created` / `account.updated`, `label.applied` /
-`label.removed`, `rule.created` / `rule.updated` / `rule.deleted` /
-`rule.executed`, and `sync.completed`. (A bulk label-vocabulary delete emits one
-coarse `label.removed` with `entity_type: "label"`; single-transaction label
-edits emit granular per-key events with `entity_type: "transaction"`.)
+`label.removed`, `extension.set` / `extension.removed`, `rule.created` /
+`rule.updated` / `rule.deleted` / `rule.executed`, and `sync.completed`. (A bulk
+label-vocabulary delete emits one coarse `label.removed` with `entity_type:
+"label"`; single-transaction label and extension edits emit granular per-key
+events with `entity_type: "transaction"`.)
 
 **Consumer contract:** order by `sequence` and dedupe on `event_id`. `sequence`
 is strictly increasing but **may have gaps** (a rolled-back change consumes a
@@ -467,9 +512,10 @@ snapshot** to its history, so you can answer *"why does this transaction look
 different today than last month?"* The timeline reads `v1 imported` (the row as it
 was first synced, including any labels a rule applied at birth), then `v2 synced`
 (the bank corrected the amount or merchant, or a pending charge posted), `v3
-labeled` (you or a rule changed its labels), and so on. Each version carries the
-complete snapshot plus a computed **diff** against the previous one (changed fields
-and label add/remove/change).
+labeled` (you or a rule changed its labels), `extended` (an app changed its schema
+extensions), and so on. Each version carries the complete snapshot plus a computed
+**diff** against the previous one (changed fields and label/extension
+add/remove/change).
 
 This complements the [event stream](#event-stream): events are a fine-grained,
 prunable change log (a `label.applied` carries only the changed key); history is
@@ -547,7 +593,9 @@ Manage webhooks over REST (`GET`/`POST`/`PUT`/`DELETE /api/v1/webhooks`, plus
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the
 streamable-HTTP transport. It exposes tools: `list_accounts`, `get_account`,
 `list_transactions` (with optional `label_key`/`label_value` drill-down),
-`search_transactions` (the query language above), `list_labels`,
+`search_transactions` (the query language above, including `ext:`), `list_labels`,
+`set_transaction_extensions` (replace a transaction's [schema extensions](#schema-extensions))
+and `list_extensions` (the extension vocabulary),
 `get_transaction_history` (one transaction's [version history](#transaction-history)
 with per-version diffs), `list_organizations`, `sync_status`, `trigger_sync`,
 `list_events` (read the [event stream](#event-stream): cursor with `after`, filter

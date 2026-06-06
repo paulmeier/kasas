@@ -1,10 +1,12 @@
 package events
 
 import (
+	"encoding/json"
 	"strconv"
 	"time"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/labels"
 )
 
@@ -14,7 +16,10 @@ import (
 // REST DTOs but are defined here to keep internal/events free of any dependency on
 // the api package.
 
-// TransactionPayload is the snapshot embedded in transaction.* and label.* events.
+// TransactionPayload is the snapshot embedded in transaction.*, label.*, and
+// extension.* events. Extensions are decoded to map[string]any (not
+// json.RawMessage) so this type is safe to surface as MCP tool output, matching
+// how the event Data field uses `any`.
 type TransactionPayload struct {
 	ID          string            `json:"id"`
 	AccountID   string            `json:"account_id"`
@@ -25,6 +30,7 @@ type TransactionPayload struct {
 	Payee       string            `json:"payee"`
 	Memo        string            `json:"memo"`
 	Labels      map[string]string `json:"labels"`
+	Extensions  map[string]any    `json:"extensions"`
 }
 
 // TransactionSnapshot builds a TransactionPayload from a stored row.
@@ -39,6 +45,7 @@ func TransactionSnapshot(t db.Transaction) TransactionPayload {
 		Payee:       t.Payee,
 		Memo:        t.Memo,
 		Labels:      labels.Decode(t.Labels),
+		Extensions:  extensions.Values(t.Extensions),
 	}
 }
 
@@ -80,6 +87,18 @@ type LabelDeletedPayload struct {
 	Key         string `json:"key"`
 	Value       string `json:"value,omitempty"`
 	RemovedFrom int64  `json:"removed_from"`
+}
+
+// ExtensionPayload is the data for a granular extension.set / extension.removed
+// event on a single transaction. The event's entity is that transaction
+// (EntityTransaction). Value carries the raw JSON value (the set value, or the
+// last value for a removal) verbatim — this payload is only ever marshaled into an
+// event's Data, never surfaced as an MCP tool output type, so json.RawMessage is
+// safe (and lossless) here.
+type ExtensionPayload struct {
+	TransactionID string          `json:"transaction_id"`
+	Key           string          `json:"key"`
+	Value         json.RawMessage `json:"value,omitempty"`
 }
 
 // RulePayload is the snapshot embedded in rule.created / rule.updated /

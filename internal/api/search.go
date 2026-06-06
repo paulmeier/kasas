@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/search"
 )
 
@@ -115,8 +116,21 @@ func toSearchRecord(t db.Transaction, accountName string) search.Record {
 		Payee:       t.Payee,
 		Memo:        t.Memo,
 		Labels:      decodeLabels(t.Labels),
+		Extensions:  searchExtensions(t.Extensions),
 		SyncedAt:    unixTime(t.SyncedAt),
 	}
+}
+
+// searchExtensions builds the search Record's extension map from a stored
+// extensions object: keys lowercased (search is case-insensitive) and values
+// stringified, so ext:key=value matches the stored value like a label does.
+func searchExtensions(stored string) map[string]string {
+	raw := extensions.Decode(stored)
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		out[strings.ToLower(k)] = extensions.StringifyValue(v)
+	}
+	return out
 }
 
 // parseAmountValue parses a stored decimal amount string into a float for

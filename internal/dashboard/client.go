@@ -25,16 +25,17 @@ type account struct {
 }
 
 type transaction struct {
-	ID          string            `json:"id"`
-	AccountID   string            `json:"account_id"`
-	Amount      string            `json:"amount"`
-	Pending     bool              `json:"pending"`
-	Date        time.Time         `json:"date"`
-	Description string            `json:"description"`
-	Payee       string            `json:"payee"`
-	Memo        string            `json:"memo"`
-	SyncedAt    time.Time         `json:"synced_at"`
-	Labels      map[string]string `json:"labels"`
+	ID          string                     `json:"id"`
+	AccountID   string                     `json:"account_id"`
+	Amount      string                     `json:"amount"`
+	Pending     bool                       `json:"pending"`
+	Date        time.Time                  `json:"date"`
+	Description string                     `json:"description"`
+	Payee       string                     `json:"payee"`
+	Memo        string                     `json:"memo"`
+	SyncedAt    time.Time                  `json:"synced_at"`
+	Labels      map[string]string          `json:"labels"`
+	Extensions  map[string]json.RawMessage `json:"extensions"`
 }
 
 type updateStatus struct {

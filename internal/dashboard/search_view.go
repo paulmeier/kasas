@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 
+	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/search"
 )
 
@@ -195,8 +197,20 @@ func (v *searchView) toRecord(t transaction) search.Record {
 		Payee:       t.Payee,
 		Memo:        t.Memo,
 		Labels:      t.Labels,
+		Extensions:  searchExtensions(t.Extensions),
 		SyncedAt:    t.SyncedAt,
 	}
+}
+
+// searchExtensions builds the search Record's extension map: keys lowercased
+// (search is case-insensitive) and values stringified, so ext:key=value matches
+// the stored value. Mirrors the server-side adapter in internal/api.
+func searchExtensions(ext map[string]json.RawMessage) map[string]string {
+	out := make(map[string]string, len(ext))
+	for k, v := range ext {
+		out[strings.ToLower(k)] = extensions.StringifyValue(v)
+	}
+	return out
 }
 
 func (v *searchView) accountName(id string) string {
@@ -416,6 +430,7 @@ func (v *searchView) renderResults() app.UI {
 				v.sortHeader("Description", sortByDescription, ""),
 				v.sortHeader("Amount", sortByAmount, "right"),
 				app.Th().Class("labels-col").Text("Labels"),
+				app.Th().Class("ext-col").Text("Extensions"),
 				app.Th().Text(""),
 			),
 		),
@@ -456,6 +471,7 @@ func (v *searchView) renderRow(t transaction) app.UI {
 		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
 		v.renderLabelsCell(t), // promoted from labelEditing
+		renderExtensionsCell(t),
 		app.Td().Class("row-actions").Body(
 			pendingBadge(t.Pending),
 			v.renderHistoryButton(t), // promoted from historyViewing
@@ -536,7 +552,7 @@ func searchSyntaxHelp() []app.UI {
 				"Matching is case-insensitive. Leave the box empty to list everything."),
 
 		helpSection("Free text", []helpEntry{
-			{"coffee", "match anywhere: description, payee, memo, account, id, or a label"},
+			{"coffee", "match anywhere: description, payee, memo, account, id, a label, or an extension"},
 			{`"whole foods"`, "quote to match an exact phrase containing spaces"},
 		}),
 		helpSection("Fields", []helpEntry{
@@ -563,6 +579,13 @@ func searchSyntaxHelp() []app.UI {
 			{"label:category", "key present (any value)"},
 			{"label:store~whole", "value contains"},
 			{"label:category!=food", "value not equal"},
+		}),
+		helpSection("Extensions", []helpEntry{
+			{"ext:tax.category=meal", "namespaced key equals value"},
+			{"ext:forecast.recurring=true", "values may be any JSON (matched as text)"},
+			{"ext:custom.myapp.score", "key present (any value)"},
+			{"ext:tax.category~me", "value contains"},
+			{"ext:tax.category!=meal", "value not equal"},
 		}),
 		helpSection("Combining", []helpEntry{
 			{"food coffee", "implicit AND — both must match"},

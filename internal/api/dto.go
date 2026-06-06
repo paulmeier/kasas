@@ -25,7 +25,9 @@ type AccountDTO struct {
 	SyncedAt    time.Time `json:"synced_at"`
 }
 
-// TransactionDTO is the JSON representation of a transaction.
+// TransactionDTO is the JSON representation of a transaction. Labels are strict
+// key->value strings; Extensions are arbitrary, app-owned namespaced metadata
+// whose values are any JSON (decoded to `any` so the type is MCP-output-safe).
 type TransactionDTO struct {
 	ID          string            `json:"id"`
 	AccountID   string            `json:"account_id"`
@@ -37,6 +39,7 @@ type TransactionDTO struct {
 	Memo        string            `json:"memo"`
 	SyncedAt    time.Time         `json:"synced_at"`
 	Labels      map[string]string `json:"labels"`
+	Extensions  map[string]any    `json:"extensions"`
 }
 
 // LabelDTO is the JSON representation of one label in the global vocabulary: a
@@ -44,6 +47,15 @@ type TransactionDTO struct {
 type LabelDTO struct {
 	Key              string `json:"key"`
 	Value            string `json:"value"`
+	TransactionCount int    `json:"transaction_count"`
+}
+
+// ExtensionDTO is the JSON representation of one schema-extension key in the
+// global vocabulary: its namespace (the part before the first dot), the full key,
+// and the number of transactions that carry it.
+type ExtensionDTO struct {
+	Namespace        string `json:"namespace"`
+	Key              string `json:"key"`
 	TransactionCount int    `json:"transaction_count"`
 }
 
@@ -88,6 +100,7 @@ func toTransactionDTO(t db.Transaction) TransactionDTO {
 		Memo:        t.Memo,
 		SyncedAt:    unixTime(t.SyncedAt),
 		Labels:      decodeLabels(t.Labels),
+		Extensions:  decodeExtensions(t.Extensions),
 	}
 }
 

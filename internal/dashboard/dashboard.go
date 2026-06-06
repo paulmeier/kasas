@@ -546,9 +546,10 @@ func (v *dashboardView) renderTable() app.UI {
 				v.sortHeader("Account", sortByAccount, ""),
 				v.sortHeader("Description", sortByDescription, ""),
 				v.sortHeader("Amount", sortByAmount, "right"),
-				// Labels is intentionally a plain header: it has no sortColumn and
-				// is not built with sortHeader, so it is never sortable.
+				// Labels and Extensions are plain headers: no sortColumn, not built
+				// with sortHeader, so they are never sortable.
 				app.Th().Class("labels-col").Text("Labels"),
+				app.Th().Class("ext-col").Text("Extensions"),
 				app.Th().Text(""),
 			),
 		),
@@ -594,6 +595,7 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
 		v.renderLabelsCell(t),
+		renderExtensionsCell(t),
 		app.Td().Class("row-actions").Body(
 			pendingBadge(t.Pending),
 			v.renderHistoryButton(t),

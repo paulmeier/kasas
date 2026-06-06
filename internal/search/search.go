@@ -49,7 +49,11 @@ type Record struct {
 	Payee       string
 	Memo        string
 	Labels      map[string]string
-	SyncedAt    time.Time
+	// Extensions is the transaction's schema extensions for matching: keys
+	// lowercased and values stringified (a JSON string by its text, any other JSON
+	// value by its compact encoding). Populated by callers from the stored object.
+	Extensions map[string]string
+	SyncedAt   time.Time
 }
 
 // Query is a parsed search expression. A Query parsed from an empty (or
@@ -441,6 +445,8 @@ func predFromTerm(t token) (node, error) {
 		return pendingPred(t.value)
 	case "label":
 		return labelPred(t.value)
+	case "ext":
+		return extPred(t.value)
 	default:
 		// Unreserved field => label shorthand `key:value` (exact, case-insensitive).
 		v := strings.TrimSpace(mustDequote(t.value))
@@ -466,6 +472,11 @@ func freeTextMatch(r Record, needle string) bool {
 		if strings.Contains(strings.ToLower(k), needle) ||
 			strings.Contains(strings.ToLower(v), needle) ||
 			strings.Contains(strings.ToLower(k+":"+v), needle) {
+			return true
+		}
+	}
+	for k, v := range r.Extensions {
+		if strings.Contains(strings.ToLower(k), needle) || strings.Contains(strings.ToLower(v), needle) {
 			return true
 		}
 	}
@@ -712,6 +723,61 @@ func labelEqPred(key, value string, op cmpOp) node {
 // stored form (the API lowercases keys on write). It does not strip the
 // characters the API removes on write, since stored keys already lack them.
 func normalizeKey(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// extPred builds a schema-extension predicate from the value of an `ext:` term:
+// `key` (presence), `key=value`, `key!=value`, or `key~value` (contains). Keys
+// match case-insensitively (the Record stores them lowercased; storage preserves
+// case); values match case-insensitively against the stringified extension value.
+func extPred(raw string) (node, error) {
+	if i := strings.Index(raw, "!="); i >= 0 {
+		return extLeaf(raw[:i], raw[i+2:], opNe)
+	}
+	if i := strings.IndexByte(raw, '~'); i >= 0 {
+		return extLeaf(raw[:i], raw[i+1:], opContains)
+	}
+	if i := strings.IndexByte(raw, '='); i >= 0 {
+		return extLeaf(raw[:i], raw[i+1:], opEq)
+	}
+	key := normalizeKey(mustDequote(strings.TrimSpace(raw)))
+	if key == "" {
+		return nil, fmt.Errorf("empty extension key")
+	}
+	return predNode{fn: func(r Record) bool { _, ok := r.Extensions[key]; return ok }}, nil
+}
+
+func extLeaf(rawKey, rawVal string, op cmpOp) (node, error) {
+	key := normalizeKey(mustDequote(strings.TrimSpace(rawKey)))
+	v := strings.TrimSpace(mustDequote(strings.TrimSpace(rawVal)))
+	if key == "" {
+		return nil, fmt.Errorf("empty extension key")
+	}
+	if v == "" {
+		return nil, fmt.Errorf("empty extension value for %q", key)
+	}
+	return extEqPred(key, v, op), nil
+}
+
+// extEqPred matches a single extension key's stringified value with the given
+// operator (case-insensitive). A missing key satisfies != but not = or ~.
+func extEqPred(key, value string, op cmpOp) node {
+	want := strings.ToLower(value)
+	return predNode{fn: func(r Record) bool {
+		cur, ok := r.Extensions[key]
+		if !ok {
+			return op == opNe
+		}
+		got := strings.ToLower(cur)
+		switch op {
+		case opEq:
+			return got == want
+		case opNe:
+			return got != want
+		case opContains:
+			return strings.Contains(got, want)
+		}
+		return false
+	}}
+}
 
 // splitRange splits "a..b" into its (possibly empty) bounds. An open side
 // ("..b" or "a..") yields a one-sided range.

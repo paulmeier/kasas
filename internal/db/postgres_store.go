@@ -89,6 +89,19 @@ func (a pgQuerier) ListLabeledTransactions(ctx context.Context) ([]ListLabeledTr
 	}), err
 }
 
+// Schema extensions are stored as a JSON object column like labels. The param and
+// row structs are all string, so they adapt by whole-struct cast / row cast.
+func (a pgQuerier) UpdateTransactionExtensions(ctx context.Context, arg UpdateTransactionExtensionsParams) (int64, error) {
+	return a.q.UpdateTransactionExtensions(ctx, pg.UpdateTransactionExtensionsParams(arg))
+}
+
+func (a pgQuerier) ListExtendedTransactions(ctx context.Context) ([]ListExtendedTransactionsRow, error) {
+	rows, err := a.q.ListExtendedTransactions(ctx)
+	return mapSlice(rows, func(r pg.ListExtendedTransactionsRow) ListExtendedTransactionsRow {
+		return ListExtendedTransactionsRow(r)
+	}), err
+}
+
 // FilterTransactionsByLabelKey / ByLabelValue and DeleteLabelBy* push label
 // querying down to SQL. The filter params are hand-mapped (not whole-struct cast)
 // because pg emits int32 for limit/offset where db emits int64.

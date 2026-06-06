@@ -74,6 +74,7 @@ type Transaction struct {
 	Memo        string `json:"memo"`
 	SyncedAt    int64  `json:"synced_at"`
 	Labels      string `json:"labels"`
+	Extensions  string `json:"extensions"`
 }
 
 type TransactionVersion struct {
