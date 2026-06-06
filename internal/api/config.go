@@ -24,6 +24,15 @@ type ConfigDTO struct {
 	MCP       MCPConfigDTO       `json:"mcp"`
 	Dashboard DashboardConfigDTO `json:"dashboard"`
 	Update    UpdateConfigDTO    `json:"update"`
+	Security  SecurityConfigDTO  `json:"security"`
+}
+
+// SecurityConfigDTO reports the dashboard-token state for the Settings page. The
+// token value itself is never included. TokenSource is "config", "stored", or
+// "none"; the Settings page hides the generate/revoke controls when it is "config".
+type SecurityConfigDTO struct {
+	AuthRequired bool   `json:"auth_required"`
+	TokenSource  string `json:"token_source"`
 }
 
 // ServerConfigDTO mirrors config.Server.
@@ -90,8 +99,9 @@ type UpdateConfigDTO struct {
 }
 
 // toConfigDTO builds the redacted view of the effective configuration. connected
-// reflects whether a SimpleFIN access URL is currently stored.
-func toConfigDTO(cfg *config.Config, connected bool) ConfigDTO {
+// reflects whether a SimpleFIN access URL is currently stored; security reports
+// the dashboard-token state.
+func toConfigDTO(cfg *config.Config, connected bool, security SecurityConfigDTO) ConfigDTO {
 	return ConfigDTO{
 		Server: ServerConfigDTO{Addr: cfg.Server.Addr},
 		Log:    LogConfigDTO{Level: cfg.Log.Level, Format: cfg.Log.Format},
@@ -123,6 +133,7 @@ func toConfigDTO(cfg *config.Config, connected bool) ConfigDTO {
 			AllowApply: cfg.Update.AllowApply,
 			Repository: cfg.Update.Repository,
 		},
+		Security: security,
 	}
 }
 
@@ -162,7 +173,14 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 			connected = ok
 		}
 	}
-	s.writeJSON(w, http.StatusOK, toConfigDTO(s.config, connected))
+
+	security := SecurityConfigDTO{TokenSource: "none"}
+	if s.auth != nil {
+		security.AuthRequired = s.auth.Required()
+		security.TokenSource = s.auth.Source()
+	}
+
+	s.writeJSON(w, http.StatusOK, toConfigDTO(s.config, connected, security))
 }
 
 // setCredentialRequest is the body of PUT /simplefin/credential. token may be a

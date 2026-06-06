@@ -82,7 +82,7 @@ func secretLadenConfig() *config.Config {
 		Vault:     config.Vault{Enabled: true, Address: "http://vault:8200", Token: "leak-vault-token", Mount: "secret", Path: "kasas", AccessURLKey: "k"},
 		Secrets:   config.Secrets{File: "/data/secrets.json"},
 		MCP:       config.MCP{Enabled: true},
-		Dashboard: config.Dashboard{Enabled: true},
+		Dashboard: config.Dashboard{Enabled: true, Token: "leak-dashboard-token"},
 		Update:    config.Update{Check: true, AllowApply: true, Repository: "paulmeier/kasas"},
 	}
 }
@@ -99,7 +99,7 @@ func TestGetConfigRedactsSecrets(t *testing.T) {
 	body := string(raw)
 
 	// No secret value may appear anywhere in the response.
-	for _, secret := range []string{"supersecretpw", "leak-setup-token", "leak-vault-token", "bridgepw"} {
+	for _, secret := range []string{"supersecretpw", "leak-setup-token", "leak-vault-token", "bridgepw", "leak-dashboard-token"} {
 		assert.NotContains(t, body, secret, "secret leaked in /config response")
 	}
 

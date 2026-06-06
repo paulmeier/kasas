@@ -36,6 +36,7 @@ import (
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
 
 	"github.com/paulmeier/kasas/internal/api"
+	"github.com/paulmeier/kasas/internal/auth"
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
@@ -105,6 +106,14 @@ func run(command, configPath string) error {
 		return fmt.Errorf("init secret store: %w", err)
 	}
 
+	// Dashboard token guard: a config/env token is authoritative; otherwise a
+	// token generated from the dashboard (stored alongside the SimpleFIN access
+	// URL) applies. When none is set, the API/dashboard/MCP are unauthenticated.
+	guard, err := auth.New(cfg.Dashboard.Token, secrets)
+	if err != nil {
+		return fmt.Errorf("init dashboard auth: %w", err)
+	}
+
 	p := poller.New(poller.Options{
 		Store:           store,
 		Secrets:         secrets,
@@ -133,6 +142,7 @@ func run(command, configPath string) error {
 		Syncer:     p,
 		Connector:  p,
 		Config:     cfg,
+		Auth:       guard,
 		Logger:     logger,
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
@@ -149,7 +159,7 @@ func run(command, configPath string) error {
 
 	switch command {
 	case "", "serve":
-		return serve(cfg, logger, p, srv, updateChecker)
+		return serve(cfg, logger, p, srv, updateChecker, guard)
 	case "migrate":
 		logger.Info("migrations applied")
 		return nil
@@ -165,9 +175,13 @@ func run(command, configPath string) error {
 
 // serve runs the HTTP server plus the background sync scheduler until an
 // interrupt or SIGTERM is received, then shuts down gracefully.
-func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker) error {
+func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if !guard.Required() {
+		logger.Warn("dashboard is NOT secured: no dashboard token is set — anyone who can reach kasas can read your financial data and change settings; set dashboard.token / KASAS_DASHBOARD_TOKEN, or generate a token from the dashboard Settings page")
+	}
 
 	if updateChecker != nil {
 		go updateChecker.Run(ctx, logger, 24*time.Hour)

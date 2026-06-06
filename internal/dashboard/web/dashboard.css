@@ -692,3 +692,79 @@ html, body {
 .rule-actions .label-delete:focus-visible { opacity: 1; }
 
 .btn-small { padding: 5px 12px; font-size: 13px; }
+
+/* --- Dashboard security (auth) --- */
+
+/* "Not secured" warning banner, shown on every page until a token is set. */
+.unsecured-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: rgba(248, 81, 73, 0.10);
+  border: 1px solid rgba(248, 81, 73, 0.40);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.unsecured-banner .unsecured-text { flex: 1; color: var(--text); }
+.unsecured-banner .unsecured-strong { color: var(--neg); font-weight: 600; }
+.unsecured-banner .unsecured-link { color: var(--accent); white-space: nowrap; font-weight: 600; }
+
+/* Informational note (e.g. token managed via configuration). */
+.settings-note {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Destructive action (revoke token). */
+.btn-danger {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--neg);
+  border: 1px solid rgba(248, 81, 73, 0.40);
+}
+.btn-danger:hover { border-color: var(--neg); }
+
+/* One-time token reveal after generating/setting. */
+.token-reveal {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.token-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  user-select: all;
+}
+
+/* Full-page login + loading screens (rendered instead of the app shell). */
+.login-screen, .auth-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.auth-loading-text { color: var(--muted); font-size: 14px; }
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 28px 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+.login-logo { width: 56px; height: 56px; border-radius: 12px; }
+.login-title { font-size: 20px; margin: 0; }
+.login-help { color: var(--muted); font-size: 13px; margin: 0; }
+.login-input { width: 100%; min-width: 0; max-width: none; }
+.login-btn { width: 100%; }
+.login-err { color: var(--neg); font-size: 13px; }

@@ -24,42 +24,39 @@ func NewFileStore(path string) *FileStore {
 }
 
 type fileSecrets struct {
-	AccessURL string `json:"simplefin_access_url"`
+	AccessURL      string `json:"simplefin_access_url"`
+	DashboardToken string `json:"dashboard_token,omitempty"`
 }
 
-func (f *FileStore) AccessURL(ctx context.Context) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
+// load reads the whole secrets file. A missing file is not an error (it yields
+// the zero value). The caller must hold f.mu.
+func (f *FileStore) load() (fileSecrets, error) {
 	data, err := os.ReadFile(f.path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
+		return fileSecrets{}, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("read secrets %q: %w", f.path, err)
+		return fileSecrets{}, fmt.Errorf("read secrets %q: %w", f.path, err)
 	}
 	var s fileSecrets
 	if err := json.Unmarshal(data, &s); err != nil {
-		return "", fmt.Errorf("parse secrets %q: %w", f.path, err)
+		return fileSecrets{}, fmt.Errorf("parse secrets %q: %w", f.path, err)
 	}
-	return s.AccessURL, nil
+	return s, nil
 }
 
-func (f *FileStore) SetAccessURL(ctx context.Context, accessURL string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
+// save writes the whole secrets file atomically with owner-only permissions (it
+// holds credentials). The caller must hold f.mu.
+func (f *FileStore) save(s fileSecrets) error {
 	if dir := filepath.Dir(f.path); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create secrets dir %q: %w", dir, err)
 		}
 	}
-	data, err := json.MarshalIndent(fileSecrets{AccessURL: accessURL}, "", "  ")
+	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode secrets: %w", err)
 	}
-	// Write atomically and restrict permissions: the access URL embeds
-	// credentials for the SimpleFIN bridge.
 	tmp := f.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write secrets %q: %w", tmp, err)
@@ -68,4 +65,50 @@ func (f *FileStore) SetAccessURL(ctx context.Context, accessURL string) error {
 		return fmt.Errorf("replace secrets %q: %w", f.path, err)
 	}
 	return nil
+}
+
+func (f *FileStore) AccessURL(ctx context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, err := f.load()
+	if err != nil {
+		return "", err
+	}
+	return s.AccessURL, nil
+}
+
+// SetAccessURL persists the access URL, preserving any stored dashboard token
+// (the two secrets share one file, so it is read-modify-write).
+func (f *FileStore) SetAccessURL(ctx context.Context, accessURL string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, err := f.load()
+	if err != nil {
+		return err
+	}
+	s.AccessURL = accessURL
+	return f.save(s)
+}
+
+func (f *FileStore) DashboardToken(ctx context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, err := f.load()
+	if err != nil {
+		return "", err
+	}
+	return s.DashboardToken, nil
+}
+
+// SetDashboardToken persists the dashboard token (empty clears it), preserving
+// the stored SimpleFIN access URL.
+func (f *FileStore) SetDashboardToken(ctx context.Context, token string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, err := f.load()
+	if err != nil {
+		return err
+	}
+	s.DashboardToken = token
+	return f.save(s)
 }

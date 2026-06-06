@@ -83,9 +83,15 @@ type MCP struct {
 	Enabled bool
 }
 
-// Dashboard toggles the built-in read-only web dashboard (served at /).
+// Dashboard toggles the built-in read-only web dashboard (served at /) and holds
+// the optional access token. When Token is non-empty, the REST API, dashboard,
+// and MCP-over-HTTP server require it (sent as "Authorization: Bearer <token>").
+// A config/env token is authoritative; when it is empty, a token generated from
+// the Settings page (stored in the secret store) is used instead. When no token
+// is set anywhere, those surfaces are unauthenticated and kasas logs a warning.
 type Dashboard struct {
 	Enabled bool
+	Token   string
 }
 
 // Update controls the periodic check for newer releases. It only logs a notice
@@ -124,6 +130,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("secrets.file", "/data/secrets.json")
 	v.SetDefault("mcp.enabled", true)
 	v.SetDefault("dashboard.enabled", true)
+	v.SetDefault("dashboard.token", "")
 	v.SetDefault("update.check", true)
 	v.SetDefault("update.allow_apply", true)
 	v.SetDefault("update.repository", "paulmeier/kasas")
@@ -170,9 +177,12 @@ func Load(path string) (*Config, error) {
 			Path:         v.GetString("vault.path"),
 			AccessURLKey: v.GetString("vault.access_url_key"),
 		},
-		Secrets:   Secrets{File: v.GetString("secrets.file")},
-		MCP:       MCP{Enabled: v.GetBool("mcp.enabled")},
-		Dashboard: Dashboard{Enabled: v.GetBool("dashboard.enabled")},
+		Secrets: Secrets{File: v.GetString("secrets.file")},
+		MCP:     MCP{Enabled: v.GetBool("mcp.enabled")},
+		Dashboard: Dashboard{
+			Enabled: v.GetBool("dashboard.enabled"),
+			Token:   v.GetString("dashboard.token"),
+		},
 		Update: Update{
 			Check:      v.GetBool("update.check"),
 			AllowApply: v.GetBool("update.allow_apply"),

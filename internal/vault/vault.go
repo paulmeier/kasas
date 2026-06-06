@@ -11,13 +11,24 @@ import (
 	vaultapi "github.com/hashicorp/vault/api"
 )
 
-// SecretStore reads and writes the SimpleFIN access URL.
+// SecretStore reads and writes kasas's secrets: the SimpleFIN access URL and the
+// optional dashboard access token. Both live at the same backend location (one
+// JSON file, or one Vault KV path), so writes are read-modify-write to keep them
+// from clobbering each other.
 type SecretStore interface {
 	// AccessURL returns the stored access URL, or "" if none is stored yet.
 	AccessURL(ctx context.Context) (string, error)
 	// SetAccessURL persists the access URL for future runs.
 	SetAccessURL(ctx context.Context, accessURL string) error
+	// DashboardToken returns the stored dashboard token, or "" if none is set.
+	DashboardToken(ctx context.Context) (string, error)
+	// SetDashboardToken persists the dashboard token; "" clears it.
+	SetDashboardToken(ctx context.Context, token string) error
 }
+
+// dashboardTokenKey is the key under which the dashboard token is stored, both in
+// the local JSON file and within the Vault KV secret.
+const dashboardTokenKey = "dashboard_token"
 
 // Config configures the Vault-backed SecretStore.
 type Config struct {
@@ -40,9 +51,10 @@ func New(cfg Config, fallbackFile string) (SecretStore, error) {
 
 // vaultStore is a SecretStore backed by a Vault KV v2 secrets engine.
 type vaultStore struct {
-	kv   *vaultapi.KVv2
-	path string
-	key  string
+	kv       *vaultapi.KVv2
+	path     string
+	key      string // key holding the SimpleFIN access URL
+	tokenKey string // key holding the dashboard token
 }
 
 func newVaultStore(cfg Config) (*vaultStore, error) {
@@ -69,10 +81,28 @@ func newVaultStore(cfg Config) (*vaultStore, error) {
 	if key == "" {
 		key = "simplefin_access_url"
 	}
-	return &vaultStore{kv: client.KVv2(mount), path: cfg.Path, key: key}, nil
+	return &vaultStore{kv: client.KVv2(mount), path: cfg.Path, key: key, tokenKey: dashboardTokenKey}, nil
 }
 
 func (s *vaultStore) AccessURL(ctx context.Context) (string, error) {
+	return s.get(ctx, s.key)
+}
+
+func (s *vaultStore) SetAccessURL(ctx context.Context, accessURL string) error {
+	return s.putMerged(ctx, s.key, accessURL)
+}
+
+func (s *vaultStore) DashboardToken(ctx context.Context) (string, error) {
+	return s.get(ctx, s.tokenKey)
+}
+
+func (s *vaultStore) SetDashboardToken(ctx context.Context, token string) error {
+	return s.putMerged(ctx, s.tokenKey, token)
+}
+
+// get reads a single string value from the kasas secret, returning "" when the
+// secret or the key is absent.
+func (s *vaultStore) get(ctx context.Context, key string) (string, error) {
 	secret, err := s.kv.Get(ctx, s.path)
 	if err != nil {
 		if errors.Is(err, vaultapi.ErrSecretNotFound) {
@@ -80,20 +110,40 @@ func (s *vaultStore) AccessURL(ctx context.Context) (string, error) {
 		}
 		return "", fmt.Errorf("vault get %q: %w", s.path, err)
 	}
-	raw, ok := secret.Data[s.key]
+	raw, ok := secret.Data[key]
 	if !ok {
 		return "", nil
 	}
-	url, ok := raw.(string)
+	val, ok := raw.(string)
 	if !ok {
-		return "", fmt.Errorf("vault secret %q key %q is not a string", s.path, s.key)
+		return "", fmt.Errorf("vault secret %q key %q is not a string", s.path, key)
 	}
-	return url, nil
+	return val, nil
 }
 
-func (s *vaultStore) SetAccessURL(ctx context.Context, accessURL string) error {
-	_, err := s.kv.Put(ctx, s.path, map[string]interface{}{s.key: accessURL})
-	if err != nil {
+// putMerged sets (or, when value is "", deletes) one key within the kasas secret
+// without disturbing the others. The access URL and the dashboard token share a
+// single KV path, so a plain Put would clobber the sibling secret.
+func (s *vaultStore) putMerged(ctx context.Context, key, value string) error {
+	data := map[string]interface{}{}
+	secret, err := s.kv.Get(ctx, s.path)
+	switch {
+	case err == nil && secret != nil:
+		for k, v := range secret.Data {
+			data[k] = v
+		}
+	case errors.Is(err, vaultapi.ErrSecretNotFound):
+		// No existing secret; start from an empty map.
+	case err != nil:
+		return fmt.Errorf("vault get %q: %w", s.path, err)
+	}
+
+	if value == "" {
+		delete(data, key)
+	} else {
+		data[key] = value
+	}
+	if _, err := s.kv.Put(ctx, s.path, data); err != nil {
 		return fmt.Errorf("vault put %q: %w", s.path, err)
 	}
 	return nil

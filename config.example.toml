@@ -64,6 +64,13 @@ enabled = true
 [dashboard]
 # Serve the read-only web dashboard at the root path (/).
 enabled = true
+# Access token. When set, the REST API, the dashboard, and the MCP-over-HTTP
+# server require it: clients send "Authorization: Bearer <token>". A token set
+# here (or via KASAS_DASHBOARD_TOKEN) is authoritative. Leave it empty to either
+# run unauthenticated (kasas logs a warning) or generate/manage a token from the
+# dashboard's Settings page, which stores it alongside the SimpleFIN credential
+# in the secret store. /healthz, /readyz, and /metrics are never gated.
+token = ""
 
 [update]
 # Periodically (once a day, while `serve` runs) check GitHub for a newer release.
