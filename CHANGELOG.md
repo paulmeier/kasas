@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/paulmeier/kasas/compare/v2.7.0...v2.8.0) (2026-06-06)
+
+
+### Features
+
+* schema extensions (arbitrary namespaced transaction metadata) ([#46](https://github.com/paulmeier/kasas/issues/46)) ([1ad0c91](https://github.com/paulmeier/kasas/commit/1ad0c9197385f48f07a6295ff57dd876387b125c))
+
 ## [2.7.0](https://github.com/paulmeier/kasas/compare/v2.6.0...v2.7.0) (2026-06-06)
 
 
