@@ -283,4 +283,36 @@ func TestPostgresStore(t *testing.T) {
 		_, err = store.GetEventBySequence(ctx, a.ID)
 		require.ErrorIs(t, err, sql.ErrNoRows)
 	})
+
+	// Exercises the Postgres transaction-history adapter (whole-struct casts,
+	// RETURNING, the identity sequence, the COUNT(*) scalar, and the prune) against a
+	// real Postgres -- the only place the cross-dialect cast contract actually runs.
+	t.Run("transaction versions: insert, list, count, prune", func(t *testing.T) {
+		mk := func(txnID, kind string, at int64) db.TransactionVersion {
+			v, err := store.InsertTransactionVersion(ctx, db.InsertTransactionVersionParams{
+				TransactionID: txnID, ChangeKind: kind, OccurredAt: at, Data: `{"id":"` + txnID + `"}`,
+			})
+			require.NoError(t, err)
+			require.NotZero(t, v.ID, "identity sequence is returned")
+			return v
+		}
+		v1 := mk("hist-1", "imported", 1000)
+		mk("hist-2", "imported", 1001) // a different transaction
+		v3 := mk("hist-1", "synced", 1002)
+
+		rows, err := store.ListTransactionVersions(ctx, "hist-1")
+		require.NoError(t, err)
+		require.Len(t, rows, 2, "only this transaction's versions, in insert order")
+		assert.Equal(t, []int64{v1.ID, v3.ID}, []int64{rows[0].ID, rows[1].ID})
+		assert.Equal(t, "imported", rows[0].ChangeKind)
+		assert.Equal(t, "synced", rows[1].ChangeKind)
+
+		n, err := store.CountTransactionVersions(ctx, "hist-1")
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n)
+
+		removed, err := store.DeleteTransactionVersionsBefore(ctx, 1001)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), removed, "only the version before the cutoff is pruned")
+	})
 }

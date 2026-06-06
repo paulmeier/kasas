@@ -71,3 +71,21 @@ const (
 	EntityRule        = "rule"
 	EntitySync        = "sync"
 )
+
+// The change kinds stamped on each immutable transaction version (the
+// transaction_versions table). They name the *cause* of a version, coarsely:
+// the per-field detail is the diff between consecutive snapshots, and finer
+// provenance (which rule, which label) lives in the event stream. There are
+// exactly three because there are exactly three transaction mutation seams.
+const (
+	// ChangeImported is the first version of a transaction: the poller inserted it
+	// (folding in any birth labels a rule applied), or it is the synthesized v1
+	// baseline written the first time a pre-existing transaction changes.
+	ChangeImported = "imported"
+	// ChangeSynced is a re-sync that changed a bridge-owned field (a pending charge
+	// that posted, or a corrected amount/merchant).
+	ChangeSynced = "synced"
+	// ChangeLabeled is a change to the transaction's labels (via the REST API or the
+	// rules engine).
+	ChangeLabeled = "labeled"
+)

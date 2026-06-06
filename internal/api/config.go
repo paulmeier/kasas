@@ -101,8 +101,9 @@ type UpdateConfigDTO struct {
 
 // EventsConfigDTO mirrors config.Events.
 type EventsConfigDTO struct {
-	Enabled       bool `json:"enabled"`
-	RetentionDays int  `json:"retention_days"`
+	Enabled              bool `json:"enabled"`
+	RetentionDays        int  `json:"retention_days"`
+	HistoryRetentionDays int  `json:"history_retention_days"`
 }
 
 // toConfigDTO builds the redacted view of the effective configuration. connected
@@ -141,8 +142,9 @@ func toConfigDTO(cfg *config.Config, connected bool, security SecurityConfigDTO)
 			Repository: cfg.Update.Repository,
 		},
 		Events: EventsConfigDTO{
-			Enabled:       cfg.Events.Enabled,
-			RetentionDays: cfg.Events.RetentionDays,
+			Enabled:              cfg.Events.Enabled,
+			RetentionDays:        cfg.Events.RetentionDays,
+			HistoryRetentionDays: cfg.Events.HistoryRetentionDays,
 		},
 		Security: security,
 	}

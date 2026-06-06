@@ -65,3 +65,11 @@ type Transaction struct {
 	SyncedAt    int64  `json:"synced_at"`
 	Labels      string `json:"labels"`
 }
+
+type TransactionVersion struct {
+	ID            int64  `json:"id"`
+	TransactionID string `json:"transaction_id"`
+	ChangeKind    string `json:"change_kind"`
+	OccurredAt    int64  `json:"occurred_at"`
+	Data          string `json:"data"`
+}

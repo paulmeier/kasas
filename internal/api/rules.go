@@ -380,6 +380,13 @@ func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled, rule
 			if eerr := emitLabelDiff(ctx, q, rec, t.ID, old, merged); eerr != nil {
 				return eerr
 			}
+			// Append a labeled version, synthesizing a v1 baseline from the prior
+			// state if this transaction predates history.
+			next := t
+			next.Labels = encoded
+			if eerr := rec.VersionChange(ctx, q, t.ID, events.TransactionSnapshot(t), events.TransactionSnapshot(next), events.ChangeLabeled); eerr != nil {
+				return eerr
+			}
 		}
 		// One rule.executed summarizes the run (ruleID 0 means run-all-enabled).
 		entityID := ""

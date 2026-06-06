@@ -455,4 +455,95 @@ func TestSyncWithoutEmitterRecordsNoEvents(t *testing.T) {
 	evs, err := queries.ListEventsAfter(ctx, db.ListEventsAfterParams{RowLimit: 100})
 	require.NoError(t, err)
 	assert.Empty(t, evs, "a nil emitter records nothing")
+
+	vers, err := queries.ListTransactionVersions(ctx, "txn-1")
+	require.NoError(t, err)
+	assert.Empty(t, vers, "a nil emitter records no versions either")
+}
+
+func TestSyncRecordsImportedVersions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	ctx := context.Background()
+
+	_, err := p.Sync(ctx)
+	require.NoError(t, err)
+
+	for _, id := range []string{"txn-1", "txn-2"} {
+		vers, err := queries.ListTransactionVersions(ctx, id)
+		require.NoError(t, err)
+		require.Len(t, vers, 1, "each new transaction gets exactly one imported version")
+		assert.Equal(t, events.ChangeImported, vers[0].ChangeKind)
+	}
+}
+
+func TestSyncImportedVersionFoldsRuleLabels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sampleAccounts))
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	ctx := context.Background()
+	mustCreateRule(t, queries, "description:coffee", `{"category":"coffee"}`, true)
+
+	_, err := p.Sync(ctx)
+	require.NoError(t, err)
+
+	vers, err := queries.ListTransactionVersions(ctx, "txn-1")
+	require.NoError(t, err)
+	require.Len(t, vers, 1, "still a single imported version, with the rule labels folded in")
+	assert.Equal(t, events.ChangeImported, vers[0].ChangeKind)
+	assert.Contains(t, vers[0].Data, `"category":"coffee"`, "v1 snapshot captures the auto-applied label")
+}
+
+func TestResyncRecordsSyncedVersion(t *testing.T) {
+	ctx := context.Background()
+	var mu sync.Mutex
+	body := refreshBody1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		b := body
+		mu.Unlock()
+		_, _ = w.Write([]byte(b))
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+
+	_, err := p.Sync(ctx) // insert: imported v1 (pending, -10.00)
+	require.NoError(t, err)
+	vers, err := queries.ListTransactionVersions(ctx, "txn-1")
+	require.NoError(t, err)
+	require.Len(t, vers, 1)
+	assert.Equal(t, events.ChangeImported, vers[0].ChangeKind)
+
+	// An identical re-sync changes no bridge field, so it records no version.
+	_, err = p.Sync(ctx)
+	require.NoError(t, err)
+	vers, err = queries.ListTransactionVersions(ctx, "txn-1")
+	require.NoError(t, err)
+	require.Len(t, vers, 1, "an unchanged re-sync records no version")
+
+	// Correcting the amount and posting the charge records one synced version.
+	mu.Lock()
+	body = refreshBody2
+	mu.Unlock()
+	_, err = p.Sync(ctx)
+	require.NoError(t, err)
+	vers, err = queries.ListTransactionVersions(ctx, "txn-1")
+	require.NoError(t, err)
+	require.Len(t, vers, 2, "a changed re-sync appends a synced version")
+	assert.Equal(t, events.ChangeSynced, vers[1].ChangeKind)
+	assert.Contains(t, vers[1].Data, "-12.34", "the synced snapshot has the corrected amount")
 }

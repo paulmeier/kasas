@@ -10,6 +10,12 @@ import (
 
 type Querier interface {
 	CompleteSyncLog(ctx context.Context, arg CompleteSyncLogParams) error
+	// Whether a transaction has any history yet. Backs the lazy baseline: the first
+	// time an existing transaction changes after this feature shipped, the writer
+	// synthesizes a v1 "imported" snapshot from its prior state. COUNT(*) is used (not
+	// an EXISTS/MAX) because sqlc infers it as int64 identically on SQLite and Postgres
+	// (see CountTransactions), keeping the pgstore adapter a plain pass-through.
+	CountTransactionVersions(ctx context.Context, transactionID string) (int64, error)
 	CountTransactions(ctx context.Context) (int64, error)
 	// A rule pairs a condition (a kasas search query) with an action (a JSON object
 	// of labels to apply on a match). The API validates the query and normalizes the
@@ -25,6 +31,10 @@ type Querier interface {
 	// value per key, so removing the key on a value match drops exactly that pair).
 	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
 	DeleteRule(ctx context.Context, id int64) (int64, error)
+	// Retention prune: drops versions that occurred before the cutoff (unix seconds).
+	// :execrows reports how many rows were removed, for logging. Only runs when
+	// events.history_retention_days > 0; the default keeps history forever.
+	DeleteTransactionVersionsBefore(ctx context.Context, cutoff int64) (int64, error)
 	// SQLite-specific label queries. Labels are a JSON object (key->value) stored in
 	// the TEXT `labels` column; these push filtering and deletion down to SQL via
 	// SQLite's JSON1 functions.
@@ -53,6 +63,11 @@ type Querier interface {
 	// explicit empty object so new rows never depend on the column default (SQLite
 	// can't cheaply change a STRICT table's default; see the 00003 migration).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error)
+	// Appends one immutable snapshot to a transaction's history. The generated id
+	// (insert order) and the stored row are returned. There is no per-transaction
+	// version number column: a transaction's versions are its rows ordered by id, and
+	// the API assigns the ordinal (v1, v2, ...) on read. data is a JSON object.
+	InsertTransactionVersion(ctx context.Context, arg InsertTransactionVersionParams) (TransactionVersion, error)
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
@@ -82,6 +97,10 @@ type Querier interface {
 	ListRecentEvents(ctx context.Context, rowLimit int64) ([]Event, error)
 	ListRules(ctx context.Context) ([]Rule, error)
 	ListSyncLogs(ctx context.Context, rowLimit int64) ([]SyncLog, error)
+	// One transaction's full history, oldest first. ORDER BY id is the version order
+	// (id is the monotonic insert sequence), so the caller assigns v1, v2, ... by
+	// position and diffs each snapshot against the previous one.
+	ListTransactionVersions(ctx context.Context, transactionID string) ([]TransactionVersion, error)
 	// A bound of 0 disables that side of the date filter (so 0/0 returns all).
 	// The column comparison is written first so sqlc infers an integer type for
 	// the bound parameters from the `date` column.

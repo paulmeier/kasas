@@ -566,6 +566,11 @@ func (v *settingsView) renderConfig() app.UI {
 		),
 		configCard("Secret store", v.vaultRows(c.Vault, c.Secrets)...),
 		configCard("MCP server", configRow("Enabled", enabledText(c.MCP.Enabled))),
+		configCard("Events & history",
+			configRow("Enabled", enabledText(c.Events.Enabled)),
+			configRow("Event retention", retentionText(c.Events.RetentionDays)),
+			configRow("History retention", retentionText(c.Events.HistoryRetentionDays)),
+		),
 		configCard("Dashboard", configRow("Enabled", enabledText(c.Dashboard.Enabled))),
 		configCard("Updates",
 			configRow("Check", yesNo(c.Update.Check)),
@@ -648,6 +653,17 @@ func configuredText(b bool) string {
 func lookbackText(days int) string {
 	if days <= 0 {
 		return "All available"
+	}
+	if days == 1 {
+		return "1 day"
+	}
+	return strconv.Itoa(days) + " days"
+}
+
+// retentionText renders a retention-days setting, where 0 means keep forever.
+func retentionText(days int) string {
+	if days <= 0 {
+		return "Forever"
 	}
 	if days == 1 {
 		return "1 day"

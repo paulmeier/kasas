@@ -77,6 +77,11 @@ func (s *Server) MCPServer() *mcp.Server {
 	}, s.mcpListEvents)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_transaction_history",
+		Description: "Get the immutable version history of one transaction: an ordered list of full snapshots (v1 imported, then synced or labeled changes), each with a diff against the previous version. Answers why a transaction looks different now than it did before. Returns an empty list for a transaction that has not changed since history began.",
+	}, s.mcpGetTransactionHistory)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_organizations",
 		Description: "List the financial institutions (organizations) that own the accounts.",
 	}, s.mcpListOrganizations)
@@ -185,6 +190,10 @@ type listEventsInput struct {
 type listEventsOutput struct {
 	Events []EventDTO `json:"events"`
 	Next   int64      `json:"next"` // cursor to pass as `after` on the next call
+}
+
+type getTransactionHistoryInput struct {
+	TransactionID string `json:"transaction_id" jsonschema:"the id of the transaction whose history to fetch"`
 }
 
 type listOrganizationsOutput struct {
@@ -330,6 +339,21 @@ func (s *Server) mcpListEvents(ctx context.Context, _ *mcp.CallToolRequest, in l
 		return nil, listEventsOutput{}, err
 	}
 	return &mcp.CallToolResult{}, listEventsOutput{Events: toEventDTOs(rows), Next: next}, nil
+}
+
+func (s *Server) mcpGetTransactionHistory(ctx context.Context, _ *mcp.CallToolRequest, in getTransactionHistoryInput) (*mcp.CallToolResult, HistoryDTO, error) {
+	txn, err := s.store.GetTransaction(ctx, in.TransactionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, HistoryDTO{}, fmt.Errorf("transaction %q not found", in.TransactionID)
+	}
+	if err != nil {
+		return nil, HistoryDTO{}, err
+	}
+	rows, err := s.store.ListTransactionVersions(ctx, in.TransactionID)
+	if err != nil {
+		return nil, HistoryDTO{}, err
+	}
+	return &mcp.CallToolResult{}, buildHistory(txn, rows), nil
 }
 
 func (s *Server) mcpListOrganizations(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {

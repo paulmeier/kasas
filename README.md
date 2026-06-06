@@ -115,8 +115,9 @@ variables. Env vars are prefixed `KASAS_`, with sections joined by underscores
 | `dashboard.token` | `KASAS_DASHBOARD_TOKEN` | — | Access token for the API, dashboard, and MCP. Empty = unauthenticated (see [Authentication](#authentication)) |
 | `update.check` | `KASAS_UPDATE_CHECK` | `true` | Daily check for a newer release (logs + dashboard banner) |
 | `update.allow_apply` | `KASAS_UPDATE_ALLOW_APPLY` | `true` | Let the dashboard/API trigger an in-place self-update |
-| `events.enabled` | `KASAS_EVENTS_ENABLED` | `true` | Record the [event stream](#event-stream) |
+| `events.enabled` | `KASAS_EVENTS_ENABLED` | `true` | Record the [event stream](#event-stream) and [transaction history](#transaction-history) |
 | `events.retention_days` | `KASAS_EVENTS_RETENTION_DAYS` | `0` | Prune events older than N days; `0` = keep forever |
+| `events.history_retention_days` | `KASAS_EVENTS_HISTORY_RETENTION_DAYS` | `0` | Prune [transaction history](#transaction-history) snapshots older than N days; `0` = keep forever |
 
 ## Authentication
 
@@ -283,6 +284,7 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/transactions/search` | Search transactions with the query language (`?q=`); returns `{query, total, transactions}` |
 | `GET /api/v1/transactions/{id}` | Get one transaction |
 | `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`) |
+| `GET /api/v1/transactions/{id}/history` | The transaction's [version history](#transaction-history): full snapshots + per-version diffs |
 | `GET /api/v1/labels` | List labels with per-pair transaction counts (`[{"key","value","transaction_count"}]`) |
 | `DELETE /api/v1/labels/{key}` | Remove a label key from every transaction (add `?value=` to scope to one value) |
 | `GET /api/v1/rules` | List labeling rules |
@@ -427,15 +429,46 @@ replayable from sequence 0; set `events.retention_days` to a positive number to
 prune events older than that many days on a schedule (a consumer offline longer
 than the window then loses the pruned history).
 
+## Transaction history
+
+Every meaningful change to a transaction also appends an immutable, **full
+snapshot** to its history, so you can answer *"why does this transaction look
+different today than last month?"* The timeline reads `v1 imported` (the row as it
+was first synced, including any labels a rule applied at birth), then `v2 synced`
+(the bank corrected the amount or merchant, or a pending charge posted), `v3
+labeled` (you or a rule changed its labels), and so on. Each version carries the
+complete snapshot plus a computed **diff** against the previous one (changed fields
+and label add/remove/change).
+
+This complements the [event stream](#event-stream): events are a fine-grained,
+prunable change log (a `label.applied` carries only the changed key); history is
+the durable, whole-transaction record. Recording rides on `events.enabled`, but its
+retention is independent — history is meant to be kept far longer than the noisy
+event log, so `events.history_retention_days` defaults to `0` (keep forever).
+
+```sh
+# One transaction's full history (oldest first), each with a diff vs the prior version:
+curl "localhost:8080/api/v1/transactions/abc-123/history"
+# -> {"transaction_id":"abc-123","versions":[{"version":1,"change_kind":"imported",…,"diff":{…}}, …]}
+```
+
+Transactions that predate this feature get their first version lazily: the first
+time one changes after upgrading, a `v1` baseline is captured from its current
+state, then the change is recorded as `v2`. Until then its history is empty.
+
+In the dashboard, hover a transaction row and click the clock to open its history
+timeline. Over MCP, call `get_transaction_history`.
+
 ## MCP server
 
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the
 streamable-HTTP transport. It exposes tools: `list_accounts`, `get_account`,
 `list_transactions` (with optional `label_key`/`label_value` drill-down),
 `search_transactions` (the query language above), `list_labels`,
-`list_organizations`, `sync_status`, `trigger_sync`, `list_events` (read the
-[event stream](#event-stream): cursor with `after`, filter by
-`type`/`entity_type`/`entity_id`), and the rules tools `list_rules`,
+`get_transaction_history` (one transaction's [version history](#transaction-history)
+with per-version diffs), `list_organizations`, `sync_status`, `trigger_sync`,
+`list_events` (read the [event stream](#event-stream): cursor with `after`, filter
+by `type`/`entity_type`/`entity_id`), and the rules tools `list_rules`,
 `create_rule`, `update_rule`, `delete_rule`, and `run_rules` (pass an `id` to run
 one rule, or omit it to run all enabled rules).
 
@@ -455,6 +488,7 @@ kasas -config config.toml mcp
 - `kasas_rules_applied_total` — new transactions auto-labeled by a rule
 - `kasas_events_emitted_total{type}` — events appended to the stream, by type
 - `kasas_events_dropped_total` — live event subscribers dropped for lagging
+- `kasas_transaction_versions_total{kind}` — [history](#transaction-history) snapshots recorded, by change kind
 - `kasas_last_successful_sync_timestamp_seconds` — last success (unix time)
 - `kasas_accounts` — accounts seen in the most recent sync
 
@@ -471,6 +505,7 @@ accounts       id, org_id, name, currency, balance, balance_date, synced_at
 transactions   id, account_id, amount, pending, date, description, payee, memo, synced_at, labels
 rules          id, name, query, labels, enabled, created_at, updated_at
 events         id, event_id, event_type, entity_type, entity_id, occurred_at, data
+transaction_versions  id, transaction_id, change_kind, occurred_at, data
 sync_log       id, started_at, completed_at, status, error
 ```
 

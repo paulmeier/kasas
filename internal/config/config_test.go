@@ -28,16 +28,19 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "secret", cfg.Vault.Mount)
 	assert.True(t, cfg.Events.Enabled)
 	assert.Equal(t, 0, cfg.Events.RetentionDays, "keep events forever by default")
+	assert.Equal(t, 0, cfg.Events.HistoryRetentionDays, "keep transaction history forever by default")
 }
 
 func TestLoadEventsConfig(t *testing.T) {
 	t.Setenv("KASAS_EVENTS_ENABLED", "false")
 	t.Setenv("KASAS_EVENTS_RETENTION_DAYS", "30")
+	t.Setenv("KASAS_EVENTS_HISTORY_RETENTION_DAYS", "365")
 
 	cfg, err := Load("")
 	require.NoError(t, err)
 	assert.False(t, cfg.Events.Enabled)
 	assert.Equal(t, 30, cfg.Events.RetentionDays)
+	assert.Equal(t, 365, cfg.Events.HistoryRetentionDays)
 }
 
 func TestNegativeRetentionRejected(t *testing.T) {
@@ -45,6 +48,13 @@ func TestNegativeRetentionRejected(t *testing.T) {
 	_, err := Load("")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "events.retention_days")
+}
+
+func TestNegativeHistoryRetentionRejected(t *testing.T) {
+	t.Setenv("KASAS_EVENTS_HISTORY_RETENTION_DAYS", "-1")
+	_, err := Load("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "events.history_retention_days")
 }
 
 func TestLoadEnvOverride(t *testing.T) {

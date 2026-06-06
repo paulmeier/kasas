@@ -38,8 +38,9 @@ type persistedSearch struct {
 // the live row and survives a re-sort or re-render.
 type searchView struct {
 	app.Compo
-	chrome       // shared sidebar + API client + version badge
-	labelEditing // inline label editor, shared with the Dashboard
+	chrome         // shared sidebar + API client + version badge
+	labelEditing   // inline label editor, shared with the Dashboard
+	historyViewing // per-transaction history modal, shared with the Dashboard
 
 	accounts []account
 	byID     map[string]account
@@ -70,6 +71,7 @@ type searchView struct {
 func (v *searchView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx)
 	v.initLabelEditing()
+	v.fetchHistory = v.client.transactionHistory
 	v.pageSize = defaultPageSize
 	v.sortCol = sortByDate
 	v.sortAsc = false
@@ -331,6 +333,7 @@ func (v *searchView) Render() app.UI {
 		v.renderResults(),
 		v.renderFooter(),
 		v.renderHelpModal(),
+		v.renderHistoryModal(),
 	)
 }
 
@@ -453,7 +456,10 @@ func (v *searchView) renderRow(t transaction) app.UI {
 		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
 		v.renderLabelsCell(t), // promoted from labelEditing
-		app.Td().Body(pendingBadge(t.Pending)),
+		app.Td().Class("row-actions").Body(
+			pendingBadge(t.Pending),
+			v.renderHistoryButton(t), // promoted from historyViewing
+		),
 	)
 }
 

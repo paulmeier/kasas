@@ -815,3 +815,91 @@ html, body {
   max-width: 520px;
   overflow-x: auto;
 }
+
+/* --- Transaction history (per-row clock + modal timeline) --- */
+
+/* The trailing actions cell holds the pending badge and the history button. The
+   button is revealed on row hover/focus so the table stays uncluttered. */
+td.row-actions { white-space: nowrap; text-align: right; }
+.history-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  vertical-align: middle;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.history-btn .action-icon { width: 16px; height: 16px; display: block; }
+tr:hover .history-btn,
+.history-btn:focus-visible { opacity: 1; }
+.history-btn:hover { color: var(--accent); }
+
+/* The modal reuses .modal-overlay/.modal/.modal-header/.modal-body; widen it and
+   add the secondary description line in the header. */
+.modal.history-modal { max-width: 720px; }
+.history-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.history-sub {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 560px;
+}
+
+.history-timeline { display: flex; flex-direction: column; gap: 14px; }
+.history-version {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+}
+.history-version-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.history-vnum {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--text);
+}
+.history-vtime { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+/* Change-kind badge, colour-coded like the event-type badges. */
+.badge.chg-kind {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.badge.chg-kind.chg-imported { color: var(--pos); border-color: rgba(63, 185, 80, 0.35); }
+.badge.chg-kind.chg-synced   { color: var(--accent); border-color: rgba(110, 168, 254, 0.35); }
+.badge.chg-kind.chg-labeled  { color: #d29922; border-color: rgba(210, 153, 34, 0.35); }
+
+/* Per-version diff rows. */
+.history-diff { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.history-diff.empty { color: var(--muted); font-size: 12px; font-style: italic; }
+.diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-wrap: wrap;
+}
+.diff-sign { width: 1ch; font-weight: 700; }
+.diff-add .diff-sign { color: var(--pos); }
+.diff-remove .diff-sign { color: var(--neg); }
+.diff-field { color: var(--muted); }
+.diff-old { color: var(--neg); text-decoration: line-through; }
+.diff-new { color: var(--pos); }
+.diff-arrow { color: var(--muted); }
+.diff-empty { color: var(--muted); font-style: italic; }
+
+.history-snapshot { margin-top: 10px; }
+.history-snapshot > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+  user-select: none;
+}

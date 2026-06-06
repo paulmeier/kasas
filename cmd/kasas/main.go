@@ -207,6 +207,13 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 		go pruneEvents(ctx, logger, store, cfg.Events.RetentionDays)
 	}
 
+	// Prune old transaction-history snapshots on a schedule when a finite history
+	// retention is configured. History recording rides on the event emitter (created
+	// alongside the bus when events are enabled), so the bus being non-nil gates it.
+	if eventBus != nil && cfg.Events.HistoryRetentionDays > 0 {
+		go pruneTransactionVersions(ctx, logger, store, cfg.Events.HistoryRetentionDays)
+	}
+
 	if cfg.Sync.Enabled {
 		if err := p.Start(ctx); err != nil {
 			return fmt.Errorf("start poller: %w", err)
@@ -273,6 +280,38 @@ func pruneEvents(ctx context.Context, logger *slog.Logger, store db.Store, reten
 		}
 		if n > 0 {
 			logger.Info("pruned old events", "removed", n, "older_than_days", retentionDays)
+		}
+	}
+
+	prune()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			prune()
+		}
+	}
+}
+
+// pruneTransactionVersions periodically deletes transaction-history snapshots older
+// than retentionDays, mirroring pruneEvents. It is only started when a finite
+// history retention is configured (events.history_retention_days > 0); the default
+// of 0 keeps every transaction's full history forever. It prunes the oldest
+// versions first, so a truncated timeline begins at the oldest surviving snapshot.
+func pruneTransactionVersions(ctx context.Context, logger *slog.Logger, store db.Store, retentionDays int) {
+	const interval = 6 * time.Hour
+	prune := func() {
+		cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
+		n, err := store.DeleteTransactionVersionsBefore(ctx, cutoff)
+		if err != nil {
+			logger.Error("transaction history retention prune failed", "error", err)
+			return
+		}
+		if n > 0 {
+			logger.Info("pruned old transaction versions", "removed", n, "older_than_days", retentionDays)
 		}
 	}
 

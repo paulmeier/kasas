@@ -56,8 +56,9 @@ func Routes() {
 // paginated transactions table.
 type dashboardView struct {
 	app.Compo
-	chrome       // shared sidebar + API client + version badge
-	labelEditing // inline label editor (state + handlers), shared with the Search page
+	chrome         // shared sidebar + API client + version badge
+	labelEditing   // inline label editor (state + handlers), shared with the Search page
+	historyViewing // per-transaction history modal, shared with the Search page
 
 	accounts []account
 	byID     map[string]account // account id -> account, for name lookup
@@ -85,6 +86,7 @@ type dashboardView struct {
 func (v *dashboardView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx) // wires v.client, sidebar state, version badge
 	v.initLabelEditing()
+	v.fetchHistory = v.client.transactionHistory
 	v.pageSize = defaultPageSize
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
@@ -442,6 +444,7 @@ func (v *dashboardView) Render() app.UI {
 		v.renderError(),
 		v.renderTable(),
 		v.renderFooter(),
+		v.renderHistoryModal(),
 	)
 }
 
@@ -590,7 +593,10 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 		app.Td().Text(displayDesc(t)),
 		app.Td().Class(amountClass).Text(t.Amount),
 		v.renderLabelsCell(t),
-		app.Td().Body(pendingBadge(t.Pending)),
+		app.Td().Class("row-actions").Body(
+			pendingBadge(t.Pending),
+			v.renderHistoryButton(t),
+		),
 	)
 }
 

@@ -100,3 +100,10 @@ enabled = true
 # set a positive value to cap the table's growth (a consumer offline longer than
 # the window then loses the pruned history).
 retention_days = 0
+# Recording the immutable transaction history (a full snapshot per change, at
+# GET /api/v1/transactions/{id}/history and the get_transaction_history MCP tool)
+# rides on `enabled` above, but its retention is independent of retention_days:
+# history is meant to be kept far longer than the noisy event log. 0 (the default)
+# keeps every transaction's full history forever; set a positive value to prune
+# snapshots older than that many days on the same schedule.
+history_retention_days = 0
