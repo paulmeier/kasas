@@ -19,7 +19,9 @@ REST API and a built-in [MCP](https://modelcontextprotocol.io/) server.
   point it at a Postgres server with one config change. Same binary either way.
 - **Web dashboard** at `/` — an account overview + a filterable, sortable,
   paginated transactions table with inline, editable transaction **labels**
-  (key:value pairs, with typeahead suggestions), built with [go-app](https://go-app.dev)
+  (key:value pairs, with typeahead suggestions), plus a **search** page with a
+  robust query language over any field and label combination, built with
+  [go-app](https://go-app.dev)
   (Go → WebAssembly, embedded in the binary; no Node/JS build).
 - **One small container** (`scratch` base — ~12 MB pulled, ~24 MB on disk for
   linux/amd64; the embedded WASM dashboard adds ~5 MB) with a bind-mounted
@@ -186,11 +188,16 @@ same `update.allow_apply` switch:
 ## Dashboard
 
 When `dashboard.enabled` is true (the default), kasas serves a lightweight web UI
-at the root path (`/`). A collapsible left sidebar navigates between four pages:
+at the root path (`/`). A collapsible left sidebar navigates between five pages:
 
 - **Dashboard** — a balance card per account, and a transactions table (date,
   account, payee/description, color-coded amount, pending badge) with an account
   filter, sortable columns, a selectable page size (10/20/50/100), and pagination.
+- **Search** — a query box over a robust search language (any field plus any
+  combination of labels, with `AND`/`OR`/`NOT`, ranges, and grouping), a scrollable
+  syntax help modal, and a results table with the same sorting, pagination, and
+  inline label editing. Results persist across navigation (the last query is
+  re-run on return). See the [search syntax](#search-syntax) below.
 - **Labels** — every label (a `key: value` pair) with the number of transactions
   carrying it, and a delete that strips it from all of them. (Labels are created
   on the Dashboard.)
@@ -225,6 +232,7 @@ decimal strings as returned by SimpleFIN.
 | `GET /api/v1/accounts/{id}` | Get one account |
 | `GET /api/v1/accounts/{id}/transactions` | Transactions for an account |
 | `GET /api/v1/transactions` | List transactions (`?label_key=` and optional `?label_value=` to drill down) |
+| `GET /api/v1/transactions/search` | Search transactions with the query language (`?q=`); returns `{query, total, transactions}` |
 | `GET /api/v1/transactions/{id}` | Get one transaction |
 | `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`) |
 | `GET /api/v1/labels` | List labels with per-pair transaction counts (`[{"key","value","transaction_count"}]`) |
@@ -250,6 +258,31 @@ views without scanning every row.
 ```sh
 curl "localhost:8080/api/v1/transactions?since=2024-01-01&limit=50"
 curl "localhost:8080/api/v1/transactions?label_key=category&label_value=food"
+curl "localhost:8080/api/v1/transactions/search?q=coffee%20amount:%3C0%20date:2024"
+```
+
+## Search syntax
+
+The Search page and the `/transactions/search` endpoint (and the
+`search_transactions` MCP tool) share one query language, evaluated in Go over
+every transaction, so it covers any stored field and arbitrary label
+combinations. Matching is case-insensitive; an empty query matches everything.
+
+| Form | Meaning |
+| --- | --- |
+| `coffee` / `"whole foods"` | free text across description, payee, memo, account, id, and labels |
+| `description:` `payee:` `memo:` `account:` `id:` | substring on that field (quote for phrases) |
+| `amount:>50` `amount:<0` `amount:10..50` | numeric compare (`> >= < <= = !=`) or range (sign-aware) |
+| `date:2024` `date:2024-03` `date:>=2024-01-01` `date:2024-01..2024-06` | year / month / day, compare, or range |
+| `pending:true` | the pending flag |
+| `label:category=food` / `category:food` | label key = value (the second is shorthand) |
+| `label:category` | label key present (any value) |
+| `label:store~whole` / `label:category!=food` | label value contains / not-equal |
+| `a OR b`, `a b` (implicit AND), `-a` / `NOT a`, `(a OR b) c` | boolean combine, negate, group |
+
+```sh
+# coffee outflows in 2024 that aren't reimbursed
+curl "localhost:8080/api/v1/transactions/search?q=coffee%20amount:%3C0%20date:2024%20-label:reimbursed"
 ```
 
 ## MCP server
@@ -257,7 +290,8 @@ curl "localhost:8080/api/v1/transactions?label_key=category&label_value=food"
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the
 streamable-HTTP transport. It exposes tools: `list_accounts`, `get_account`,
 `list_transactions` (with optional `label_key`/`label_value` drill-down),
-`list_labels`, `list_organizations`, `sync_status`, and `trigger_sync`.
+`search_transactions` (the query language above), `list_labels`,
+`list_organizations`, `sync_status`, and `trigger_sync`.
 
 For desktop MCP clients that launch a subprocess, run it over stdio instead:
 

@@ -15,16 +15,16 @@ func renderSidebarHTML(t *testing.T, c *chrome, active navItem) string {
 	return buf.String()
 }
 
-// TestSidebarRendersNav checks the sidebar shows all three destinations with the
+// TestSidebarRendersNav checks the sidebar shows every destination with the
 // client-side route links go-app needs to navigate without a full reload.
 func TestSidebarRendersNav(t *testing.T) {
 	html := renderSidebarHTML(t, &chrome{}, navDashboard)
-	for _, label := range []string{"Dashboard", "Labels", "Rules", "Settings"} {
+	for _, label := range []string{"Dashboard", "Search", "Labels", "Rules", "Settings"} {
 		if !strings.Contains(html, ">"+label+"<") {
 			t.Fatalf("sidebar missing nav label %q\nHTML:\n%s", label, html)
 		}
 	}
-	for _, href := range []string{`href="/"`, `href="/labels"`, `href="/rules"`, `href="/settings"`} {
+	for _, href := range []string{`href="/"`, `href="/search"`, `href="/labels"`, `href="/rules"`, `href="/settings"`} {
 		if !strings.Contains(html, href) {
 			t.Fatalf("sidebar missing %s\nHTML:\n%s", href, html)
 		}

@@ -32,6 +32,8 @@ type transaction struct {
 	Date        time.Time         `json:"date"`
 	Description string            `json:"description"`
 	Payee       string            `json:"payee"`
+	Memo        string            `json:"memo"`
+	SyncedAt    time.Time         `json:"synced_at"`
 	Labels      map[string]string `json:"labels"`
 }
 
