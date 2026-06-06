@@ -15,6 +15,7 @@ import (
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/plugins"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 )
@@ -56,6 +57,7 @@ type Server struct {
 	updates    UpdateChecker // nil when update checking is disabled
 	allowApply bool
 	restart    func()
+	pluginMgr  *plugins.Manager // nil when the plugin system is disabled
 }
 
 // Options configures a Server.
@@ -89,6 +91,10 @@ type Options struct {
 	// Restart, when set, is invoked after a successful UI-triggered update to
 	// re-exec the new binary. nil leaves the (old) process running.
 	Restart func()
+	// PluginManager, when non-nil, enables the plugin management endpoints
+	// (REST + MCP). Nil when the plugin system is disabled (plugins.enabled=false
+	// or events disabled), in which case those routes/tools are not registered.
+	PluginManager *plugins.Manager
 }
 
 // New constructs a Server.
@@ -111,6 +117,7 @@ func New(opts Options) *Server {
 		updates:    opts.UpdateChecker,
 		allowApply: opts.AllowApply,
 		restart:    opts.Restart,
+		pluginMgr:  opts.PluginManager,
 	}
 }
 
@@ -177,6 +184,13 @@ func (s *Server) Router() http.Handler {
 
 				r.Get("/rules", s.handleListRules)
 				r.Get("/rules/{id}", s.handleGetRule)
+
+				// Plugin metadata/health is a read; enabling/reloading (which executes
+				// code) is admin-only, registered in the admin tier below.
+				if s.pluginMgr != nil {
+					r.Get("/plugins", s.handleListPlugins)
+					r.Get("/plugins/{id}", s.handleGetPlugin)
+				}
 
 				// Canonical event stream (poll/cursor). The live SSE tail is the
 				// separate /events/stream route above; chi prefers the static
@@ -246,6 +260,14 @@ func (s *Server) Router() http.Handler {
 				r.Delete("/webhooks/{id}", s.handleDeleteWebhook)
 				r.Post("/webhooks/{id}/test", s.handleTestWebhook)
 				r.Post("/webhooks/{id}/rotate-secret", s.handleRotateWebhookSecret)
+
+				// Plugin lifecycle: enabling/reloading loads and runs third-party code,
+				// so it is admin-only (an API key can never enable a plugin).
+				if s.pluginMgr != nil {
+					r.Post("/plugins/{id}/enable", s.handleEnablePlugin)
+					r.Post("/plugins/{id}/disable", s.handleDisablePlugin)
+					r.Post("/plugins/{id}/reload", s.handleReloadPlugin)
+				}
 
 				// Apply a self-update (status is in the read tier above).
 				if s.updates != nil && s.allowApply {

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -95,7 +94,7 @@ func (s *Server) setExtensions(ctx context.Context, id string, raw map[string]js
 		if _, uerr := q.UpdateTransactionExtensions(ctx, db.UpdateTransactionExtensionsParams{ID: id, Extensions: encoded}); uerr != nil {
 			return uerr
 		}
-		if derr := emitExtensionDiff(ctx, q, rec, id, decodeExtensionsRaw(prev.Extensions), newExt); derr != nil {
+		if derr := rec.EmitExtensionDiff(ctx, q, id, decodeExtensionsRaw(prev.Extensions), newExt); derr != nil {
 			return derr
 		}
 		next = prev
@@ -106,28 +105,6 @@ func (s *Server) setExtensions(ctx context.Context, id string, raw map[string]js
 		return db.Transaction{}, false, err
 	}
 	return next, notFound, nil
-}
-
-// emitExtensionDiff records an extension.set event for every key added or changed
-// and an extension.removed for every key dropped between a transaction's old and
-// new extension sets. Values are compared as raw JSON bytes (already compacted by
-// normalization). The event entity is the transaction.
-func emitExtensionDiff(ctx context.Context, q db.Querier, rec *events.Recorder, txnID string, oldExt, newExt map[string]json.RawMessage) error {
-	for k, v := range newExt {
-		if old, ok := oldExt[k]; !ok || !bytes.Equal(old, v) {
-			if err := rec.Emit(ctx, q, events.TypeExtensionSet, events.EntityTransaction, txnID, events.ExtensionPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
-				return err
-			}
-		}
-	}
-	for k, v := range oldExt {
-		if _, ok := newExt[k]; !ok {
-			if err := rec.Emit(ctx, q, events.TypeExtensionRemoved, events.EntityTransaction, txnID, events.ExtensionPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // handleUpdateTransactionExtensions serves PUT /transactions/{id}/extensions,

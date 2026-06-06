@@ -377,7 +377,7 @@ func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled, rule
 				return eerr
 			}
 			updated++
-			if eerr := emitLabelDiff(ctx, q, rec, t.ID, old, merged); eerr != nil {
+			if eerr := rec.EmitLabelDiff(ctx, q, t.ID, old, merged); eerr != nil {
 				return eerr
 			}
 			// Append a labeled version, synthesizing a v1 baseline from the prior

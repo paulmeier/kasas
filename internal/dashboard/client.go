@@ -465,6 +465,28 @@ type webhook struct {
 	Secret        string     `json:"secret"`
 }
 
+// plugin mirrors api.PluginDTO (locally so the WASM build doesn't import the
+// server packages): an installed plugin's identity, declared hooks/capabilities,
+// granted capabilities, enabled/loaded state, and last-run health.
+type plugin struct {
+	ID            int64      `json:"id"`
+	Name          string     `json:"name"`
+	Runtime       string     `json:"runtime"`
+	Version       string     `json:"version"`
+	Description   string     `json:"description"`
+	Enabled       bool       `json:"enabled"`
+	Loaded        bool       `json:"loaded"`
+	OnDisk        bool       `json:"on_disk"`
+	State         string     `json:"state"`
+	Hooks         []string   `json:"hooks"`
+	Capabilities  []string   `json:"capabilities"`
+	Granted       []string   `json:"granted_capabilities"`
+	LastStatus    int64      `json:"last_status"`
+	LastError     string     `json:"last_error"`
+	LastRunAt     *time.Time `json:"last_run_at"`
+	LastSuccessAt *time.Time `json:"last_success_at"`
+}
+
 // webhookPayload is the create/update request body (mirrors api.webhookInput).
 type webhookPayload struct {
 	URL        string   `json:"url"`
@@ -493,6 +515,51 @@ func (c *apiClient) getWebhook(ctx context.Context, id int64) (webhook, error) {
 	var out webhook
 	if err := c.get(ctx, "/api/v1/webhooks/"+strconv.FormatInt(id, 10), nil, &out); err != nil {
 		return webhook{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) listPlugins(ctx context.Context) ([]plugin, error) {
+	var out struct {
+		Plugins []plugin `json:"plugins"`
+	}
+	if err := c.get(ctx, "/api/v1/plugins", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Plugins, nil
+}
+
+func (c *apiClient) enablePlugin(ctx context.Context, id int64) (plugin, error) {
+	return c.pluginAction(ctx, id, "enable")
+}
+
+func (c *apiClient) disablePlugin(ctx context.Context, id int64) (plugin, error) {
+	return c.pluginAction(ctx, id, "disable")
+}
+
+func (c *apiClient) reloadPlugin(ctx context.Context, id int64) (plugin, error) {
+	return c.pluginAction(ctx, id, "reload")
+}
+
+// pluginAction POSTs a plugin lifecycle action (enable/disable/reload) and decodes
+// the updated plugin, surfacing the server's error message on failure.
+func (c *apiClient) pluginAction(ctx context.Context, id int64, action string) (plugin, error) {
+	path := "/api/v1/plugins/" + strconv.FormatInt(id, 10) + "/" + action
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, nil)
+	if err != nil {
+		return plugin{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return plugin{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return plugin{}, decodeAPIError(resp, action+" plugin")
+	}
+	var out plugin
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return plugin{}, err
 	}
 	return out, nil
 }

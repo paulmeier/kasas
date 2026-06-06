@@ -18,6 +18,7 @@ const (
 	navRules
 	navEvents
 	navWebhooks
+	navPlugins
 	navSettings
 )
 
@@ -312,6 +313,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 			navLink("/rules", "Rules", iconRules(), active == navRules),
 			navLink("/events", "Events", iconEvents(), active == navEvents),
 			navLink("/webhooks", "Webhooks", iconWebhooks(), active == navWebhooks),
+			navLink("/plugins", "Plugins", iconPlugins(), active == navPlugins),
 			navLink("/settings", "Settings", iconSettings(), active == navSettings),
 		),
 		app.Div().Class("sidebar-foot").Body(
@@ -378,6 +380,10 @@ func iconEvents() app.UI {
 
 func iconWebhooks() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/></svg>`)
+}
+
+func iconPlugins() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 19.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0-.474-1.68L1.756 12.7a2.414 2.414 0 0 1 0-3.414L3.44 7.6a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68L9.343 1.7a2.414 2.414 0 0 1 3.414 0z"/></svg>`)
 }
 
 func iconSettings() app.UI {

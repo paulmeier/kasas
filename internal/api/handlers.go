@@ -152,7 +152,7 @@ func (s *Server) handleUpdateTransactionLabels(w http.ResponseWriter, r *http.Re
 		if _, uerr := q.UpdateTransactionLabels(r.Context(), db.UpdateTransactionLabelsParams{ID: id, Labels: encoded}); uerr != nil {
 			return uerr
 		}
-		if derr := emitLabelDiff(r.Context(), q, rec, id, decodeLabels(prev.Labels), newLabels); derr != nil {
+		if derr := rec.EmitLabelDiff(r.Context(), q, id, decodeLabels(prev.Labels), newLabels); derr != nil {
 			return derr
 		}
 		// Append a labeled version, synthesizing a v1 baseline from the prior state
@@ -171,27 +171,6 @@ func (s *Server) handleUpdateTransactionLabels(w http.ResponseWriter, r *http.Re
 	}
 
 	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "labels": newLabels})
-}
-
-// emitLabelDiff records a label.applied event for every key that was added or
-// changed and a label.removed for every key that was dropped between a
-// transaction's old and new label sets. The event entity is the transaction.
-func emitLabelDiff(ctx context.Context, q db.Querier, rec *events.Recorder, txnID string, oldLabels, newLabels map[string]string) error {
-	for k, v := range newLabels {
-		if oldLabels[k] != v {
-			if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, txnID, events.LabelPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
-				return err
-			}
-		}
-	}
-	for k, v := range oldLabels {
-		if _, ok := newLabels[k]; !ok {
-			if err := rec.Emit(ctx, q, events.TypeLabelRemoved, events.EntityTransaction, txnID, events.LabelPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (s *Server) handleListLabels(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +210,7 @@ func (s *Server) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
 	// Delete and emit a single coarse label.removed for the vocabulary change. A
 	// bulk delete can touch many transactions, so it is one event (entity = the
 	// label key) rather than a per-transaction fan-out; granular label.removed
-	// events are reserved for single-transaction label edits (see emitLabelDiff).
+	// events are reserved for single-transaction label edits (see Recorder.EmitLabelDiff).
 	var removed int64
 	err := s.emitter.Record(r.Context(), s.store, func(q db.Querier, rec *events.Recorder) error {
 		var derr error

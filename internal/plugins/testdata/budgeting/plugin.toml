@@ -1,0 +1,12 @@
+name        = "budgeting"
+version     = "0.1.0"
+description = "Tag transactions matching a keyword"
+author      = "kasas tests"
+runtime     = "lua"
+entrypoint  = "main.lua"
+
+hooks        = ["OnTransactionCreate", "OnTransactionUpdate"]
+capabilities = ["transactions:read", "labels:write", "extensions:write"]
+
+[config]
+keyword = "coffee"

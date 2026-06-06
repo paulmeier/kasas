@@ -148,6 +148,34 @@ func (s *Server) MCPServer() *mcp.Server {
 		Description: "Send a synthetic webhook.test event to a webhook's endpoint now and report the delivery status, so connectivity and signature handling can be verified.",
 	}, s.mcpTestWebhook)
 
+	// Plugin management is registered only when the plugin system is enabled.
+	if s.pluginMgr != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "list_plugins",
+			Description: "List installed plugins: each plugin's runtime, version, the lifecycle hooks it subscribes to, the capabilities it requests and was granted, whether it is enabled and currently loaded, its state (loaded|disabled|error|missing), and the health of its most recent run.",
+		}, s.mcpListPlugins)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "get_plugin",
+			Description: "Get one plugin's full status by id.",
+		}, s.mcpGetPlugin)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "enable_plugin",
+			Description: "Enable a plugin by id: load its code and start running its hooks against committed events. Enabling executes third-party code. Returns the updated status.",
+		}, s.mcpEnablePlugin)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "disable_plugin",
+			Description: "Disable a plugin by id: stop running its hooks and unload it. Returns the updated status.",
+		}, s.mcpDisablePlugin)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "reload_plugin",
+			Description: "Reload a plugin by id from disk, picking up code and manifest changes without a restart (reloads only if the plugin is enabled). Returns the updated status.",
+		}, s.mcpReloadPlugin)
+	}
+
 	return srv
 }
 

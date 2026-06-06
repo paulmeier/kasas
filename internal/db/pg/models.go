@@ -45,6 +45,22 @@ type Organization struct {
 	SfinUrl string `json:"sfin_url"`
 }
 
+type Plugin struct {
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	Runtime             string `json:"runtime"`
+	Version             string `json:"version"`
+	Enabled             int64  `json:"enabled"`
+	GrantedCapabilities string `json:"granted_capabilities"`
+	Config              string `json:"config"`
+	CreatedAt           int64  `json:"created_at"`
+	UpdatedAt           int64  `json:"updated_at"`
+	LastStatus          int64  `json:"last_status"`
+	LastError           string `json:"last_error"`
+	LastRunAt           int64  `json:"last_run_at"`
+	LastSuccessAt       int64  `json:"last_success_at"`
+}
+
 type Rule struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`

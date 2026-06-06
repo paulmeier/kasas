@@ -1,0 +1,6 @@
+name        = "panics"
+version     = "0.0.1"
+runtime     = "lua"
+entrypoint  = "main.lua"
+hooks        = ["OnTransactionCreate"]
+capabilities = []
