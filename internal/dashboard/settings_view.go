@@ -14,6 +14,9 @@ import (
 // empty value attributes, so a controlled Value("") could not clear it).
 const tokenInputID = "simplefin-token-input"
 
+// securityTokenInputID is the DOM id of the optional custom dashboard-token input.
+const securityTokenInputID = "kasas-security-token-input"
+
 // settingsView is the Settings page: a SimpleFIN connection panel (set the
 // credential at runtime + force a sync, with live status) and a read-only view of
 // the effective configuration (secrets redacted). Config other than the SimpleFIN
@@ -36,6 +39,12 @@ type settingsView struct {
 	latest  *syncRun
 	syncing bool
 	syncMsg string
+
+	// Dashboard security panel state.
+	generating  bool
+	securityMsg string
+	securityErr string
+	newToken    string // freshly minted token, shown once
 
 	errMsg string
 }
@@ -198,27 +207,12 @@ func (v *settingsView) pollSync(ctx app.Context, priorID int64) {
 // tokenInputValue reads and trims the credential input's current value from the
 // DOM. Returns "" when the element is absent (e.g. during a host/test render).
 func tokenInputValue() string {
-	doc := app.Window().Get("document")
-	if !doc.Truthy() {
-		return ""
-	}
-	el := doc.Call("getElementById", tokenInputID)
-	if !el.Truthy() {
-		return ""
-	}
-	return strings.TrimSpace(el.Get("value").String())
+	return domInputValue(tokenInputID)
 }
 
 // clearTokenInput empties the credential input imperatively.
 func clearTokenInput() {
-	doc := app.Window().Get("document")
-	if !doc.Truthy() {
-		return
-	}
-	el := doc.Call("getElementById", tokenInputID)
-	if el.Truthy() {
-		el.Set("value", "")
-	}
+	clearDomInput(tokenInputID)
 }
 
 func (v *settingsView) Render() app.UI {
@@ -229,6 +223,7 @@ func (v *settingsView) Render() app.UI {
 		),
 		v.renderError(),
 		v.renderSimpleFIN(),
+		v.renderSecurity(),
 		v.renderConfig(),
 	)
 }
@@ -342,6 +337,200 @@ func (v *settingsView) renderSyncStatus() app.UI {
 	default:
 		return app.Span().Class("sync-status muted").Text("Last sync: " + r.Status)
 	}
+}
+
+// renderSecurity renders the dashboard-token panel: status, and (unless the token
+// is config-managed) controls to generate, set, or revoke it.
+func (v *settingsView) renderSecurity() app.UI {
+	if !v.cfgLoaded {
+		// The security state rides along in the config payload, still loading.
+		return app.Text("")
+	}
+
+	sec := v.cfg.Security
+	pillClass, pillText := "status-pill disconnected", "Unsecured"
+	if sec.AuthRequired {
+		pillClass, pillText = "status-pill connected", "Secured"
+	}
+
+	body := []app.UI{
+		app.Div().Class("settings-section-head").Body(
+			app.H2().Class("settings-title").Text("Dashboard security"),
+			app.Span().Class(pillClass).Text(pillText),
+		),
+		app.P().Class("settings-help").Text(
+			"A dashboard token protects the REST API, this dashboard, and the MCP server — " +
+				"clients send it as \"Authorization: Bearer <token>\". The health, readiness, and " +
+				"metrics endpoints stay open."),
+	}
+
+	if sec.TokenSource == "config" {
+		body = append(body, app.Div().Class("settings-note").Text(
+			"The token is set via configuration (dashboard.token or KASAS_DASHBOARD_TOKEN), which is "+
+				"authoritative. Remove it from your config to generate or manage a token here."))
+	} else {
+		body = append(body, v.renderSecurityControls(sec)...)
+	}
+
+	if v.securityErr != "" {
+		body = append(body, app.Div().Class("error").Text("Error: "+v.securityErr))
+	}
+	if v.securityMsg != "" {
+		body = append(body, app.Div().Class("settings-ok").Text(v.securityMsg))
+	}
+	if v.newToken != "" {
+		body = append(body, v.renderNewToken())
+	}
+
+	return app.Section().Class("card settings-section").Body(body...)
+}
+
+// renderSecurityControls renders the generate / set / revoke controls shown when
+// the token is not config-managed.
+func (v *settingsView) renderSecurityControls(sec securityConfig) []app.UI {
+	rows := []app.UI{
+		app.Div().Class("form-row").Body(
+			app.Button().
+				Class("btn btn-primary").
+				Text(generateLabel(v.generating)).
+				Disabled(v.generating).
+				OnClick(v.onGenerateToken),
+		),
+		app.P().Class("settings-help").Text("Or set your own token (at least 16 characters):"),
+		app.Div().Class("form-row").Body(
+			app.Input().
+				ID(securityTokenInputID).
+				Class("settings-input").
+				Type("password").
+				Placeholder("Custom token").
+				AutoComplete(false),
+			app.Button().
+				Class("btn").
+				Text("Save").
+				Disabled(v.generating).
+				OnClick(v.onSaveCustomToken),
+		),
+	}
+	if sec.AuthRequired && sec.TokenSource == "stored" {
+		rows = append(rows,
+			app.Div().Class("settings-divider"),
+			app.Div().Class("form-row").Body(
+				app.Button().
+					Class("btn btn-danger").
+					Text("Revoke token (disable security)").
+					Disabled(v.generating).
+					OnClick(v.onRevokeToken),
+			),
+		)
+	}
+	return rows
+}
+
+// renderNewToken shows a freshly minted token once, with a copy button.
+func (v *settingsView) renderNewToken() app.UI {
+	return app.Div().Class("token-reveal").Body(
+		app.P().Class("settings-help").Text(
+			"Save this token now — it will not be shown again. This browser is signed in; "+
+				"use the token for other browsers and for REST/MCP clients."),
+		app.Div().Class("form-row").Body(
+			app.Input().Class("settings-input token-value").Type("text").ReadOnly(true).Value(v.newToken),
+			app.Button().Class("btn").Text("Copy").OnClick(v.onCopyToken),
+		),
+	)
+}
+
+func generateLabel(busy bool) string {
+	if busy {
+		return "Generating…"
+	}
+	return "Generate token"
+}
+
+func (v *settingsView) onGenerateToken(ctx app.Context, _ app.Event) { v.mintToken(ctx, "") }
+
+func (v *settingsView) onSaveCustomToken(ctx app.Context, _ app.Event) {
+	custom := domInputValue(securityTokenInputID)
+	if custom == "" {
+		v.securityErr = "Enter a token, or use Generate."
+		v.securityMsg = ""
+		ctx.Update()
+		return
+	}
+	v.mintToken(ctx, custom)
+}
+
+// mintToken generates (custom == "") or sets a dashboard token, then adopts it so
+// this page stays signed in without a reload (a reload would hide the one-time
+// value shown below the controls).
+func (v *settingsView) mintToken(ctx app.Context, custom string) {
+	if v.generating {
+		return
+	}
+	v.generating = true
+	v.securityErr = ""
+	v.securityMsg = ""
+	v.newToken = ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		res, err := v.client.setToken(context.Background(), custom)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.generating = false
+			if err != nil {
+				v.securityErr = err.Error()
+				ctx.Update()
+				return
+			}
+			v.adoptToken(ctx, res.Token)
+			v.cfg.Security.AuthRequired = res.AuthRequired
+			v.cfg.Security.TokenSource = res.TokenSource
+			v.newToken = res.Token
+			v.securityMsg = "Dashboard token saved."
+			clearDomInput(securityTokenInputID)
+			ctx.Update()
+		})
+	})
+}
+
+func (v *settingsView) onRevokeToken(ctx app.Context, _ app.Event) {
+	if v.generating {
+		return
+	}
+	v.generating = true
+	v.securityErr = ""
+	v.securityMsg = ""
+	v.newToken = ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		err := v.client.revokeToken(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			v.generating = false
+			if err != nil {
+				v.securityErr = err.Error()
+				ctx.Update()
+				return
+			}
+			v.adoptToken(ctx, "")
+			v.cfg.Security.AuthRequired = false
+			v.cfg.Security.TokenSource = "none"
+			v.securityMsg = "Dashboard token revoked. kasas is now unsecured."
+			ctx.Update()
+		})
+	})
+}
+
+func (v *settingsView) onCopyToken(ctx app.Context, _ app.Event) {
+	if v.newToken == "" {
+		return
+	}
+	clip := app.Window().Get("navigator").Get("clipboard")
+	if !clip.Truthy() {
+		return // clipboard API unavailable (e.g. non-secure context); user can select the text
+	}
+	clip.Call("writeText", v.newToken)
+	v.securityMsg = "Token copied to clipboard."
+	ctx.Update()
 }
 
 // renderConfig renders the read-only effective configuration as a grid of cards.

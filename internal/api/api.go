@@ -46,6 +46,7 @@ type Server struct {
 	syncer     Syncer
 	connector  Connector      // nil when runtime credential management is unavailable
 	config     *config.Config // resolved config for the read-only Settings display
+	auth       Authenticator  // nil when token auth is unavailable; gates /api/v1 + /mcp
 	logger     *slog.Logger
 	version    string
 	mcpEnabled bool
@@ -68,6 +69,10 @@ type Options struct {
 	// Config, when non-nil, is exposed (with secrets redacted) by
 	// GET /api/v1/config to power the dashboard's read-only Settings view.
 	Config *config.Config
+	// Auth, when non-nil and reporting Required(), gates /api/v1 (except the open
+	// /api/v1/auth status endpoint) and the MCP-over-HTTP server behind the
+	// dashboard token, and powers the token-management endpoints.
+	Auth Authenticator
 	// Dashboard, when non-nil, serves the web UI as the catch-all route.
 	Dashboard http.Handler
 	// UpdateChecker, when non-nil, enables GET /api/v1/update (status for the
@@ -91,6 +96,7 @@ func New(opts Options) *Server {
 		syncer:     opts.Syncer,
 		connector:  opts.Connector,
 		config:     opts.Config,
+		auth:       opts.Auth,
 		logger:     logger,
 		version:    opts.Version,
 		mcpEnabled: opts.MCPEnabled,
@@ -120,55 +126,74 @@ func (s *Server) Router() http.Handler {
 
 	// REST API.
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/organizations", s.handleListOrganizations)
+		// Auth status is intentionally open (no token required) so the dashboard
+		// can learn whether to show a login screen before it holds a token.
+		r.Get("/auth", s.handleAuthStatus)
 
-		r.Get("/accounts", s.handleListAccounts)
-		r.Get("/accounts/{id}", s.handleGetAccount)
-		r.Get("/accounts/{id}/transactions", s.handleListAccountTransactions)
+		// Everything else requires the dashboard token when one is configured.
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireToken)
 
-		r.Get("/transactions", s.handleListTransactions)
-		// Static /search is registered before /{id} so it isn't captured as a
-		// transaction id (chi prefers static segments, but keep it explicit).
-		r.Get("/transactions/search", s.handleSearchTransactions)
-		r.Get("/transactions/{id}", s.handleGetTransaction)
-		r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
+			r.Get("/organizations", s.handleListOrganizations)
 
-		r.Get("/labels", s.handleListLabels)
-		r.Delete("/labels/{key}", s.handleDeleteLabel)
+			r.Get("/accounts", s.handleListAccounts)
+			r.Get("/accounts/{id}", s.handleGetAccount)
+			r.Get("/accounts/{id}/transactions", s.handleListAccountTransactions)
 
-		r.Get("/rules", s.handleListRules)
-		r.Post("/rules", s.handleCreateRule)
-		// Static /rules/run is registered before /rules/{id} so it isn't captured
-		// as a rule id (chi prefers static segments, but keep it explicit).
-		r.Post("/rules/run", s.handleRunAllRules)
-		r.Get("/rules/{id}", s.handleGetRule)
-		r.Put("/rules/{id}", s.handleUpdateRule)
-		r.Delete("/rules/{id}", s.handleDeleteRule)
-		r.Post("/rules/{id}/run", s.handleRunRule)
+			r.Get("/transactions", s.handleListTransactions)
+			// Static /search is registered before /{id} so it isn't captured as a
+			// transaction id (chi prefers static segments, but keep it explicit).
+			r.Get("/transactions/search", s.handleSearchTransactions)
+			r.Get("/transactions/{id}", s.handleGetTransaction)
+			r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
 
-		r.Get("/sync", s.handleSyncStatus)
-		r.Get("/sync/history", s.handleSyncHistory)
-		r.Post("/sync", s.handleTriggerSync)
+			r.Get("/labels", s.handleListLabels)
+			r.Delete("/labels/{key}", s.handleDeleteLabel)
 
-		// Read-only effective configuration (secrets redacted) for the Settings
-		// page, plus the runtime-writable SimpleFIN credential.
-		r.Get("/config", s.handleGetConfig)
-		if s.connector != nil {
-			r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
-		}
+			r.Get("/rules", s.handleListRules)
+			r.Post("/rules", s.handleCreateRule)
+			// Static /rules/run is registered before /rules/{id} so it isn't captured
+			// as a rule id (chi prefers static segments, but keep it explicit).
+			r.Post("/rules/run", s.handleRunAllRules)
+			r.Get("/rules/{id}", s.handleGetRule)
+			r.Put("/rules/{id}", s.handleUpdateRule)
+			r.Delete("/rules/{id}", s.handleDeleteRule)
+			r.Post("/rules/{id}/run", s.handleRunRule)
 
-		// Update status for the dashboard banner, and (optionally) apply.
-		if s.updates != nil {
-			r.Get("/update", s.handleUpdateStatus)
-			if s.allowApply {
-				r.Post("/update", s.handleApplyUpdate)
+			r.Get("/sync", s.handleSyncStatus)
+			r.Get("/sync/history", s.handleSyncHistory)
+			r.Post("/sync", s.handleTriggerSync)
+
+			// Read-only effective configuration (secrets redacted) for the Settings
+			// page, plus the runtime-writable SimpleFIN credential.
+			r.Get("/config", s.handleGetConfig)
+			if s.connector != nil {
+				r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
 			}
-		}
+
+			// Dashboard token management (generate/set, and revoke). Available only
+			// when an Authenticator is wired; refused when the token is config-managed.
+			if s.auth != nil {
+				r.Post("/security/token", s.handleSetToken)
+				r.Delete("/security/token", s.handleClearToken)
+			}
+
+			// Update status for the dashboard banner, and (optionally) apply.
+			if s.updates != nil {
+				r.Get("/update", s.handleUpdateStatus)
+				if s.allowApply {
+					r.Post("/update", s.handleApplyUpdate)
+				}
+			}
+		})
 	})
 
-	// Built-in MCP server over streamable HTTP.
+	// Built-in MCP server over streamable HTTP, gated by the same dashboard token.
 	if s.mcpEnabled {
-		r.Mount("/mcp", s.MCPHandler())
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireToken)
+			r.Mount("/mcp", s.MCPHandler())
+		})
 	}
 
 	// The web dashboard is the catch-all: it owns "/", client-side routes, and

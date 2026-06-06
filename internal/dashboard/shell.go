@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"strings"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
@@ -22,27 +23,134 @@ const (
 // persisted so it survives navigation and reloads.
 const collapsedStorageKey = "kasas.sidebar.collapsed"
 
+// tokenStorageKey is where the dashboard token is persisted in the browser so it
+// is sent on every API request and survives reloads. loginInputID is the stable
+// DOM id of the login screen's token field (read imperatively on submit).
+const (
+	tokenStorageKey = "kasas.dashboard.token"
+	loginInputID    = "kasas-login-token"
+)
+
 // chrome is the shared page chrome (the collapsible sidebar + the build-version
 // badge) embedded by every page view. go-app routes have no common parent
 // component, so the shell is shared by embedding this struct rather than via a
 // layout component. It owns the API client too, so the embedding view's promoted
-// `client` field is wired up by loadChrome.
+// `client` field is wired up by loadChrome. It also owns the auth gate: every
+// page renders through renderShell, which shows a login screen when a token is
+// required but not present.
 type chrome struct {
 	client    *apiClient
 	collapsed bool   // sidebar collapsed to the icon rail
 	version   string // build version for the corner badge
+
+	// Auth gate state, populated by loadAuth.
+	token        string // dashboard token from local storage
+	authChecked  bool   // the /api/v1/auth probe has returned
+	authRequired bool   // a token is required to use the API
+	authed       bool   // our token (if any) is accepted
+	loggingIn    bool   // a login attempt is in flight
+	loginErr     string // last login error, shown under the field
 }
 
 // loadChrome initializes the shared chrome: it creates the API client (promoted
-// to the embedding view), restores the collapsed choice from local storage, and
-// fetches the build version for the badge. Call it first in each view's OnMount.
+// to the embedding view) using any stored token, restores the collapsed choice
+// from local storage, fetches the build version, and probes the auth state. Call
+// it first in each view's OnMount.
 func (c *chrome) loadChrome(ctx app.Context) {
 	if c.client == nil {
-		c.client = newAPIClient(originURL())
+		// Absent key leaves the token empty (unauthenticated request).
+		_ = ctx.LocalStorage().Get(tokenStorageKey, &c.token)
+		c.client = newAPIClient(originURL(), c.token)
 	}
 	// Absent key leaves collapsed at its zero value (expanded).
 	_ = ctx.LocalStorage().Get(collapsedStorageKey, &c.collapsed)
 	c.loadVersion(ctx)
+	c.loadAuth(ctx)
+}
+
+// loadAuth probes whether a token is required and whether ours is accepted. On a
+// request error it assumes auth is off so the app still loads — the server is the
+// real gate; this only decides whether to show the login screen.
+func (c *chrome) loadAuth(ctx app.Context) {
+	ctx.Async(func() {
+		st, err := c.client.authStatus(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			c.authChecked = true
+			if err != nil {
+				c.authRequired = false
+				c.authed = true
+				ctx.Update()
+				return
+			}
+			c.authRequired = st.AuthRequired
+			c.authed = st.Authenticated
+			ctx.Update()
+		})
+	})
+}
+
+// adoptToken makes the current page use a token without a reload: it rebuilds the
+// API client, persists (or clears) the token, and updates the gate state. tok ==
+// "" revokes. Used by the Settings security panel so generating a token keeps the
+// page signed in (a reload would hide the one-time token it shows).
+func (c *chrome) adoptToken(ctx app.Context, tok string) {
+	c.token = tok
+	c.client = newAPIClient(originURL(), tok)
+	if tok == "" {
+		ctx.LocalStorage().Del(tokenStorageKey)
+	} else {
+		_ = ctx.LocalStorage().Set(tokenStorageKey, tok)
+	}
+	c.authRequired = tok != ""
+	c.authed = true
+	c.authChecked = true
+}
+
+func (c *chrome) onLoginKeyDown(ctx app.Context, e app.Event) {
+	if e.Get("key").String() == "Enter" {
+		e.PreventDefault()
+		c.submitLogin(ctx)
+	}
+}
+
+func (c *chrome) onLoginSubmit(ctx app.Context, _ app.Event) { c.submitLogin(ctx) }
+
+// submitLogin validates the entered token against /api/v1/auth before persisting
+// it, so a wrong token reports an error instead of reloading back into the login
+// screen. On success it stores the token and reloads so every view refetches with
+// it.
+func (c *chrome) submitLogin(ctx app.Context) {
+	if c.loggingIn {
+		return
+	}
+	tok := domInputValue(loginInputID)
+	if tok == "" {
+		c.loginErr = "Enter your dashboard token."
+		ctx.Update()
+		return
+	}
+	c.loggingIn = true
+	c.loginErr = ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		st, err := newAPIClient(originURL(), tok).authStatus(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			c.loggingIn = false
+			if err != nil {
+				c.loginErr = "Could not reach kasas: " + err.Error()
+				ctx.Update()
+				return
+			}
+			if !st.Authenticated {
+				c.loginErr = "Invalid token."
+				ctx.Update()
+				return
+			}
+			_ = ctx.LocalStorage().Set(tokenStorageKey, tok)
+			app.Window().Get("location").Call("reload")
+		})
+	})
 }
 
 // loadVersion fetches the build version for the corner badge. Best-effort: the
@@ -69,14 +177,116 @@ func (c *chrome) toggleCollapsed(ctx app.Context) {
 }
 
 // renderShell wraps a page's content in the app shell: the sidebar on the left
-// and the page content in a centered column on the right.
+// and the page content in a centered column on the right. It also enforces the
+// auth gate: a loading screen until the auth probe returns, then the login screen
+// when a token is required but ours is not accepted.
+//
+// The ordering keeps existing PrintHTML tests working: they build views without
+// mounting, so client is nil and the gate is skipped (the normal shell renders).
 func (c *chrome) renderShell(active navItem, content ...app.UI) app.UI {
+	if c.client != nil && !c.authChecked {
+		return renderAuthLoading()
+	}
+	if c.authChecked && c.authRequired && !c.authed {
+		return c.renderLogin()
+	}
+
+	column := make([]app.UI, 0, len(content)+1)
+	if c.authChecked && !c.authRequired {
+		column = append(column, renderUnsecuredBanner())
+	}
+	column = append(column, content...)
+
 	return app.Div().Class("app-shell").Body(
 		c.renderSidebar(active),
 		app.Main().Class("content").Body(
-			app.Div().Class("page").Body(content...),
+			app.Div().Class("page").Body(column...),
 		),
 	)
+}
+
+// renderAuthLoading is shown briefly while the auth probe is in flight, so the
+// dashboard never flashes before redirecting to the login screen.
+func renderAuthLoading() app.UI {
+	return app.Div().Class("auth-loading").Body(
+		app.Span().Class("auth-loading-text").Text("Loading…"),
+	)
+}
+
+// renderLogin is the full-page token entry shown when a dashboard token is
+// required but the browser has none (or an invalid one).
+func (c *chrome) renderLogin() app.UI {
+	body := []app.UI{
+		app.Img().Class("login-logo").Src("/web/logo.png").Alt("kasas logo"),
+		app.H1().Class("login-title").Text("kasas"),
+		app.P().Class("login-help").Text("Enter your dashboard token to continue."),
+		app.Input().
+			ID(loginInputID).
+			Class("settings-input login-input").
+			Type("password").
+			Placeholder("Dashboard token").
+			AutoComplete(false).
+			OnKeyDown(c.onLoginKeyDown),
+		app.Button().
+			Class("btn btn-primary login-btn").
+			Text(unlockLabel(c.loggingIn)).
+			Disabled(c.loggingIn).
+			OnClick(c.onLoginSubmit),
+	}
+	if c.loginErr != "" {
+		body = append(body, app.Div().Class("login-err").Text(c.loginErr))
+	}
+	return app.Div().Class("login-screen").Body(
+		app.Div().Class("card login-card").Body(body...),
+	)
+}
+
+func unlockLabel(busy bool) string {
+	if busy {
+		return "Unlocking…"
+	}
+	return "Unlock"
+}
+
+// renderUnsecuredBanner warns, on every page, that no token is set. It links to
+// the Settings page where the user can generate one.
+func renderUnsecuredBanner() app.UI {
+	return app.Div().Class("unsecured-banner").Body(
+		app.Span().Class("unsecured-text").Body(
+			app.Text("kasas is "),
+			app.Span().Class("unsecured-strong").Text("not secured"),
+			app.Text(": anyone who can reach it can view your data and change settings. "),
+		),
+		app.A().Class("unsecured-link").Href("/settings").Text("Secure it →"),
+	)
+}
+
+// domInputValue reads and trims the value of an <input> by id, returning "" when
+// the element is absent (e.g. during a host/test render). Used to read the
+// uncontrolled token fields imperatively.
+func domInputValue(id string) string {
+	doc := app.Window().Get("document")
+	if !doc.Truthy() {
+		return ""
+	}
+	el := doc.Call("getElementById", id)
+	if !el.Truthy() {
+		return ""
+	}
+	return strings.TrimSpace(el.Get("value").String())
+}
+
+// clearDomInput empties an <input> by id imperatively (go-app drops empty value
+// attributes, so a controlled Value("") cannot clear it).
+func clearDomInput(id string) {
+	doc := app.Window().Get("document")
+	if !doc.Truthy() {
+		return
+	}
+	el := doc.Call("getElementById", id)
+	if el.Truthy() {
+		el.Set("value", "")
+	}
 }
 
 func (c *chrome) renderSidebar(active navItem) app.UI {

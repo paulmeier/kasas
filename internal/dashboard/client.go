@@ -55,12 +55,39 @@ type applyResult struct {
 // apiClient calls the same-origin kasas REST API from the browser. In WASM,
 // net/http is backed by the Fetch API.
 type apiClient struct {
-	base string
-	http *http.Client
+	base  string
+	token string // dashboard token, attached as a Bearer header when non-empty
+	http  *http.Client
 }
 
-func newAPIClient(base string) *apiClient {
-	return &apiClient{base: base, http: &http.Client{Timeout: 30 * time.Second}}
+func newAPIClient(base, token string) *apiClient {
+	c := &apiClient{base: base, token: token}
+	c.http = c.client(30 * time.Second)
+	return c
+}
+
+// client builds an *http.Client with the given timeout whose transport attaches
+// the dashboard token. Used for the default client and the longer-lived one in
+// applyUpdate, so both authenticate.
+func (c *apiClient) client(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: &authTransport{base: http.DefaultTransport, token: c.token}}
+}
+
+// authTransport attaches "Authorization: Bearer <token>" to every request when a
+// token is set. http.DefaultTransport is the Fetch-backed RoundTripper in WASM.
+type authTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.token == "" {
+		return t.base.RoundTrip(req)
+	}
+	// Clone before mutating: RoundTrippers must not modify the caller's request.
+	r := req.Clone(req.Context())
+	r.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(r)
 }
 
 func (c *apiClient) accounts(ctx context.Context) ([]account, error) {
@@ -364,6 +391,7 @@ type configData struct {
 	MCP       mcpConfig       `json:"mcp"`
 	Dashboard dashboardConfig `json:"dashboard"`
 	Update    updateConfig    `json:"update"`
+	Security  securityConfig  `json:"security"`
 }
 
 type serverConfig struct {
@@ -409,6 +437,25 @@ type updateConfig struct {
 	AllowApply bool   `json:"allow_apply"`
 	Repository string `json:"repository"`
 }
+type securityConfig struct {
+	AuthRequired bool   `json:"auth_required"`
+	TokenSource  string `json:"token_source"` // "config" | "stored" | "none"
+}
+
+// authState mirrors api.authStatusResponse: whether a token is required and
+// whether the caller's token (if any) is valid. Drives the login gate.
+type authState struct {
+	AuthRequired  bool `json:"auth_required"`
+	Authenticated bool `json:"authenticated"`
+}
+
+// tokenResult mirrors api.tokenResponse: the value minted by generate/set plus the
+// resulting auth state.
+type tokenResult struct {
+	Token        string `json:"token"`
+	AuthRequired bool   `json:"auth_required"`
+	TokenSource  string `json:"token_source"`
+}
 
 // syncRun mirrors api.SyncDTO: one sync_log entry. CompletedAt is the zero time
 // while a sync is still running (the API sends null).
@@ -427,6 +474,67 @@ func (c *apiClient) config(ctx context.Context) (configData, error) {
 		return configData{}, err
 	}
 	return out, nil
+}
+
+// authStatus reports whether a dashboard token is required and whether the
+// client's current token (if any) is accepted. It is the one endpoint reachable
+// without a valid token, so it can drive the login gate.
+func (c *apiClient) authStatus(ctx context.Context) (authState, error) {
+	var out authState
+	if err := c.get(ctx, "/api/v1/auth", nil, &out); err != nil {
+		return authState{}, err
+	}
+	return out, nil
+}
+
+// setToken generates a new dashboard token (custom == "") or stores a caller-
+// supplied one, returning the resulting token value and auth state.
+func (c *apiClient) setToken(ctx context.Context, custom string) (tokenResult, error) {
+	var body io.Reader
+	if custom != "" {
+		b, err := json.Marshal(map[string]string{"token": custom})
+		if err != nil {
+			return tokenResult{}, err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/security/token", body)
+	if err != nil {
+		return tokenResult{}, err
+	}
+	if custom != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return tokenResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return tokenResult{}, decodeAPIError(resp, "set token")
+	}
+	var out tokenResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return tokenResult{}, err
+	}
+	return out, nil
+}
+
+// revokeToken clears the stored dashboard token, disabling authentication.
+func (c *apiClient) revokeToken(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/security/token", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "revoke token")
+	}
+	return nil
 }
 
 // latestSync fetches the most recent sync run, or nil when no sync has run yet.
@@ -517,8 +625,7 @@ func (c *apiClient) applyUpdate(ctx context.Context) (applyResult, error) {
 	if err != nil {
 		return applyResult{}, err
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
+	resp, err := c.client(5 * time.Minute).Do(req)
 	if err != nil {
 		return applyResult{}, err
 	}

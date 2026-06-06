@@ -110,10 +110,48 @@ variables. Env vars are prefixed `KASAS_`, with sections joined by underscores
 | `simplefin.access_url` | `KASAS_SIMPLEFIN_ACCESS_URL` | — | Pre-claimed access URL |
 | `sync.interval` | `KASAS_SYNC_INTERVAL` | `6h` | Poll interval (Go duration) |
 | `sync.lookback_days` | `KASAS_SYNC_LOOKBACK_DAYS` | `90` | History window; `0` = all |
-| `vault.enabled` | `KASAS_VAULT_ENABLED` | `false` | Use Vault for the access URL |
+| `vault.enabled` | `KASAS_VAULT_ENABLED` | `false` | Use Vault for the access URL + dashboard token |
 | `mcp.enabled` | `KASAS_MCP_ENABLED` | `true` | Mount the MCP server at `/mcp` |
+| `dashboard.token` | `KASAS_DASHBOARD_TOKEN` | — | Access token for the API, dashboard, and MCP. Empty = unauthenticated (see [Authentication](#authentication)) |
 | `update.check` | `KASAS_UPDATE_CHECK` | `true` | Daily check for a newer release (logs + dashboard banner) |
 | `update.allow_apply` | `KASAS_UPDATE_ALLOW_APPLY` | `true` | Let the dashboard/API trigger an in-place self-update |
+
+## Authentication
+
+By default the REST API, the web dashboard, and the MCP-over-HTTP server are
+**unauthenticated** — convenient on a trusted network, but anyone who can reach
+the port can read your financial data and change settings. Set a **dashboard
+token** to require callers to authenticate. It gates `/api/v1/*` and `/mcp`; the
+`/healthz`, `/readyz`, and `/metrics` endpoints stay open (for container probes
+and Prometheus).
+
+Provide a token in any of three ways, in precedence order:
+
+1. **Config / env** — `dashboard.token` or `KASAS_DASHBOARD_TOKEN`. Authoritative:
+   when set it always applies, and you rotate it by changing the value and
+   restarting.
+2. **Generated in the dashboard** — open **Settings → Dashboard security** and
+   click **Generate token** (or paste your own, ≥16 chars). It is saved to the
+   secret store next to the SimpleFIN credential (the local `0600` `secrets.json`,
+   or Vault when enabled), and used only when no config/env token is set. You can
+   revoke it there too.
+3. **None** — kasas logs a warning at startup and the dashboard shows an
+   "unsecured" banner until you set one.
+
+Clients authenticate with a bearer token:
+
+```sh
+curl -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  http://localhost:8080/api/v1/accounts
+```
+
+The dashboard prompts for the token on first visit and remembers it in the
+browser. MCP-over-HTTP clients send the same `Authorization: Bearer` header; the
+stdio MCP transport (`kasas mcp`) is local and needs no token.
+
+> It is a single shared secret (no per-user accounts). Generating/revoking from
+> the dashboard is only possible when the token is **not** config-managed. A token
+> complements, but does not replace, keeping kasas on a trusted network.
 
 ## Storage backends
 
@@ -178,11 +216,11 @@ CLI and then **re-execs the new binary in place** (no external supervisor needed
 the page reloads onto the new version once it's back. The button is backed by the
 same `update.allow_apply` switch:
 
-> **Security:** the dashboard and API are unauthenticated, so with `allow_apply`
-> on, anyone who can reach kasas can replace the running binary (with a
-> checksum-verified GitHub release) and restart it. Keep kasas on a trusted
-> network — e.g. [Tailscale](https://tailscale.com) — or set
-> `KASAS_UPDATE_ALLOW_APPLY=false` to keep the informational banner while
+> **Security:** with `allow_apply` on, anyone who can reach the (authenticated, if
+> a [dashboard token](#authentication) is set) API can replace the running binary
+> with a checksum-verified GitHub release and restart it. Set a dashboard token,
+> keep kasas on a trusted network — e.g. [Tailscale](https://tailscale.com) — or
+> set `KASAS_UPDATE_ALLOW_APPLY=false` to keep the informational banner while
 > requiring the `kasas self-update` CLI to actually upgrade.
 
 ## Dashboard
@@ -207,7 +245,8 @@ at the root path (`/`). A collapsible left sidebar navigates between five pages:
   applies a rule (or all enabled rules) to existing transactions. Edit,
   enable/disable, and delete inline. See [Rules](#rules) below.
 - **Settings** — connect to SimpleFIN by pasting a setup token or access URL
-  (stored securely and used on the next sync, no restart), force a sync with live
+  (stored securely and used on the next sync, no restart), generate or revoke the
+  [dashboard token](#authentication) that secures kasas, force a sync with live
   status, and review the effective configuration (read-only, secrets redacted).
 
 The sidebar collapses to an icon rail; the choice is remembered across pages.

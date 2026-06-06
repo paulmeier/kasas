@@ -23,6 +23,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.True(t, cfg.Sync.Enabled)
 	assert.True(t, cfg.MCP.Enabled)
 	assert.True(t, cfg.Dashboard.Enabled)
+	assert.Empty(t, cfg.Dashboard.Token)
 	assert.False(t, cfg.Vault.Enabled)
 	assert.Equal(t, "secret", cfg.Vault.Mount)
 }
@@ -32,6 +33,7 @@ func TestLoadEnvOverride(t *testing.T) {
 	t.Setenv("KASAS_SYNC_INTERVAL", "15m")
 	t.Setenv("KASAS_VAULT_ENABLED", "true")
 	t.Setenv("KASAS_SIMPLEFIN_SETUP_TOKEN", "abc123")
+	t.Setenv("KASAS_DASHBOARD_TOKEN", "s3cret-dashboard-token")
 
 	cfg, err := Load("")
 	require.NoError(t, err)
@@ -40,6 +42,7 @@ func TestLoadEnvOverride(t *testing.T) {
 	assert.Equal(t, 15*time.Minute, cfg.Sync.Interval)
 	assert.True(t, cfg.Vault.Enabled)
 	assert.Equal(t, "abc123", cfg.SimpleFIN.SetupToken)
+	assert.Equal(t, "s3cret-dashboard-token", cfg.Dashboard.Token)
 }
 
 func TestLoadPostgresDriver(t *testing.T) {
