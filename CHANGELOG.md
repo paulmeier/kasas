@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/paulmeier/kasas/compare/v1.6.0...v2.0.0) (2026-06-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* transaction "tags" (a JSON array) are replaced by "labels", strict key:value pairs (a JSON object). The DB column is renamed and existing tag data is cleared; /api/v1/tags* endpoints are replaced by /api/v1/labels*, and the transaction DTO field "tags" ([]string) becomes "labels" (object).
+
+### Features
+
+* ship key:value labels (replaces tags) ([#30](https://github.com/paulmeier/kasas/issues/30)) ([6137b92](https://github.com/paulmeier/kasas/commit/6137b9268bd728ab9aec0f5fc3400d1396efad84))
+
 ## [1.6.0](https://github.com/paulmeier/kasas/compare/v1.5.0...v1.6.0) (2026-06-05)
 
 
