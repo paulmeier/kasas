@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/labels"
+	"github.com/paulmeier/kasas/internal/rules"
+	"github.com/paulmeier/kasas/internal/search"
 	"github.com/paulmeier/kasas/internal/vault"
 )
 
@@ -37,6 +41,10 @@ var (
 	txUpdated = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "kasas_transactions_updated_total",
 		Help: "Total number of existing transactions refreshed (bridge fields, not labels) across all syncs.",
+	})
+	rulesApplied = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kasas_rules_applied_total",
+		Help: "Total number of newly-synced transactions auto-labeled by a matching rule.",
 	})
 	lastSuccess = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "kasas_last_successful_sync_timestamp_seconds",
@@ -97,6 +105,7 @@ type SyncResult struct {
 	Accounts            int           `json:"accounts"`
 	NewTransactions     int           `json:"new_transactions"`
 	UpdatedTransactions int           `json:"updated_transactions"`
+	AutoLabeled         int           `json:"auto_labeled"` // new transactions a rule labeled
 	Duration            time.Duration `json:"duration"`
 }
 
@@ -200,10 +209,12 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 	accountsGauge.Set(float64(result.Accounts))
 	txInserted.Add(float64(result.NewTransactions))
 	txUpdated.Add(float64(result.UpdatedTransactions))
+	rulesApplied.Add(float64(result.AutoLabeled))
 	p.logger.Info("sync complete",
 		"accounts", result.Accounts,
 		"new_transactions", result.NewTransactions,
 		"updated_transactions", result.UpdatedTransactions,
+		"auto_labeled", result.AutoLabeled,
 		"duration", result.Duration.String(),
 	)
 	return result, nil
@@ -214,6 +225,13 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 	var res SyncResult
 
 	err := p.store.RunInTx(ctx, func(q db.Querier) error {
+		// Compile the enabled labeling rules once per sync; matching rules are
+		// applied to each brand-new transaction below.
+		compiledRules, err := p.loadEnabledRules(ctx, q)
+		if err != nil {
+			return err
+		}
+
 		for _, acct := range set.Accounts {
 			org := acct.Org
 			if err := q.UpsertOrganization(ctx, db.UpsertOrganizationParams{
@@ -261,6 +279,16 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				}
 				if n > 0 {
 					res.NewTransactions += int(n)
+					// A brand-new row starts with no labels ('{}'); apply any
+					// matching rules. Re-synced (existing) rows are left alone so a
+					// sync never clobbers labels.
+					labeled, err := p.applyRulesToNewTxn(ctx, q, compiledRules, acct, t, syncedAt)
+					if err != nil {
+						return fmt.Errorf("apply rules to transaction %q: %w", t.ID, err)
+					}
+					if labeled {
+						res.AutoLabeled++
+					}
 					continue
 				}
 				if _, err := q.UpdateTransactionFromSync(ctx, db.UpdateTransactionFromSyncParams{
@@ -285,6 +313,77 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 		return SyncResult{}, err
 	}
 	return res, nil
+}
+
+// loadEnabledRules reads the enabled labeling rules and compiles each one's
+// query. A rule whose stored query fails to parse (the API rejects invalid
+// queries on write, so this is defensive) is logged and skipped rather than
+// failing the whole sync.
+func (p *Poller) loadEnabledRules(ctx context.Context, q db.Querier) ([]rules.Compiled, error) {
+	rows, err := q.ListEnabledRules(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled rules: %w", err)
+	}
+	compiled := make([]rules.Compiled, 0, len(rows))
+	for _, r := range rows {
+		c, cerr := rules.Compile(rules.NewRule(r.ID, r.Name, r.Query, r.Labels, r.Enabled != 0))
+		if cerr != nil {
+			p.logger.Warn("skipping rule with invalid query", "rule_id", r.ID, "name", r.Name, "error", cerr)
+			continue
+		}
+		compiled = append(compiled, c)
+	}
+	return compiled, nil
+}
+
+// applyRulesToNewTxn applies the compiled rules to one just-inserted transaction
+// (whose labels are still empty) and writes the merged label set when any rule
+// matched. It reports whether the transaction was labeled.
+func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, compiled []rules.Compiled, acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) (bool, error) {
+	if len(compiled) == 0 {
+		return false, nil
+	}
+	merged, changed := rules.Apply(compiled, newSearchRecord(acct, t, syncedAt), map[string]string{})
+	if !changed {
+		return false, nil
+	}
+	encoded, err := labels.Encode(merged)
+	if err != nil {
+		return false, err
+	}
+	if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ID, Labels: encoded}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// newSearchRecord adapts a SimpleFIN account + transaction into the search
+// engine's neutral Record so rules can match on any field. A freshly inserted
+// transaction carries no labels yet.
+func newSearchRecord(acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) search.Record {
+	return search.Record{
+		ID:          t.ID,
+		AccountID:   acct.ID,
+		AccountName: acct.Name,
+		Amount:      parseAmount(t.Amount),
+		AmountRaw:   t.Amount,
+		Pending:     t.Pending,
+		Date:        time.Unix(transactionDate(t), 0).UTC(),
+		Description: t.Description,
+		Payee:       t.Payee,
+		Memo:        t.Memo,
+		Labels:      map[string]string{},
+		SyncedAt:    time.Unix(syncedAt, 0).UTC(),
+	}
+}
+
+// parseAmount parses a decimal amount string into a float for amount: rule
+// comparisons, tolerating thousands separators. Unparseable values become 0,
+// matching kasas's lenient amount handling elsewhere.
+func parseAmount(s string) float64 {
+	s = strings.ReplaceAll(strings.TrimSpace(s), ",", "")
+	f, _ := strconv.ParseFloat(s, 64)
+	return f
 }
 
 // resolveAccessURL determines the SimpleFIN access URL, preferring an already

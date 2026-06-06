@@ -497,23 +497,33 @@ func (v *searchView) renderFooter() app.UI {
 // renderHelpModal renders the scrollable syntax reference. The backdrop closes
 // it; clicks inside the panel do not (the panel stops click propagation).
 func (v *searchView) renderHelpModal() app.UI {
-	if !v.showHelp {
+	return renderSyntaxModal(v.showHelp, "Search syntax", v.closeHelp)
+}
+
+// renderSyntaxModal renders the shared, scrollable query-syntax reference. It is
+// used by the Search page and the Rules page (a rule's condition is a search
+// query), so the syntax help lives in one place. The backdrop closes it; clicks
+// inside the panel do not.
+func renderSyntaxModal(show bool, title string, onClose app.EventHandler) app.UI {
+	if !show {
 		return app.Text("")
 	}
-	return app.Div().Class("modal-overlay").OnClick(v.closeHelp).Body(
+	return app.Div().Class("modal-overlay").OnClick(onClose).Body(
 		app.Div().Class("modal").
 			OnClick(func(_ app.Context, e app.Event) { e.Call("stopPropagation") }).
 			Body(
 				app.Div().Class("modal-header").Body(
-					app.H2().Class("modal-title").Text("Search syntax"),
-					app.Button().Class("modal-close").Title("Close").Text("×").OnClick(v.closeHelp),
+					app.H2().Class("modal-title").Text(title),
+					app.Button().Class("modal-close").Title("Close").Text("×").OnClick(onClose),
 				),
-				app.Div().Class("modal-body").Body(v.helpContent()...),
+				app.Div().Class("modal-body").Body(searchSyntaxHelp()...),
 			),
 	)
 }
 
-func (v *searchView) helpContent() []app.UI {
+// searchSyntaxHelp is the body of the query-syntax reference, shared by the
+// Search and Rules help modals.
+func searchSyntaxHelp() []app.UI {
 	return []app.UI{
 		app.P().Class("help-intro").Text(
 			"A query is a set of terms. Adjacent terms must all match (AND). " +

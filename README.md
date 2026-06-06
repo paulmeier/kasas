@@ -201,7 +201,11 @@ at the root path (`/`). A collapsible left sidebar navigates between five pages:
 - **Labels** — every label (a `key: value` pair) with the number of transactions
   carrying it, and a delete that strips it from all of them. (Labels are created
   on the Dashboard.)
-- **Rules** — a placeholder for upcoming automatic labeling.
+- **Rules** — create rules that automatically label transactions. Each rule pairs
+  a condition (a query in the [search syntax](#search-syntax)) with the labels to
+  apply; it runs against every newly-synced transaction, and a **Run** button
+  applies a rule (or all enabled rules) to existing transactions. Edit,
+  enable/disable, and delete inline. See [Rules](#rules) below.
 - **Settings** — connect to SimpleFIN by pasting a setup token or access URL
   (stored securely and used on the next sync, no restart), force a sync with live
   status, and review the effective configuration (read-only, secrets redacted).
@@ -237,6 +241,13 @@ decimal strings as returned by SimpleFIN.
 | `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`) |
 | `GET /api/v1/labels` | List labels with per-pair transaction counts (`[{"key","value","transaction_count"}]`) |
 | `DELETE /api/v1/labels/{key}` | Remove a label key from every transaction (add `?value=` to scope to one value) |
+| `GET /api/v1/rules` | List labeling rules |
+| `POST /api/v1/rules` | Create a rule (`{"name","query","labels":{…},"enabled"}`); validates the query, 400 on error |
+| `GET /api/v1/rules/{id}` | Get one rule |
+| `PUT /api/v1/rules/{id}` | Replace a rule |
+| `DELETE /api/v1/rules/{id}` | Delete a rule |
+| `POST /api/v1/rules/{id}/run` | Apply one rule to existing transactions (even if disabled); returns `{matched, updated}` |
+| `POST /api/v1/rules/run` | Apply all enabled rules to existing transactions |
 | `GET /api/v1/sync` | Latest sync status |
 | `GET /api/v1/sync/history` | Recent sync runs (`?limit=`) |
 | `POST /api/v1/sync` | Trigger a sync (runs async, returns `202`) |
@@ -285,13 +296,35 @@ combinations. Matching is case-insensitive; an empty query matches everything.
 curl "localhost:8080/api/v1/transactions/search?q=coffee%20amount:%3C0%20date:2024%20-label:reimbursed"
 ```
 
+## Rules
+
+Rules automatically label transactions. A rule pairs a **condition** — a query in
+the [search syntax](#search-syntax) above — with one or more **labels** to apply
+to every transaction it matches. Enabled rules run against each newly-synced
+transaction automatically; you can also **run** a rule (or all enabled rules) over
+your existing transactions at any time. A matching rule is authoritative for its
+own label keys (it overwrites a different existing value) and leaves other labels
+alone; re-running is idempotent. Manage rules on the dashboard's Rules page, over
+the REST API, or via MCP — they are stored in a `rules` table (the one piece of
+state that is not derived from synced data).
+
+```sh
+# flag large coffee charges for review, then apply the rule to existing transactions
+id=$(curl -s localhost:8080/api/v1/rules \
+  -d '{"name":"Coffee review","query":"description:coffee amount:>50","labels":{"status":"review"}}' \
+  | jq .id)
+curl -X POST "localhost:8080/api/v1/rules/$id/run"   # -> {"matched":3,"updated":3}
+```
+
 ## MCP server
 
 When `mcp.enabled` is true, an MCP server is mounted at `/mcp` over the
 streamable-HTTP transport. It exposes tools: `list_accounts`, `get_account`,
 `list_transactions` (with optional `label_key`/`label_value` drill-down),
 `search_transactions` (the query language above), `list_labels`,
-`list_organizations`, `sync_status`, and `trigger_sync`.
+`list_organizations`, `sync_status`, `trigger_sync`, and the rules tools
+`list_rules`, `create_rule`, `update_rule`, `delete_rule`, and `run_rules`
+(pass an `id` to run one rule, or omit it to run all enabled rules).
 
 For desktop MCP clients that launch a subprocess, run it over stdio instead:
 
@@ -306,6 +339,7 @@ kasas -config config.toml mcp
 - `kasas_sync_total{status}` — sync runs by outcome
 - `kasas_sync_duration_seconds` — sync duration histogram
 - `kasas_transactions_inserted_total` — new transactions inserted
+- `kasas_rules_applied_total` — new transactions auto-labeled by a rule
 - `kasas_last_successful_sync_timestamp_seconds` — last success (unix time)
 - `kasas_accounts` — accounts seen in the most recent sync
 
@@ -320,6 +354,7 @@ Managed by embedded [goose](https://github.com/pressly/goose) migrations under
 organizations  id, domain, name, sfin_url
 accounts       id, org_id, name, currency, balance, balance_date, synced_at
 transactions   id, account_id, amount, pending, date, description, payee, memo, synced_at, labels
+rules          id, name, query, labels, enabled, created_at, updated_at
 sync_log       id, started_at, completed_at, status, error
 ```
 

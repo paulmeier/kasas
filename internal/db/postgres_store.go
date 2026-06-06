@@ -179,6 +179,36 @@ func (a pgQuerier) UpsertOrganization(ctx context.Context, arg UpsertOrganizatio
 	return a.q.UpsertOrganization(ctx, pg.UpsertOrganizationParams(arg))
 }
 
+// Rule CRUD. The rules table columns are all int64/string, so the params and
+// Rule rows are byte-identical to the pg ones and adapt by whole-struct cast.
+func (a pgQuerier) CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error) {
+	row, err := a.q.CreateRule(ctx, pg.CreateRuleParams(arg))
+	return Rule(row), err
+}
+
+func (a pgQuerier) GetRule(ctx context.Context, id int64) (Rule, error) {
+	row, err := a.q.GetRule(ctx, id)
+	return Rule(row), err
+}
+
+func (a pgQuerier) ListRules(ctx context.Context) ([]Rule, error) {
+	rows, err := a.q.ListRules(ctx)
+	return mapSlice(rows, func(r pg.Rule) Rule { return Rule(r) }), err
+}
+
+func (a pgQuerier) ListEnabledRules(ctx context.Context) ([]Rule, error) {
+	rows, err := a.q.ListEnabledRules(ctx)
+	return mapSlice(rows, func(r pg.Rule) Rule { return Rule(r) }), err
+}
+
+func (a pgQuerier) UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, error) {
+	return a.q.UpdateRule(ctx, pg.UpdateRuleParams(arg))
+}
+
+func (a pgQuerier) DeleteRule(ctx context.Context, id int64) (int64, error) {
+	return a.q.DeleteRule(ctx, id)
+}
+
 func mapSlice[T, U any](in []T, conv func(T) U) []U {
 	out := make([]U, len(in))
 	for i := range in {
