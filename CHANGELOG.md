@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/paulmeier/kasas/compare/v2.4.0...v2.5.0) (2026-06-06)
+
+
+### Features
+
+* canonical event stream (REST cursor, live SSE, MCP, dashboard) ([#40](https://github.com/paulmeier/kasas/issues/40)) ([4d175b7](https://github.com/paulmeier/kasas/commit/4d175b7f28f7161f5f7062e64ec66531b898b97c))
+
 ## [2.4.0](https://github.com/paulmeier/kasas/compare/v2.3.0...v2.4.0) (2026-06-06)
 
 
