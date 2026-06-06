@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -165,6 +166,95 @@ func TestLatestSyncLogEmpty(t *testing.T) {
 	q := db.New(testutil.NewDB(t))
 	_, err := q.LatestSyncLog(context.Background())
 	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+// TestLabelQueries exercises the SQLite JSON label SQL: the '{}' insert default,
+// per-key/value filtering, the labeled-rows listing, and per-key/value deletion.
+func TestLabelQueries(t *testing.T) {
+	q := db.New(testutil.NewDB(t))
+	fx := testutil.Seed(t, q)
+	ctx := context.Background()
+
+	// Freshly inserted transactions default to an empty object: InsertTransaction
+	// writes the literal '{}', not the column's legacy '[]' default.
+	tx4, err := q.GetTransaction(ctx, "tx-4")
+	require.NoError(t, err)
+	assert.Equal(t, "{}", tx4.Labels)
+
+	set := func(id, labels string) {
+		t.Helper()
+		n, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: id, Labels: labels})
+		require.NoError(t, err)
+		require.Equal(t, int64(1), n)
+	}
+	set("tx-1", `{"category":"food","tag":"coffee"}`)
+	set("tx-2", `{"category":"rent"}`)
+	set("tx-3", `{"tag":"coffee"}`)
+
+	t.Run("filter by key present", func(t *testing.T) {
+		got, err := q.FilterTransactionsByLabelKey(ctx, db.FilterTransactionsByLabelKeyParams{
+			LabelKey: "category", RowLimit: 100,
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"tx-1", "tx-2"}, txIDs(got))
+	})
+
+	t.Run("filter by key and value", func(t *testing.T) {
+		got, err := q.FilterTransactionsByLabelValue(ctx, db.FilterTransactionsByLabelValueParams{
+			LabelKey: "tag", LabelValue: "coffee", RowLimit: 100,
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"tx-1", "tx-3"}, txIDs(got))
+	})
+
+	t.Run("filter composes with account", func(t *testing.T) {
+		got, err := q.FilterTransactionsByLabelKey(ctx, db.FilterTransactionsByLabelKeyParams{
+			LabelKey: "tag", AccountID: fx.CheckingID, RowLimit: 100,
+		})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"tx-1", "tx-3"}, txIDs(got))
+	})
+
+	t.Run("ListLabeledTransactions skips empty", func(t *testing.T) {
+		rows, err := q.ListLabeledTransactions(ctx)
+		require.NoError(t, err)
+		ids := make([]string, len(rows))
+		for i, r := range rows {
+			ids[i] = r.ID
+		}
+		assert.ElementsMatch(t, []string{"tx-1", "tx-2", "tx-3"}, ids)
+	})
+
+	t.Run("delete by value drops only the matching key", func(t *testing.T) {
+		n, err := q.DeleteLabelByValue(ctx, db.DeleteLabelByValueParams{LabelKey: "tag", LabelValue: "coffee"})
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n) // tx-1 and tx-3
+
+		tx1, err := q.GetTransaction(ctx, "tx-1")
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"category": "food"}, decodeJSON(t, tx1.Labels)) // tag removed, category kept
+
+		tx3, err := q.GetTransaction(ctx, "tx-3")
+		require.NoError(t, err)
+		assert.Empty(t, decodeJSON(t, tx3.Labels))
+	})
+
+	t.Run("delete by key removes the key everywhere", func(t *testing.T) {
+		n, err := q.DeleteLabelByKey(ctx, "category")
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n) // tx-1 and tx-2
+
+		tx1, err := q.GetTransaction(ctx, "tx-1")
+		require.NoError(t, err)
+		assert.Empty(t, decodeJSON(t, tx1.Labels))
+	})
+}
+
+func decodeJSON(t *testing.T, s string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	require.NoError(t, json.Unmarshal([]byte(s), &out))
+	return out
 }
 
 func txIDs(txns []db.Transaction) []string {

@@ -4,7 +4,11 @@ sql:
   # also holds the canonical model types and the Store/Querier interfaces.
   - engine: "sqlite"
     schema: "migrations/sqlite"
-    queries: "queries"
+    # Shared queries plus the SQLite-specific JSON label queries. sqlc reads each
+    # listed dir non-recursively, so queries/postgres is never picked up here.
+    queries:
+      - "queries"
+      - "queries/sqlite"
     gen:
       go:
         package: "db"
@@ -18,7 +22,10 @@ sql:
   # SQLite ones, which the pgstore adapter relies on.
   - engine: "postgresql"
     schema: "migrations/postgres"
-    queries: "queries"
+    # Shared queries plus the Postgres-specific JSON label queries.
+    queries:
+      - "queries"
+      - "queries/postgres"
     gen:
       go:
         package: "pg"

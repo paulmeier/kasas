@@ -43,5 +43,5 @@ type Transaction struct {
 	Payee       string `json:"payee"`
 	Memo        string `json:"memo"`
 	SyncedAt    int64  `json:"synced_at"`
-	Tags        string `json:"tags"`
+	Labels      string `json:"labels"`
 }

@@ -200,29 +200,29 @@ html, body {
 .status, .error { padding: 24px 4px; color: var(--muted); }
 .error { color: var(--neg); }
 
-/* --- Tags column (editable, not sortable) --- */
-.txns th.tags-col { white-space: nowrap; }
-.txns td.tags-cell {
+/* --- Labels column (editable, not sortable) --- */
+.txns th.labels-col { white-space: nowrap; }
+.txns td.labels-cell {
   position: relative; /* anchor for the absolutely-positioned suggestions */
   min-width: 180px;
 }
-.txns td.tags-cell.editable { cursor: text; }
-.tag-chips {
+.txns td.labels-cell.editable { cursor: text; }
+.label-chips {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
   vertical-align: middle;
 }
-.tag-chips:not(:empty) { margin-right: 6px; }
-/* Hint that an empty Tags cell is clickable, but only on row hover so untagged
-   rows are otherwise just empty space. */
-.txns tbody tr:hover td.tags-cell.editable .tag-chips:empty::after {
-  content: "+ tag";
+.label-chips:not(:empty) { margin-right: 6px; }
+/* Hint that an empty Labels cell is clickable, but only on row hover so
+   unlabeled rows are otherwise just empty space. */
+.txns tbody tr:hover td.labels-cell.editable .label-chips:empty::after {
+  content: "+ label";
   color: var(--muted);
   font-size: 12px;
   opacity: 0.5;
 }
-.tag-chip {
+.label-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -234,8 +234,8 @@ html, body {
   color: var(--text);
   vertical-align: middle;
 }
-.tag-label { line-height: 1.4; }
-.tag-remove {
+.label-label { line-height: 1.4; }
+.label-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -250,9 +250,9 @@ html, body {
   line-height: 1;
   cursor: pointer;
 }
-.tag-remove:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
+.label-remove:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
 
-.tag-input {
+.label-input {
   background: transparent;
   color: var(--text);
   border: 1px solid transparent;
@@ -262,15 +262,15 @@ html, body {
   width: 88px;
   vertical-align: middle;
 }
-.tag-input::placeholder { color: var(--muted); opacity: 0.7; }
-.tag-input:hover { border-color: var(--border); }
-.tag-input:focus {
+.label-input::placeholder { color: var(--muted); opacity: 0.7; }
+.label-input:hover { border-color: var(--border); }
+.label-input:focus {
   outline: none;
   border-color: var(--accent);
   background: var(--surface-2);
 }
 
-.tag-suggestions {
+.label-suggestions {
   position: absolute;
   z-index: 20;
   left: 8px;
@@ -287,7 +287,7 @@ html, body {
   padding: 4px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
-.tag-suggestion {
+.label-suggestion {
   text-align: left;
   background: transparent;
   color: var(--text);
@@ -298,7 +298,7 @@ html, body {
   cursor: pointer;
   white-space: nowrap;
 }
-.tag-suggestion:hover { background: var(--accent); color: #0f1115; }
+.label-suggestion:hover { background: var(--accent); color: #0f1115; }
 
 .pagination {
   display: flex;
@@ -386,12 +386,12 @@ html, body {
 }
 .version-badge:hover { opacity: 0.9; }
 
-/* --- Tags page --- */
-.tags-table { max-width: 560px; }
-.tags-table .tag-chip { padding: 3px 10px; }
-.tag-count { font-variant-numeric: tabular-nums; color: var(--muted); }
-.tag-actions { width: 1%; white-space: nowrap; }
-.tag-delete {
+/* --- Labels page --- */
+.labels-table { max-width: 560px; }
+.labels-table .label-chip { padding: 3px 10px; }
+.label-count { font-variant-numeric: tabular-nums; color: var(--muted); }
+.label-actions { width: 1%; white-space: nowrap; }
+.label-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -406,12 +406,12 @@ html, body {
   opacity: 0; /* revealed on row hover/focus, per the uncluttered-table preference */
   transition: opacity 0.1s ease, color 0.1s ease, background 0.1s ease;
 }
-.tags-table tbody tr:hover .tag-delete,
-.tag-delete:focus-visible { opacity: 1; }
-.tag-delete:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
+.labels-table tbody tr:hover .label-delete,
+.label-delete:focus-visible { opacity: 1; }
+.label-delete:hover { color: var(--neg); background: rgba(248, 81, 73, 0.15); }
 .action-icon { width: 16px; height: 16px; }
 
-/* --- Empty / placeholder blocks (Tags empty state, Rules page) --- */
+/* --- Empty / placeholder blocks (Labels empty state, Rules page) --- */
 .empty-state, .placeholder {
   background: var(--surface);
   border: 1px solid var(--border);

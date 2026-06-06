@@ -149,15 +149,16 @@ func seed(ctx context.Context, store db.Store, extra int) (accounts, inserted in
 		tx("a5", "acct-card", "-45.60", "Rideshare", "Uber", false, 12),
 	}
 
-	// A few demo tags so the dashboard's editable Tags column has content to
-	// show. Applied after insert (the poller/insert path never sets tags).
-	demoTags := map[string][]string{
-		"c1": {"coffee"},
-		"c2": {"groceries", "food"},
-		"c4": {"gas", "car"},
-		"c6": {"rent", "housing"},
-		"a2": {"food", "dining"},
-		"a3": {"subscriptions"},
+	// A few demo labels so the dashboard's editable Labels column has content to
+	// show. Labels are strict key:value pairs; "tag:" models a simple/flat label.
+	// Applied after insert (the poller/insert path never sets labels).
+	demoLabels := map[string]map[string]string{
+		"c1": {"tag": "coffee"},
+		"c2": {"category": "groceries"},
+		"c4": {"category": "transport", "tag": "gas"},
+		"c6": {"category": "housing", "tag": "rent"},
+		"a2": {"category": "food", "tag": "dining"},
+		"a3": {"category": "subscriptions"},
 	}
 
 	// Optional synthetic transactions, deterministic so re-runs are stable.
@@ -196,12 +197,12 @@ func seed(ctx context.Context, store db.Store, extra int) (accounts, inserted in
 			}
 			inserted += int(n)
 		}
-		for id, tags := range demoTags {
-			enc, err := json.Marshal(tags)
+		for id, labels := range demoLabels {
+			enc, err := json.Marshal(labels)
 			if err != nil {
 				return err
 			}
-			if _, err := q.UpdateTransactionTags(ctx, db.UpdateTransactionTagsParams{ID: id, Tags: string(enc)}); err != nil {
+			if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: id, Labels: string(enc)}); err != nil {
 				return err
 			}
 		}

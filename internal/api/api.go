@@ -107,10 +107,10 @@ func (s *Server) Router() http.Handler {
 
 		r.Get("/transactions", s.handleListTransactions)
 		r.Get("/transactions/{id}", s.handleGetTransaction)
-		r.Put("/transactions/{id}/tags", s.handleUpdateTransactionTags)
+		r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
 
-		r.Get("/tags", s.handleListTags)
-		r.Delete("/tags/{name}", s.handleDeleteTag)
+		r.Get("/labels", s.handleListLabels)
+		r.Delete("/labels/{key}", s.handleDeleteLabel)
 
 		r.Get("/sync", s.handleSyncStatus)
 		r.Get("/sync/history", s.handleSyncHistory)

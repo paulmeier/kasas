@@ -25,14 +25,14 @@ type account struct {
 }
 
 type transaction struct {
-	ID          string    `json:"id"`
-	AccountID   string    `json:"account_id"`
-	Amount      string    `json:"amount"`
-	Pending     bool      `json:"pending"`
-	Date        time.Time `json:"date"`
-	Description string    `json:"description"`
-	Payee       string    `json:"payee"`
-	Tags        []string  `json:"tags"`
+	ID          string            `json:"id"`
+	AccountID   string            `json:"account_id"`
+	Amount      string            `json:"amount"`
+	Pending     bool              `json:"pending"`
+	Date        time.Time         `json:"date"`
+	Description string            `json:"description"`
+	Payee       string            `json:"payee"`
+	Labels      map[string]string `json:"labels"`
 }
 
 type updateStatus struct {
@@ -110,43 +110,44 @@ func (c *apiClient) allTransactions(ctx context.Context, accountID string) ([]tr
 	return all, nil
 }
 
-// tagCount is one tag in the global vocabulary with the number of transactions
-// that carry it (mirrors api.TagDTO).
-type tagCount struct {
-	Name  string `json:"name"`
+// labelCount is one label (key/value pair) in the global vocabulary with the
+// number of transactions that carry it (mirrors api.LabelDTO).
+type labelCount struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 	Count int    `json:"transaction_count"`
 }
 
-// tagCounts fetches the global tag vocabulary with per-tag transaction counts,
-// used by the Tags page.
-func (c *apiClient) tagCounts(ctx context.Context) ([]tagCount, error) {
+// labelCounts fetches the global label vocabulary with per-pair transaction
+// counts, used by the Labels page.
+func (c *apiClient) labelCounts(ctx context.Context) ([]labelCount, error) {
 	var out struct {
-		Tags []tagCount `json:"tags"`
+		Labels []labelCount `json:"labels"`
 	}
-	if err := c.get(ctx, "/api/v1/tags", nil, &out); err != nil {
+	if err := c.get(ctx, "/api/v1/labels", nil, &out); err != nil {
 		return nil, err
 	}
-	return out.Tags, nil
+	return out.Labels, nil
 }
 
-// tags fetches just the tag names (the vocabulary), used to drive the dashboard
-// typeahead suggestions.
-func (c *apiClient) tags(ctx context.Context) ([]string, error) {
-	counts, err := c.tagCounts(ctx)
+// labelSuggestions fetches the vocabulary as "key: value" strings to drive the
+// dashboard typeahead.
+func (c *apiClient) labelSuggestions(ctx context.Context) ([]string, error) {
+	counts, err := c.labelCounts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, len(counts))
-	for i, t := range counts {
-		names[i] = t.Name
+	out := make([]string, len(counts))
+	for i, l := range counts {
+		out[i] = formatLabel(l.Key, l.Value)
 	}
-	return names, nil
+	return out, nil
 }
 
-// deleteTag removes a tag from every transaction that carries it and returns the
-// number of transactions it was removed from.
-func (c *apiClient) deleteTag(ctx context.Context, name string) (int, error) {
-	u := c.base + "/api/v1/tags/" + url.PathEscape(name)
+// deleteLabel removes a label (key with the given value) from every transaction
+// that carries it and returns the number of transactions affected.
+func (c *apiClient) deleteLabel(ctx context.Context, key, value string) (int, error) {
+	u := c.base + "/api/v1/labels/" + url.PathEscape(key) + "?value=" + url.QueryEscape(value)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
 	if err != nil {
 		return 0, err
@@ -164,7 +165,7 @@ func (c *apiClient) deleteTag(ctx context.Context, name string) (int, error) {
 		if e.Error != "" {
 			return 0, fmt.Errorf("%s", e.Error)
 		}
-		return 0, fmt.Errorf("DELETE tag: status %d", resp.StatusCode)
+		return 0, fmt.Errorf("DELETE label: status %d", resp.StatusCode)
 	}
 	var out struct {
 		RemovedFrom int `json:"removed_from"`
@@ -175,18 +176,18 @@ func (c *apiClient) deleteTag(ctx context.Context, name string) (int, error) {
 	return out.RemovedFrom, nil
 }
 
-// setTags replaces a transaction's entire tag set and returns the
-// server-normalized result (trimmed, de-duplicated), which the caller adopts as
-// the canonical value.
-func (c *apiClient) setTags(ctx context.Context, id string, tags []string) ([]string, error) {
-	if tags == nil {
-		tags = []string{}
+// setLabels replaces a transaction's entire label set and returns the
+// server-normalized result (trimmed, lowercased keys, invalid pairs dropped),
+// which the caller adopts as the canonical value.
+func (c *apiClient) setLabels(ctx context.Context, id string, labels map[string]string) (map[string]string, error) {
+	if labels == nil {
+		labels = map[string]string{}
 	}
-	body, err := json.Marshal(map[string][]string{"tags": tags})
+	body, err := json.Marshal(map[string]map[string]string{"labels": labels})
 	if err != nil {
 		return nil, err
 	}
-	u := c.base + "/api/v1/transactions/" + url.PathEscape(id) + "/tags"
+	u := c.base + "/api/v1/transactions/" + url.PathEscape(id) + "/labels"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -205,15 +206,18 @@ func (c *apiClient) setTags(ctx context.Context, id string, tags []string) ([]st
 		if e.Error != "" {
 			return nil, fmt.Errorf("%s", e.Error)
 		}
-		return nil, fmt.Errorf("PUT tags: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("PUT labels: status %d", resp.StatusCode)
 	}
 	var out struct {
-		Tags []string `json:"tags"`
+		Labels map[string]string `json:"labels"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	return out.Tags, nil
+	if out.Labels == nil {
+		out.Labels = map[string]string{}
+	}
+	return out.Labels, nil
 }
 
 func (c *apiClient) updateStatus(ctx context.Context) (updateStatus, error) {

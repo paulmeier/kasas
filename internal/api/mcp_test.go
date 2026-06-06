@@ -55,7 +55,7 @@ func TestMCPListsAllTools(t *testing.T) {
 		names[i] = tool.Name
 	}
 	assert.ElementsMatch(t, []string{
-		"list_accounts", "get_account", "list_transactions",
+		"list_accounts", "get_account", "list_transactions", "list_labels",
 		"list_organizations", "sync_status", "trigger_sync",
 	}, names)
 }
@@ -99,6 +99,33 @@ func TestMCPListTransactions(t *testing.T) {
 	require.Len(t, out.Transactions, 2)
 	assert.Equal(t, "tx-3", out.Transactions[0].ID)
 	assert.Equal(t, "tx-2", out.Transactions[1].ID)
+}
+
+func TestMCPListTransactionsByLabel(t *testing.T) {
+	session, _, _ := connectMCP(t)
+
+	// The label filter is wired through the same queryTransactions path as the
+	// HTTP handler (covered by TestFilterTransactionsByLabel). Here we just assert
+	// the MCP input is accepted and the SQL filter path runs: no labels are
+	// seeded, so a key filter returns an empty (non-error) result.
+	var out struct {
+		Transactions []api.TransactionDTO `json:"transactions"`
+	}
+	res := callTool(t, session, "list_transactions", map[string]any{"label_key": "category"}, &out)
+	require.False(t, res.IsError)
+	assert.Empty(t, out.Transactions)
+}
+
+func TestMCPListLabels(t *testing.T) {
+	session, _, _ := connectMCP(t)
+
+	var out struct {
+		Labels []api.LabelDTO `json:"labels"`
+	}
+	res := callTool(t, session, "list_labels", map[string]any{}, &out)
+	require.False(t, res.IsError)
+	// No labels seeded -> empty (but non-null) vocabulary.
+	assert.Empty(t, out.Labels)
 }
 
 func TestMCPSyncStatus(t *testing.T) {

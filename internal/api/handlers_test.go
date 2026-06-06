@@ -242,25 +242,31 @@ func TestGetTransaction(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getJSON(t, srv, "/api/v1/transactions/nope", nil))
 }
 
-func TestTransactionTags(t *testing.T) {
+func TestTransactionLabels(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
 	t.Run("put normalizes and echoes back", func(t *testing.T) {
 		var out struct {
-			ID   string   `json:"id"`
-			Tags []string `json:"tags"`
+			ID     string            `json:"id"`
+			Labels map[string]string `json:"labels"`
 		}
-		// Whitespace, an empty entry, and a case-insensitive duplicate.
-		body := map[string][]string{"tags": {" Groceries ", "groceries", "food", ""}}
-		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/tags", body, &out))
+		// Whitespace, an uppercase key (canonicalized), and two invalid pairs.
+		body := map[string]any{"labels": map[string]string{
+			" Category ": " food ",
+			"person":     "dad",
+			"":           "x",  // empty key dropped
+			"flag":       "  ", // empty value dropped (no flag labels)
+		}}
+		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/labels", body, &out))
 		assert.Equal(t, "tx-2", out.ID)
-		assert.Equal(t, []string{"Groceries", "food"}, out.Tags)
+		assert.Equal(t, map[string]string{"category": "food", "person": "dad"}, out.Labels)
 	})
 
-	t.Run("tags surface on get and list", func(t *testing.T) {
+	t.Run("labels surface on get and list", func(t *testing.T) {
+		want := map[string]string{"category": "food", "person": "dad"}
 		var txn api.TransactionDTO
 		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-2", &txn))
-		assert.Equal(t, []string{"Groceries", "food"}, txn.Tags)
+		assert.Equal(t, want, txn.Labels)
 
 		var list struct {
 			Transactions []api.TransactionDTO `json:"transactions"`
@@ -268,35 +274,40 @@ func TestTransactionTags(t *testing.T) {
 		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions", &list))
 		for _, tr := range list.Transactions {
 			if tr.ID == "tx-2" {
-				assert.Equal(t, []string{"Groceries", "food"}, tr.Tags)
+				assert.Equal(t, want, tr.Labels)
 			} else {
-				// Untagged transactions are [] (never null).
-				assert.NotNil(t, tr.Tags)
-				assert.Empty(t, tr.Tags)
+				// Unlabeled transactions are {} (never null).
+				assert.NotNil(t, tr.Labels)
+				assert.Empty(t, tr.Labels)
 			}
 		}
 	})
 
 	t.Run("put replaces the whole set and can clear", func(t *testing.T) {
 		var out struct {
-			Tags []string `json:"tags"`
+			Labels map[string]string `json:"labels"`
 		}
-		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/tags",
-			map[string][]string{"tags": {"rent"}}, &out))
-		assert.Equal(t, []string{"rent"}, out.Tags)
+		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/labels",
+			map[string]any{"labels": map[string]string{"category": "rent"}}, &out))
+		assert.Equal(t, map[string]string{"category": "rent"}, out.Labels)
 
-		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/tags",
-			map[string][]string{"tags": {}}, &out))
-		assert.Empty(t, out.Tags)
+		// Fresh var: json.Unmarshal merges into a non-nil map, so reusing out would
+		// retain the previous entry even though the server returns an empty object.
+		var cleared struct {
+			Labels map[string]string `json:"labels"`
+		}
+		require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-2/labels",
+			map[string]any{"labels": map[string]string{}}, &cleared))
+		assert.Empty(t, cleared.Labels)
 	})
 
 	t.Run("unknown id is 404", func(t *testing.T) {
-		assert.Equal(t, http.StatusNotFound, putJSON(t, srv, "/api/v1/transactions/nope/tags",
-			map[string][]string{"tags": {"x"}}, nil))
+		assert.Equal(t, http.StatusNotFound, putJSON(t, srv, "/api/v1/transactions/nope/labels",
+			map[string]any{"labels": map[string]string{"category": "x"}}, nil))
 	})
 
 	t.Run("malformed body is 400", func(t *testing.T) {
-		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/transactions/tx-1/tags",
+		req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/transactions/tx-1/labels",
 			strings.NewReader("{not json"))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
@@ -307,71 +318,116 @@ func TestTransactionTags(t *testing.T) {
 	})
 }
 
-func TestListTags(t *testing.T) {
+func TestListLabels(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
 	var out struct {
-		Tags []api.TagDTO `json:"tags"`
+		Labels []api.LabelDTO `json:"labels"`
 	}
-	// No tags yet -> empty (but non-null) list.
-	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &out))
-	assert.NotNil(t, out.Tags)
-	assert.Empty(t, out.Tags)
+	// No labels yet -> empty (but non-null) list.
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/labels", &out))
+	assert.NotNil(t, out.Labels)
+	assert.Empty(t, out.Labels)
 
-	// Tag two transactions; the vocabulary is the sorted union with per-tag counts.
-	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/tags",
-		map[string][]string{"tags": {"coffee", "food"}}, nil))
-	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/tags",
-		map[string][]string{"tags": {"coffee", "rent"}}, nil))
+	// Label two transactions; the vocabulary is sorted by key then value.
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/labels",
+		map[string]any{"labels": map[string]string{"tag": "coffee", "category": "food"}}, nil))
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/labels",
+		map[string]any{"labels": map[string]string{"tag": "coffee", "category": "rent"}}, nil))
 
-	out.Tags = nil
-	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &out))
-	assert.Equal(t, []api.TagDTO{
-		{Name: "coffee", TransactionCount: 2},
-		{Name: "food", TransactionCount: 1},
-		{Name: "rent", TransactionCount: 1},
-	}, out.Tags)
+	out.Labels = nil
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/labels", &out))
+	assert.Equal(t, []api.LabelDTO{
+		{Key: "category", Value: "food", TransactionCount: 1},
+		{Key: "category", Value: "rent", TransactionCount: 1},
+		{Key: "tag", Value: "coffee", TransactionCount: 2},
+	}, out.Labels)
 }
 
-func TestDeleteTag(t *testing.T) {
+func TestDeleteLabel(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
-	// Tag two transactions; "coffee" is shared, with a different spelling on tx-3.
-	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/tags",
-		map[string][]string{"tags": {"coffee", "food"}}, nil))
-	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/tags",
-		map[string][]string{"tags": {"Coffee", "rent"}}, nil))
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/labels",
+		map[string]any{"labels": map[string]string{"tag": "coffee", "category": "food"}}, nil))
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/labels",
+		map[string]any{"labels": map[string]string{"tag": "coffee", "category": "rent"}}, nil))
 
-	// Delete "coffee" — case-insensitively matches "Coffee" too, so both rows.
+	// Delete the whole "category" key (any value) -> both rows.
 	var del struct {
-		Name        string `json:"name"`
+		Key         string `json:"key"`
 		RemovedFrom int    `json:"removed_from"`
 	}
-	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/tags/coffee", &del))
-	assert.Equal(t, "coffee", del.Name)
+	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/labels/category", &del))
+	assert.Equal(t, "category", del.Key)
 	assert.Equal(t, 2, del.RemovedFrom)
 
-	// Gone from the vocabulary; the others remain with correct counts.
+	// "category" gone from the vocabulary; "tag: coffee" remains on both.
 	var list struct {
-		Tags []api.TagDTO `json:"tags"`
+		Labels []api.LabelDTO `json:"labels"`
 	}
-	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/tags", &list))
-	assert.Equal(t, []api.TagDTO{
-		{Name: "food", TransactionCount: 1},
-		{Name: "rent", TransactionCount: 1},
-	}, list.Tags)
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/labels", &list))
+	assert.Equal(t, []api.LabelDTO{
+		{Key: "tag", Value: "coffee", TransactionCount: 2},
+	}, list.Labels)
 
-	// The affected transactions kept their other tags.
+	// tx-1 kept its remaining label.
 	var tx1 api.TransactionDTO
 	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx1))
-	assert.Equal(t, []string{"food"}, tx1.Tags)
+	assert.Equal(t, map[string]string{"tag": "coffee"}, tx1.Labels)
+
+	// Delete a specific key:value via ?value= -> removes "tag: coffee" everywhere.
+	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/labels/tag?value=coffee", &del))
+	assert.Equal(t, 2, del.RemovedFrom)
 
 	// Idempotent: deleting again removes from 0 rows and still returns 200.
-	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/tags/coffee", &del))
+	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/labels/tag?value=coffee", &del))
 	assert.Equal(t, 0, del.RemovedFrom)
 
-	// A blank name (here a single encoded space) is rejected.
-	assert.Equal(t, http.StatusBadRequest, deleteJSON(t, srv, "/api/v1/tags/%20", nil))
+	// A blank key (here a single encoded space) is rejected.
+	assert.Equal(t, http.StatusBadRequest, deleteJSON(t, srv, "/api/v1/labels/%20", nil))
+}
+
+func TestFilterTransactionsByLabel(t *testing.T) {
+	srv, fx, _ := newTestServer(t)
+
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/labels",
+		map[string]any{"labels": map[string]string{"category": "food"}}, nil))
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-3/labels",
+		map[string]any{"labels": map[string]string{"category": "rent"}}, nil))
+
+	type resp struct {
+		Transactions []api.TransactionDTO `json:"transactions"`
+	}
+
+	t.Run("by key present", func(t *testing.T) {
+		var out resp
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions?label_key=category", &out))
+		assert.ElementsMatch(t, []string{"tx-1", "tx-3"}, txnIDs(out.Transactions))
+	})
+
+	t.Run("by key and exact value", func(t *testing.T) {
+		var out resp
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions?label_key=category&label_value=food", &out))
+		assert.Equal(t, []string{"tx-1"}, txnIDs(out.Transactions))
+	})
+
+	t.Run("value miss is empty", func(t *testing.T) {
+		var out resp
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions?label_key=category&label_value=nope", &out))
+		assert.Empty(t, out.Transactions)
+	})
+
+	t.Run("uppercase key is canonicalized", func(t *testing.T) {
+		var out resp
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions?label_key=CATEGORY&label_value=food", &out))
+		assert.Equal(t, []string{"tx-1"}, txnIDs(out.Transactions))
+	})
+
+	t.Run("composes with account filter", func(t *testing.T) {
+		var out resp
+		require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions?label_key=category&account_id="+fx.CheckingID, &out))
+		assert.ElementsMatch(t, []string{"tx-1", "tx-3"}, txnIDs(out.Transactions))
+	})
 }
 
 func TestSyncStatusAndHistory(t *testing.T) {

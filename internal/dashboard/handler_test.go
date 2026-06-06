@@ -104,11 +104,11 @@ func TestServeWasmNotBuilt(t *testing.T) {
 
 // TestHandlerServesClientRoutes guards the "server must register routes" gotcha:
 // go-app's handler serves the SPA shell only for routes registered via app.Route,
-// so each navigable path (including the new /tags and /rules) must return the
+// so each navigable path (including /labels and /rules) must return the
 // bootstrap HTML rather than 404.
 func TestHandlerServesClientRoutes(t *testing.T) {
 	h := Handler(Options{Version: "test"})
-	for _, path := range []string{"/", "/tags", "/rules"} {
+	for _, path := range []string{"/", "/labels", "/rules"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
