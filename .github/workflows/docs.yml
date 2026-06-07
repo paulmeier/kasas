@@ -35,4 +35,4 @@ jobs:
       - name: Install MkDocs Material
         run: pip install "mkdocs-material==9.7.6"
       - name: Build (strict) and deploy to the docs branch
-        run: mkdocs gh-deploy --force --strict --branch docs
+        run: mkdocs gh-deploy --force --strict --remote-branch docs
