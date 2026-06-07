@@ -254,3 +254,50 @@ func TestExtensionMatching(t *testing.T) {
 		}
 	}
 }
+
+func TestRelationshipMatching(t *testing.T) {
+	// Records arrive with their relationship neighborhood pre-built by the adapters:
+	// each transaction's own OUTBOUND edges plus the INBOUND edges of others that
+	// target it (Target is always the OTHER transaction's id).
+	refund := Record{ID: "r", Relationships: []Relationship{{Kind: "refund_of", Target: "p", Direction: "outbound"}}}
+	purchase := Record{ID: "p", Relationships: []Relationship{{Kind: "refund_of", Target: "r", Direction: "inbound"}}}
+	out := Record{ID: "t1", Relationships: []Relationship{{Kind: "transfer_to", Target: "t2", Direction: "outbound"}}}
+	in := Record{ID: "t2", Relationships: []Relationship{{Kind: "transfer_to", Target: "t1", Direction: "inbound"}}}
+	none := Record{ID: "x"}
+	recs := []Record{refund, purchase, out, in, none}
+
+	run := func(query string) []string {
+		q, err := Parse(query)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", query, err)
+		}
+		var got []string
+		for _, r := range recs {
+			if q.Match(r) {
+				got = append(got, r.ID)
+			}
+		}
+		return got
+	}
+
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{"rel:refund_of", []string{"r"}},                      // outbound only: the refund itself, not the purchase
+		{"rel:transfer_to", []string{"t1"}},                   // outbound only
+		{"rel:refund_of=p", []string{"r"}},                    // outbound edge to a specific target
+		{"rel:refund_of=zzz", nil},                            // no edge to that target
+		{"rel:Refund_Of", []string{"r"}},                      // kind is case-insensitive
+		{"related:p", []string{"r"}},                          // r points at p
+		{"related:r", []string{"p"}},                          // p is pointed at by r (inbound)
+		{"related:t1", []string{"t2"}},                        // direction-agnostic
+		{"NOT rel:refund_of", []string{"p", "t1", "t2", "x"}}, // negation
+		{"rel:refund_of OR rel:transfer_to", []string{"r", "t1"}},
+	}
+	for _, tc := range cases {
+		if got := run(tc.query); !equalIDs(got, tc.want) {
+			t.Errorf("query %q = %v, want %v", tc.query, got, tc.want)
+		}
+	}
+}

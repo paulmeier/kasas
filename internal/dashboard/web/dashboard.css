@@ -879,7 +879,8 @@ html, body {
    button is revealed on row hover/focus so the table stays uncluttered. */
 td.row-actions { white-space: nowrap; text-align: right; }
 .history-btn,
-.provenance-btn {
+.provenance-btn,
+.relationships-btn {
   background: transparent;
   border: none;
   color: var(--muted);
@@ -890,13 +891,23 @@ td.row-actions { white-space: nowrap; text-align: right; }
   transition: opacity 0.12s ease, color 0.12s ease;
 }
 .history-btn .action-icon,
-.provenance-btn .action-icon { width: 16px; height: 16px; display: block; }
+.provenance-btn .action-icon,
+.relationships-btn .action-icon { width: 16px; height: 16px; display: block; }
+/* A relationships button with edges stays visible (and shows its count) so the
+   connection is discoverable without hovering; empty ones reveal on hover like the
+   others. */
+.relationships-btn { display: inline-flex; align-items: center; gap: 3px; }
+.relationships-btn:has(.rel-count) { opacity: 0.85; }
+.rel-count { font-size: 11px; font-weight: 600; line-height: 1; }
 tr:hover .history-btn,
 tr:hover .provenance-btn,
+tr:hover .relationships-btn,
 .history-btn:focus-visible,
-.provenance-btn:focus-visible { opacity: 1; }
+.provenance-btn:focus-visible,
+.relationships-btn:focus-visible { opacity: 1; }
 .history-btn:hover,
-.provenance-btn:hover { color: var(--accent); }
+.provenance-btn:hover,
+.relationships-btn:hover { color: var(--accent); }
 
 /* The modal reuses .modal-overlay/.modal/.modal-header/.modal-body; widen it and
    add the secondary description line in the header. */
@@ -974,6 +985,54 @@ tr:hover .provenance-btn,
   font-size: 13px;
   color: var(--text);
 }
+
+/* Relationships modal: outbound + inbound edge lists and an add form (kind +
+   target typeahead). Reuses the shared modal chrome and the label suggestions. */
+.modal.relationships-modal { max-width: 640px; }
+.rel-sections { display: flex; flex-direction: column; gap: 18px; }
+.rel-section { display: flex; flex-direction: column; gap: 6px; }
+.rel-section-head { font-size: 13px; color: var(--muted); font-weight: 600; }
+.rel-empty { color: var(--muted); font-size: 13px; font-style: italic; }
+.rel-edge { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.badge.rel-kind {
+  color: #58a6ff;
+  border-color: rgba(110, 168, 254, 0.35);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.rel-arrow { color: var(--muted); }
+.rel-target { font-size: 13px; color: var(--text); min-width: 0; }
+.rel-remove { margin-left: auto; }
+
+.rel-add { border-top: 1px solid var(--border); padding-top: 12px; }
+.rel-add-row { display: flex; gap: 8px; align-items: flex-start; }
+.rel-kind-field, .rel-target-field {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.rel-kind-field { flex: 0 0 38%; }
+.rel-kind-field:focus, .rel-target-field:focus { outline: none; border-color: var(--accent); }
+.rel-target-wrap { position: relative; flex: 1 1 auto; }
+.rel-target-field { width: 100%; box-sizing: border-box; }
+.rel-suggestions { left: 0; right: 0; min-width: 0; }
+.rel-add-btn { flex: 0 0 auto; }
+.rel-add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rel-kind-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rel-kind-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.rel-kind-chip:hover { color: var(--accent); border-color: var(--accent); }
+.rel-add-err { margin-top: 8px; }
 
 /* Per-version diff rows. */
 .history-diff { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }

@@ -1,19 +1,20 @@
 -- name: InsertTransaction :execrows
 -- transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 -- transaction is a no-op. This keeps polling idempotent. labels and extensions
--- are written as explicit empty objects so new rows never depend on the column
--- default (SQLite can't cheaply change a STRICT table's default; see the 00003
--- and 00009 migrations). source is the provenance of the row (which ingestion
--- path produced it) and is a bound argument, not a literal, so a future bridge
--- stamps its own; the poller passes "simplefin".
+-- are written as explicit empty objects, and relationships as an empty array, so
+-- new rows never depend on the column default (SQLite can't cheaply change a
+-- STRICT table's default; see the 00003, 00009 and 00012 migrations). source is
+-- the provenance of the row (which ingestion path produced it) and is a bound
+-- argument, not a literal, so a future bridge stamps its own; the poller passes
+-- "simplefin".
 INSERT INTO transactions (
     id, account_id, amount, pending, date, description, payee, memo, synced_at,
-    source, labels, extensions
+    source, labels, extensions, relationships
 )
 VALUES (
     sqlc.arg(id), sqlc.arg(account_id), sqlc.arg(amount), sqlc.arg(pending),
     sqlc.arg(date), sqlc.arg(description), sqlc.arg(payee), sqlc.arg(memo),
-    sqlc.arg(synced_at), sqlc.arg(source), '{}', '{}'
+    sqlc.arg(synced_at), sqlc.arg(source), '{}', '{}', '[]'
 )
 ON CONFLICT (id) DO NOTHING;
 
@@ -93,3 +94,21 @@ UPDATE transactions SET extensions = sqlc.arg(extensions) WHERE id = sqlc.arg(id
 -- (json_each vs jsonb_each infer different column types, which would break the
 -- byte-identical pgstore adapter). ORDER BY makes the row order deterministic.
 SELECT id, extensions FROM transactions WHERE extensions <> '{}' ORDER BY id;
+
+-- name: UpdateTransactionRelationships :execrows
+-- Replaces the whole relationships array for one transaction. relationships is a
+-- JSON array of {"kind","target"} edges asserted outbound from this row; the API
+-- normalizes it before storing. :execrows lets the caller detect a missing id
+-- (0 rows affected). The poller never touches relationships, so this is the only
+-- writer.
+UPDATE transactions SET relationships = sqlc.arg(relationships) WHERE id = sqlc.arg(id);
+
+-- name: ListRelatedTransactions :many
+-- Returns the (id, relationships) of every transaction carrying at least one
+-- outbound edge. The API explodes the JSON arrays in Go to (a) build the inbound
+-- index (who points at a given transaction) and (b) build the relationship-kind
+-- vocabulary with per-kind counts. Done in Go, like ListLabeledTransactions and
+-- ListExtendedTransactions, to stay portable across SQLite and Postgres (json_each
+-- vs jsonb_each infer different column types, which would break the byte-identical
+-- pgstore adapter). ORDER BY makes the row order deterministic.
+SELECT id, relationships FROM transactions WHERE relationships <> '[]' ORDER BY id;

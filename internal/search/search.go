@@ -53,8 +53,31 @@ type Record struct {
 	// lowercased and values stringified (a JSON string by its text, any other JSON
 	// value by its compact encoding). Populated by callers from the stored object.
 	Extensions map[string]string
-	SyncedAt   time.Time
+	// Relationships is the transaction's relationship neighborhood for the rel: and
+	// related: matchers: its own OUTBOUND edges plus the INBOUND edges of other
+	// transactions that target it. Populated by callers (the inbound side is derived,
+	// so a surface that can't afford the scan may leave it empty — see the per-caller
+	// notes). Empty for brand-new transactions during rule evaluation at import.
+	Relationships []Relationship
+	SyncedAt      time.Time
 }
+
+// Relationship is one edge in a transaction's neighborhood for matching. Target is
+// always the OTHER transaction's id. Direction is "outbound" (this transaction
+// asserts the edge) or "inbound" (another transaction's edge targets this one);
+// the values match internal/relationships' Direction* constants by value, so
+// callers can populate them from that package.
+type Relationship struct {
+	Kind      string
+	Target    string
+	Direction string
+}
+
+// relDirOutbound is the Direction value for an edge this transaction asserts. It
+// matches internal/relationships.DirectionOutbound by value so the search matcher
+// and the callers that fill Record.Relationships agree. (Inbound edges are matched
+// only by related: via Target, so no inbound constant is needed here.)
+const relDirOutbound = "outbound"
 
 // Query is a parsed search expression. A Query parsed from an empty (or
 // whitespace-only) input matches every record, which is what makes a blank or
@@ -447,6 +470,10 @@ func predFromTerm(t token) (node, error) {
 		return labelPred(t.value)
 	case "ext":
 		return extPred(t.value)
+	case "rel":
+		return relPred(t.value)
+	case "related":
+		return relatedPred(t.value)
 	default:
 		// Unreserved field => label shorthand `key:value` (exact, case-insensitive).
 		v := strings.TrimSpace(mustDequote(t.value))
@@ -777,6 +804,67 @@ func extEqPred(key, value string, op cmpOp) node {
 		}
 		return false
 	}}
+}
+
+// relPred builds a relationship predicate from the value of a `rel:` term:
+//
+//	rel:<kind>          the transaction has an OUTBOUND edge of <kind> — i.e. it is
+//	                    the subject of that relationship (rel:refund_of finds the
+//	                    refunds themselves, not what they refund)
+//	rel:<kind>=<id>     an outbound edge of <kind> pointing at transaction <id>
+//
+// The kind matches case-insensitively against the stored, normalized kind (so type
+// the canonical form, e.g. refund_of); the target id is matched exactly, being an
+// opaque identifier.
+func relPred(raw string) (node, error) {
+	if i := strings.IndexByte(raw, '='); i >= 0 {
+		kind := normalizeKey(mustDequote(strings.TrimSpace(raw[:i])))
+		target := strings.TrimSpace(mustDequote(strings.TrimSpace(raw[i+1:])))
+		if kind == "" {
+			return nil, fmt.Errorf("empty relationship kind")
+		}
+		if target == "" {
+			return nil, fmt.Errorf("empty relationship target for %q", kind)
+		}
+		return predNode{fn: func(r Record) bool {
+			for _, e := range r.Relationships {
+				if e.Direction == relDirOutbound && e.Kind == kind && e.Target == target {
+					return true
+				}
+			}
+			return false
+		}}, nil
+	}
+	kind := normalizeKey(mustDequote(strings.TrimSpace(raw)))
+	if kind == "" {
+		return nil, fmt.Errorf("empty relationship kind")
+	}
+	return predNode{fn: func(r Record) bool {
+		for _, e := range r.Relationships {
+			if e.Direction == relDirOutbound && e.Kind == kind {
+				return true
+			}
+		}
+		return false
+	}}, nil
+}
+
+// relatedPred builds a `related:<id>` predicate: the transaction has ANY edge,
+// inbound or outbound, connecting it to transaction <id>. The id is matched
+// exactly.
+func relatedPred(raw string) (node, error) {
+	id := strings.TrimSpace(mustDequote(strings.TrimSpace(raw)))
+	if id == "" {
+		return nil, fmt.Errorf("empty related transaction id")
+	}
+	return predNode{fn: func(r Record) bool {
+		for _, e := range r.Relationships {
+			if e.Target == id {
+				return true
+			}
+		}
+		return false
+	}}, nil
 }
 
 // splitRange splits "a..b" into its (possibly empty) bounds. An open side

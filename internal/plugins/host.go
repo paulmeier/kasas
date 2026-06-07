@@ -15,6 +15,7 @@ import (
 	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/labels"
+	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/search"
 )
 
@@ -312,8 +313,24 @@ func searchRecordFromTxn(t db.Transaction, accountName string) search.Record {
 		Memo:        t.Memo,
 		Labels:      labels.Decode(t.Labels),
 		Extensions:  searchExtensions(t.Extensions),
-		SyncedAt:    time.Unix(t.SyncedAt, 0).UTC(),
+		// Only the transaction's OWN outbound edges; the inbound side would require
+		// scanning every transaction, which this single-row builder does not do. So
+		// rel:<kind> works for plugins, while related:<id> sees only this
+		// transaction's own targets.
+		Relationships: searchRelationshipsOutbound(t.Relationships),
+		SyncedAt:      time.Unix(t.SyncedAt, 0).UTC(),
 	}
+}
+
+// searchRelationshipsOutbound builds the OUTBOUND relationship edges of a
+// transaction for the search matcher (see the note at the call site about inbound).
+func searchRelationshipsOutbound(stored string) []search.Relationship {
+	rels := relationships.Decode(stored)
+	out := make([]search.Relationship, 0, len(rels))
+	for _, e := range rels {
+		out = append(out, search.Relationship{Kind: e.Kind, Target: e.Target, Direction: relationships.DirectionOutbound})
+	}
+	return out
 }
 
 func searchExtensions(stored string) map[string]string {

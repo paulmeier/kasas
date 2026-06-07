@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/relationships"
 )
 
 // OrganizationDTO is the JSON representation of an organization.
@@ -40,6 +41,12 @@ type TransactionDTO struct {
 	SyncedAt    time.Time         `json:"synced_at"`
 	Labels      map[string]string `json:"labels"`
 	Extensions  map[string]any    `json:"extensions"`
+	// Relationships are this transaction's own OUTBOUND edges ({kind,target}). The
+	// inbound direction is derived only on demand via GET
+	// /transactions/{id}/relationships, not inlined on every row. Carrying the
+	// outbound edges here lets the dashboard show an indicator and build the inbound
+	// index client-side for search.
+	Relationships []relationships.Relationship `json:"relationships"`
 }
 
 // LabelDTO is the JSON representation of one label in the global vocabulary: a
@@ -57,6 +64,23 @@ type ExtensionDTO struct {
 	Namespace        string `json:"namespace"`
 	Key              string `json:"key"`
 	TransactionCount int    `json:"transaction_count"`
+}
+
+// RelationshipDTO is one edge in a transaction's neighborhood: the kind of
+// relationship, the direction from the focal transaction's perspective ("outbound"
+// = this transaction asserts the edge; "inbound" = another transaction's edge
+// targets this one), and the other transaction's id.
+type RelationshipDTO struct {
+	Kind               string `json:"kind"`
+	Direction          string `json:"direction"`
+	OtherTransactionID string `json:"other_transaction_id"`
+}
+
+// RelationshipKindDTO is one relationship kind in the global vocabulary with the
+// number of outbound edges that use it.
+type RelationshipKindDTO struct {
+	Kind  string `json:"kind"`
+	Count int    `json:"count"`
 }
 
 // SyncDTO is the JSON representation of a sync_log entry.
@@ -90,17 +114,18 @@ func toAccountDTO(a db.Account) AccountDTO {
 
 func toTransactionDTO(t db.Transaction) TransactionDTO {
 	return TransactionDTO{
-		ID:          t.ID,
-		AccountID:   t.AccountID,
-		Amount:      t.Amount,
-		Pending:     t.Pending != 0,
-		Date:        unixTime(t.Date),
-		Description: t.Description,
-		Payee:       t.Payee,
-		Memo:        t.Memo,
-		SyncedAt:    unixTime(t.SyncedAt),
-		Labels:      decodeLabels(t.Labels),
-		Extensions:  decodeExtensions(t.Extensions),
+		ID:            t.ID,
+		AccountID:     t.AccountID,
+		Amount:        t.Amount,
+		Pending:       t.Pending != 0,
+		Date:          unixTime(t.Date),
+		Description:   t.Description,
+		Payee:         t.Payee,
+		Memo:          t.Memo,
+		SyncedAt:      unixTime(t.SyncedAt),
+		Labels:        decodeLabels(t.Labels),
+		Extensions:    decodeExtensions(t.Extensions),
+		Relationships: decodeRelationships(t.Relationships),
 	}
 }
 

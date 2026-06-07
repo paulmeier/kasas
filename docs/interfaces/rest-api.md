@@ -42,8 +42,10 @@ Base path: `/api/v1`. Source:
 | `GET /api/v1/transactions/{id}` | Get one transaction. |
 | `GET /api/v1/transactions/{id}/history` | The transaction's [version history](../features/transaction-history.md). |
 | `GET /api/v1/transactions/{id}/provenance` | The transaction's [provenance](../features/transaction-provenance.md): source, identity, and transformation lineage. |
+| `GET /api/v1/transactions/{id}/relationships` | The transaction's [relationships](../features/transaction-relationships.md) (outbound + derived inbound edges). |
 | `GET /api/v1/labels` | [Labels](../features/labels.md) with per-pair transaction counts. |
 | `GET /api/v1/extensions` | [Extension](../features/schema-extensions.md) vocabulary with per-key counts. |
+| `GET /api/v1/relationships` | [Relationship](../features/transaction-relationships.md) kind vocabulary with per-kind edge counts. |
 | `GET /api/v1/rules` · `GET /api/v1/rules/{id}` | List / get [rules](../features/rules.md). |
 | `GET /api/v1/plugins` · `GET /api/v1/plugins/{id}` | List / get [plugins](../features/plugins.md) (when enabled). |
 | `GET /api/v1/events` | Read the [event stream](../features/event-stream.md) from a cursor (`?after=`, `?type=`, `?entity_type=`, `?entity_id=`, `?limit=`, `?newest`). Returns `{events, next}`. |
@@ -60,6 +62,8 @@ Base path: `/api/v1`. Source:
 | `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`). |
 | `DELETE /api/v1/labels/{key}` | Remove a label key from every transaction (`?value=` to scope). |
 | `PUT /api/v1/transactions/{id}/extensions` | Replace a transaction's [extensions](../features/schema-extensions.md). |
+| `POST /api/v1/transactions/{id}/relationships` | Add an outbound [relationship](../features/transaction-relationships.md) edge (`{"kind":"refund_of","target":"<id>"}`). |
+| `DELETE /api/v1/transactions/{id}/relationships` | Remove an edge (`?kind=&target=`). |
 | `POST /api/v1/rules` | Create a rule; validates the query, `400` on error. |
 | `PUT /api/v1/rules/{id}` · `DELETE /api/v1/rules/{id}` | Replace / delete a rule. |
 | `POST /api/v1/rules/{id}/run` | Apply one rule to existing transactions; returns `{matched, updated}`. |

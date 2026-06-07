@@ -67,6 +67,9 @@ Keywords (`AND`/`OR`/`NOT`) are case-insensitive; adjacent terms are implicitly
 | `ext:tax.category=meal` | extension key = value (matched as text) |
 | `ext:custom.myapp.score` | extension key present |
 | `ext:tax.category~me` / `ext:tax.category!=meal` | extension value contains / not-equal |
+| `rel:refund_of` | has an outbound [relationship](transaction-relationships.md) of that kind (this transaction is the subject) |
+| `rel:transfer_to=txn_123` | an outbound edge of that kind pointing at a specific transaction |
+| `related:txn_123` | connected to that transaction in either direction (its neighborhood) |
 | `a OR b`, `a b` (implicit AND), `-a` / `NOT a`, `(a OR b) c` | boolean combine, negate, group |
 
 ```sh

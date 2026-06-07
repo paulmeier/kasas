@@ -24,18 +24,22 @@ import (
 // handled separately). It mirrors the constants in internal/events; an unknown type
 // is rejected at create/update so a typo never silently subscribes to nothing.
 var knownEventTypes = map[string]bool{
-	events.TypeTransactionCreated: true,
-	events.TypeTransactionUpdated: true,
-	events.TypeTransactionDeleted: true,
-	events.TypeAccountCreated:     true,
-	events.TypeAccountUpdated:     true,
-	events.TypeLabelApplied:       true,
-	events.TypeLabelRemoved:       true,
-	events.TypeRuleCreated:        true,
-	events.TypeRuleUpdated:        true,
-	events.TypeRuleDeleted:        true,
-	events.TypeRuleExecuted:       true,
-	events.TypeSyncCompleted:      true,
+	events.TypeTransactionCreated:  true,
+	events.TypeTransactionUpdated:  true,
+	events.TypeTransactionDeleted:  true,
+	events.TypeAccountCreated:      true,
+	events.TypeAccountUpdated:      true,
+	events.TypeLabelApplied:        true,
+	events.TypeLabelRemoved:        true,
+	events.TypeExtensionSet:        true,
+	events.TypeExtensionRemoved:    true,
+	events.TypeRelationshipCreated: true,
+	events.TypeRelationshipRemoved: true,
+	events.TypeRuleCreated:         true,
+	events.TypeRuleUpdated:         true,
+	events.TypeRuleDeleted:         true,
+	events.TypeRuleExecuted:        true,
+	events.TypeSyncCompleted:       true,
 }
 
 var errWebhookNotFound = errors.New("webhook not found")

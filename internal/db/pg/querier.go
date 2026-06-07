@@ -72,11 +72,12 @@ type Querier interface {
 	InsertPlugin(ctx context.Context, arg InsertPluginParams) (Plugin, error)
 	// transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 	// transaction is a no-op. This keeps polling idempotent. labels and extensions
-	// are written as explicit empty objects so new rows never depend on the column
-	// default (SQLite can't cheaply change a STRICT table's default; see the 00003
-	// and 00009 migrations). source is the provenance of the row (which ingestion
-	// path produced it) and is a bound argument, not a literal, so a future bridge
-	// stamps its own; the poller passes "simplefin".
+	// are written as explicit empty objects, and relationships as an empty array, so
+	// new rows never depend on the column default (SQLite can't cheaply change a
+	// STRICT table's default; see the 00003, 00009 and 00012 migrations). source is
+	// the provenance of the row (which ingestion path produced it) and is a bound
+	// argument, not a literal, so a future bridge stamps its own; the poller passes
+	// "simplefin".
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error)
 	// Appends one immutable snapshot to a transaction's history. The generated id
 	// (insert order) and the stored row are returned. There is no per-transaction
@@ -126,6 +127,14 @@ type Querier interface {
 	// dashboard live feed) that want the tail of the stream without first discovering
 	// its head. Callers that want chronological order reverse the result.
 	ListRecentEvents(ctx context.Context, rowLimit int32) ([]Event, error)
+	// Returns the (id, relationships) of every transaction carrying at least one
+	// outbound edge. The API explodes the JSON arrays in Go to (a) build the inbound
+	// index (who points at a given transaction) and (b) build the relationship-kind
+	// vocabulary with per-kind counts. Done in Go, like ListLabeledTransactions and
+	// ListExtendedTransactions, to stay portable across SQLite and Postgres (json_each
+	// vs jsonb_each infer different column types, which would break the byte-identical
+	// pgstore adapter). ORDER BY makes the row order deterministic.
+	ListRelatedTransactions(ctx context.Context) ([]ListRelatedTransactionsRow, error)
 	ListRules(ctx context.Context) ([]Rule, error)
 	ListSyncLogs(ctx context.Context, rowLimit int32) ([]SyncLog, error)
 	// One transaction's full history, oldest first. ORDER BY id is the version order
@@ -173,6 +182,12 @@ type Querier interface {
 	// caller detect a missing id (0 rows affected). The poller never touches labels,
 	// so this is the only writer.
 	UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error)
+	// Replaces the whole relationships array for one transaction. relationships is a
+	// JSON array of {"kind","target"} edges asserted outbound from this row; the API
+	// normalizes it before storing. :execrows lets the caller detect a missing id
+	// (0 rows affected). The poller never touches relationships, so this is the only
+	// writer.
+	UpdateTransactionRelationships(ctx context.Context, arg UpdateTransactionRelationshipsParams) (int64, error)
 	// Replaces the editable fields. :execrows lets the caller detect a missing id.
 	UpdateWebhook(ctx context.Context, arg UpdateWebhookParams) (int64, error)
 	// Records the outcome of the most recent delivery attempt on the webhook row (the
