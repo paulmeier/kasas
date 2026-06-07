@@ -2,7 +2,7 @@
 
 Labels are kasas's built-in categorization: strict **`key: value`** pairs attached
 to a transaction. They are the metadata *you* own — a sync refreshes everything
-the bank reports but **never touches your labels**.
+the source reports but **never touches your labels**.
 
 Source: [`internal/labels`](https://github.com/paulmeier/kasas/tree/main/internal/labels).
 

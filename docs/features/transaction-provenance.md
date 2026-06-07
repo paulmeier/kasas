@@ -38,7 +38,7 @@ so is recorded once at ingest.
 | Field | Where it comes from |
 | --- | --- |
 | `source` | **Stored** `transactions.source` — the ingestion path that produced the row. Stamped at insert, **immutable** on re-sync (like labels and extensions). The only field that isn't derived. |
-| `source_transaction_id` | `transactions.id` — the SimpleFIN transaction id *is* the primary key and dedup key. |
+| `source_transaction_id` | `transactions.id` — the source's own transaction id *is* the primary key and dedup key. |
 | `account_id` | `transactions.account_id`. |
 | `institution` | The account's organization (`account → organizations.name`); best-effort, omitted if unresolved. |
 | `last_seen` | `transactions.synced_at` — refreshed on every sync that touches the row. |
@@ -47,10 +47,10 @@ so is recorded once at ingest.
 
 !!! note "Why `source` is the one stored field"
     The other fields are recoverable from the row and its history. *Source* is not —
-    nothing in a transaction's bank-owned content says which bridge imported it, so
-    whoever ingests has to write it down. It is a per-transaction column, stamped at
-    insert (`"simplefin"` today), so a future ingestion path records its own source
-    rather than being mislabelled.
+    nothing in a transaction's source-owned content says which source imported it,
+    so whoever ingests has to write it down. It is a per-transaction column, stamped
+    at insert (`"simplefin"` today), so a future ingestion path records its own
+    source rather than being mislabelled.
 
 ## A lineage at a glance
 

@@ -50,8 +50,10 @@ and [Deployment → Postgres](deployment.md#postgres).
 
 ## `[simplefin]`
 
-Provide **one** of these on first run (or set the credential later from the
-dashboard / API — no restart needed). See the [sync pipeline](../features/sync.md).
+Credentials for the built-in **[SimpleFIN](../architecture/ingestion.md) source**
+— the first source kasas ships with. Provide **one** of these on first run (or set
+the credential later from the dashboard / API — no restart needed). A future source
+would carry its own config section. See the [sync pipeline](../features/sync.md).
 
 | Key | Default | Description |
 | --- | --- | --- |

@@ -10,15 +10,17 @@ seriously.
 kasas is a **headless financial data platform**. It does three things, and tries
 to do them exceptionally well:
 
-1. **Ingest** — connect to your bank through [SimpleFIN](https://www.simplefin.org/)
-   and pull in organizations, accounts, and transactions on a schedule.
+1. **Ingest** — pull in organizations, accounts, and transactions through
+   [pluggable sources](ingestion.md). [SimpleFIN](https://www.simplefin.org/) is
+   the first, but the ledger is **source-agnostic** by design: a source normalizes
+   one provider, a generic engine persists every source the same way.
 2. **Store** — keep that data in a durable, queryable ledger (SQLite or Postgres)
    with a clean, stable shape and a complete record of how it changed.
 3. **Expose** — make it programmable through a REST API, an MCP server, a
    canonical event stream, webhooks, and sandboxed plugins.
 
 It owns the **boring, load-bearing parts** of any personal-finance system:
-authenticating to a bridge, deduplicating transactions, refreshing a pending
+authenticating to a source, deduplicating transactions, refreshing a pending
 charge when it posts, preserving the metadata you added, recording an immutable
 history, and emitting an ordered event for every change. These are the parts
 that are tedious to build, easy to get subtly wrong, and identical across every
@@ -62,11 +64,15 @@ identically across [every surface](overview.md#three-surfaces-one-core).
 
 These show up again and again in the internals.
 
+- **Source-agnostic ingestion.** Data arrives through a [source](ingestion.md)
+  that normalizes one provider into a neutral batch; a generic engine owns the
+  persist. Model the *archetype* (pull, file, webhook…), not the provider, so each
+  new provider is a thin adapter — and a buggy source can never corrupt the ledger.
 - **Lean on storage, comprehensive on exposure.** Reuse existing tables and a
   JSON column before adding schema; but when a capability exists, wire it across
   *every* surface (REST, MCP, dashboard) with full parity. A feature that only
   exists in the UI isn't a platform feature.
-- **The data you add is sacred.** A sync refreshes what the bank owns and never
+- **The data you add is sacred.** A sync refreshes what the source owns and never
   touches what you own. Your labels and extensions survive every re-sync,
   correction, and re-pull.
 - **Every change is a fact.** Changes are recorded as durable events and
@@ -84,6 +90,7 @@ These show up again and again in the internals.
 ## Where to go next
 
 - See the principles realized in the [System Overview](overview.md).
+- See how data gets in through [Ingestion & Sources](ingestion.md).
 - See the shape of the data in the [Data Model](data-model.md).
 - See the seams you build on in [Webhooks](../features/webhooks.md),
   [Plugins](../features/plugins.md), and the [Event Stream](../features/event-stream.md).

@@ -1,9 +1,9 @@
 # Data Model
 
 kasas keeps a deliberately small, stable schema. Most of it is **derived from the
-bank** (organizations, accounts, transactions) and refreshed on every sync; a few
-tables hold **state you create** (rules, webhooks, plugins, API keys); and a few
-are an **append-only record** of what happened (events, transaction versions,
+source** (organizations, accounts, transactions) and refreshed on every sync; a
+few tables hold **state you create** (rules, webhooks, plugins, API keys); and a
+few are an **append-only record** of what happened (events, transaction versions,
 sync log).
 
 ## Entity relationships
@@ -73,9 +73,9 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
 
 | Table | Kind | Purpose |
 | --- | --- | --- |
-| `organizations` | Derived | Financial institutions seen via SimpleFIN. |
+| `organizations` | Derived | Financial institutions an account belongs to. |
 | `accounts` | Derived | Your accounts: balance, currency, last-synced time. |
-| `transactions` | Derived + yours | The ledger. Bridge fields are refreshed each sync; `labels`, `extensions`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. |
+| `transactions` | Derived + yours | The ledger. Source-owned fields are refreshed each sync; `labels`, `extensions`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. |
 | `sync_log` | Record | One row per [sync run](../features/sync.md): start, finish, status, error. |
 | `rules` | Yours | [Auto-labeling rules](../features/rules.md): a query + labels to apply. |
 | `events` | Record | The append-only [event stream](../features/event-stream.md). |
@@ -86,7 +86,7 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
 
 !!! info "Storage conventions"
     - **Money is text.** `amount` and `balance` are exact decimal strings exactly
-      as SimpleFIN returns them — never parsed to a float. Comparisons in
+      as the source returns them — never parsed to a float. Comparisons in
       [search](../features/search.md) parse on demand but storage stays exact.
     - **Time is unix seconds.** All `*_at` and `date` columns are `INTEGER` unix
       timestamps; the API renders them as RFC 3339 UTC.

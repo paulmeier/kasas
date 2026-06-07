@@ -123,7 +123,7 @@ delivery queue** — the durable event table *is* the queue.
 | Type | Emitted when |
 | --- | --- |
 | `transaction.created` | A new transaction is inserted by a [sync](sync.md). |
-| `transaction.updated` | A re-sync changes a bridge-owned field. |
+| `transaction.updated` | A re-sync changes a source-owned field. |
 | `transaction.deleted` | *Reserved* (no deletion path today). |
 | `account.created` / `account.updated` | An account first appears / changes. |
 | `label.applied` / `label.removed` | A transaction's [labels](labels.md) change (granular, per key). |

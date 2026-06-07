@@ -1,12 +1,25 @@
 # Sync Pipeline
 
-The sync pipeline is how data gets *into* kasas. A background scheduler polls a
-SimpleFIN bridge on an interval, upserts organizations and accounts, and
-reconciles transactions — inserting new ones, refreshing existing ones, and
-**never touching the metadata you added**. Every run is recorded, and every
+The sync pipeline is the **ingestion engine** for [pull sources](../architecture/ingestion.md).
+A background scheduler drives the configured source's `Puller` on an interval — the
+source returns a neutral `ImportBatch` — and the engine upserts organizations and
+accounts and reconciles transactions, inserting new ones, refreshing existing ones,
+and **never touching the metadata you added**. Every run is recorded, and every
 change emits an event.
 
-Source: [`internal/poller`](https://github.com/paulmeier/kasas/tree/main/internal/poller).
+[SimpleFIN](https://www.simplefin.org/) is the source today, so this page uses it as
+the worked example; the steps that talk to a bank (resolving a credential, fetching)
+live in the source, and everything after the `ImportBatch` is the engine — identical
+for any future source.
+
+Source: [`internal/poller`](https://github.com/paulmeier/kasas/tree/main/internal/poller)
+(engine) · [`internal/sources/simplefin`](https://github.com/paulmeier/kasas/tree/main/internal/sources/simplefin)
+(the source).
+
+!!! tip "One engine, any source"
+    Scheduling, dedup, the transactional persist, events, rules, and history are
+    the engine's job and work the same for every source. See
+    [Ingestion & Sources](../architecture/ingestion.md) for the source contract.
 
 ## At a glance
 
@@ -14,9 +27,9 @@ Source: [`internal/poller`](https://github.com/paulmeier/kasas/tree/main/interna
   optional run at startup and an on-demand trigger.
 - **Serialized** — a mutex ensures only one sync runs at a time, so concurrent
   triggers never overlap.
-- **Idempotent** — transactions are inserted by their SimpleFIN id with
+- **Idempotent** — transactions are inserted by their source's external id with
   `ON CONFLICT DO NOTHING`; re-syncing the same data is a no-op.
-- **Non-destructive** — a re-sync refreshes bridge-owned fields (amount, pending,
+- **Non-destructive** — a re-sync refreshes source-owned fields (amount, pending,
   description…) but leaves your [labels](labels.md) and
   [extensions](schema-extensions.md) alone.
 - **Atomic** — all upserts, inserts, refreshes, label changes, events, and
@@ -28,57 +41,61 @@ Source: [`internal/poller`](https://github.com/paulmeier/kasas/tree/main/interna
 sequenceDiagram
     autonumber
     participant Sched as gocron
-    participant P as Poller
+    participant Eng as Engine (poller)
+    participant Src as Source (SimpleFIN)
     participant Sec as Secret store
     participant SF as SimpleFIN bridge
     participant DB as db.Store (tx)
     participant Bus as Event bus
 
-    Sched->>P: Sync(ctx)
-    Note over P: mutex.Lock — only one sync at a time
-    P->>DB: CreateSyncLog(status="running")
+    Sched->>Eng: Sync(ctx)
+    Note over Eng: mutex.Lock — only one sync at a time
+    Eng->>DB: CreateSyncLog(status="running")
 
-    P->>Sec: resolveAccessURL()
+    Eng->>Src: Fetch(since, cursor)
+    Note over Src,SF: credential + fetch live in the source
+    Src->>Sec: resolveAccessURL()
     alt stored access URL exists
-        Sec-->>P: access URL
+        Sec-->>Src: access URL
     else only a setup token
-        P->>SF: POST claim(setup token)
-        SF-->>P: access URL
-        P->>Sec: persist access URL (one-time)
+        Src->>SF: POST claim(setup token)
+        SF-->>Src: access URL
+        Src->>Sec: persist access URL (one-time)
     end
-
-    P->>SF: GET /accounts?start-date=since&pending=1
-    SF-->>P: AccountSet (orgs, accounts, transactions)
+    Src->>SF: GET /accounts?start-date=since&pending=1
+    SF-->>Src: AccountSet (orgs, accounts, transactions)
+    Src-->>Eng: ImportBatch (neutral)
 
     rect rgb(238, 247, 238)
-    Note over P,DB: emitter.Record → one DB transaction
+    Note over Eng,DB: emitter.Record → one DB transaction
     loop each account
-        P->>DB: UpsertOrganization / UpsertAccount
-        P->>DB: emit account.created / account.updated
+        Eng->>DB: UpsertOrganization / UpsertAccount
+        Eng->>DB: emit account.created / account.updated
         loop each transaction
-            P->>DB: InsertTransaction (ON CONFLICT DO NOTHING)
+            Eng->>DB: InsertTransaction (ON CONFLICT DO NOTHING)
             alt new row
-                P->>DB: emit transaction.created
-                P->>DB: apply matching rules → labels + label.applied
-                P->>DB: history v1 (imported)
+                Eng->>DB: emit transaction.created
+                Eng->>DB: apply matching rules → labels + label.applied
+                Eng->>DB: history v1 (imported)
             else already exists
-                P->>DB: UpdateTransactionFromSync (labels untouched)
-                P->>DB: if bridge fields changed → transaction.updated + history (synced)
+                Eng->>DB: UpdateTransactionFromSync (labels untouched)
+                Eng->>DB: if source fields changed → transaction.updated + history (synced)
             end
         end
     end
     end
 
-    DB-->>P: commit
-    P->>Bus: publish buffered events
-    P->>DB: CompleteSyncLog(status, counts) + metrics
-    P->>Bus: emit sync.completed
+    DB-->>Eng: commit
+    Eng->>Bus: publish buffered events
+    Eng->>DB: CompleteSyncLog(status, counts) + metrics
+    Eng->>Bus: emit sync.completed
 ```
 
 ## Connecting: resolving the access URL
 
-kasas authenticates to SimpleFIN with a long-lived **access URL** (credentials
-embedded in the URL's userinfo). `resolveAccessURL` finds it in priority order:
+Credential handling belongs to the source — each source manages its own. The
+**SimpleFIN** source authenticates with a long-lived **access URL** (credentials
+embedded in the URL's userinfo); its `resolveAccessURL` finds it in priority order:
 
 1. **Stored** — a previously persisted access URL in the
    [secret store](../getting-started/configuration.md#secrets) (Vault or the local
@@ -96,15 +113,19 @@ up.
 
 ## Fetching
 
-`client.Fetch` issues `GET <access-url>/accounts` with two query parameters:
+The engine calls the source's `Fetch(ctx, since, cursor)`, passing a `since`
+derived from `sync.lookback_days` (default `90`; `0` fetches all available
+history). For the SimpleFIN source that becomes `GET <access-url>/accounts` with
+two query parameters:
 
-- `start-date=<unix>` — derived from `sync.lookback_days` (default `90`; `0`
-  fetches all available history). This bounds how far back each pull reaches.
+- `start-date=<unix>` — from `since`. This bounds how far back each pull reaches.
 - `pending=1` — include pending transactions, so a charge is visible before it
   posts.
 
-The response is a SimpleFIN `AccountSet`: organizations, accounts with balances,
-and each account's transactions.
+SimpleFIN responds with an `AccountSet` (organizations, accounts with balances, and
+each account's transactions), which the source normalizes into the engine's neutral
+`ImportBatch`. `cursor` is unused here — SimpleFIN re-fetches a window rather than
+resuming a stream — but the engine persists any cursor a source does return.
 
 ## Reconciling: insert vs. refresh
 
@@ -113,7 +134,7 @@ build on.
 
 ```mermaid
 flowchart TD
-    T[Transaction from bridge] --> INS[InsertTransaction<br/>ON CONFLICT DO NOTHING]
+    T[Transaction from the batch] --> INS[InsertTransaction<br/>ON CONFLICT DO NOTHING]
     INS --> Q{rows affected?}
     Q -->|1 — new| NEW[New transaction]
     Q -->|0 — exists| OLD[Existing transaction]
@@ -124,7 +145,7 @@ flowchart TD
 
     OLD --> GET[read previous row]
     GET --> UPD["UpdateTransactionFromSync<br/>(amount, pending, date,<br/>description, payee, memo, synced_at)"]
-    UPD --> CH{bridge fields<br/>changed?}
+    UPD --> CH{source fields<br/>changed?}
     CH -->|yes| UE[emit transaction.updated<br/>+ history: synced]
     CH -->|no| SKIP[no event]
 
@@ -133,9 +154,9 @@ flowchart TD
 ```
 
 For an **existing** transaction, `UpdateTransactionFromSync` writes only the
-columns the bank owns. The `labels` and `extensions` columns are **deliberately
-excluded from the UPDATE**, so a pending charge that later posts — or an amount
-the bank corrects — flows in cleanly while your categorization is preserved
+columns the source owns. The `labels` and `extensions` columns are **deliberately
+excluded from the UPDATE**, so a pending charge that later posts — or an amount the
+source corrects — flows in cleanly while your categorization is preserved
 untouched. This is the "the data you add is sacred" principle, enforced at the SQL
 level.
 

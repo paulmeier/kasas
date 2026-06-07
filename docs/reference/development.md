@@ -43,7 +43,9 @@ internal/config/     viper configuration
 internal/vault/      secret store (Vault KV v2, with local-file fallback)
 internal/auth/       dashboard-token guard
 internal/apikeys/    scoped API keys
-internal/poller/     SimpleFIN client + gocron scheduler
+internal/source/     ingestion SDK: ImportBatch, capability interfaces, registry
+internal/sources/    built-in sources (simplefin today) — normalize to ImportBatch
+internal/poller/     ingestion engine: gocron scheduler + transactional persist
 internal/db/         SQLite sqlc output + Store interface + Postgres adapter
 internal/db/pg/      Postgres sqlc output
 internal/events/     event bus, transactional emitter, diffs

@@ -33,7 +33,7 @@ adds, removals, and changes.
 | `change_kind` | Recorded when |
 | --- | --- |
 | `imported` | The first version of a transaction (synced in, or a lazily-captured baseline). |
-| `synced` | A re-sync changed a bridge-owned field. |
+| `synced` | A re-sync changed a source-owned field. |
 | `labeled` | [Labels](labels.md) changed (REST, a [rule](rules.md), or a [plugin](plugins.md)). |
 | `extended` | [Schema extensions](schema-extensions.md) changed. |
 
