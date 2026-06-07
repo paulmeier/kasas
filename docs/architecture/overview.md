@@ -73,11 +73,11 @@ flowchart TB
     WH --> APPS
     PL --> APPS
 
-    classDef ext fill:#e8f0f7,stroke:#1b3a5e,color:#11283f;
-    classDef apps fill:#d7f0f7,stroke:#0e7da0,color:#0a3f52;
-    classDef data fill:#fff5e6,stroke:#b9770e,color:#5b3a06;
-    classDef pure fill:#eef7ee,stroke:#3a7d44,color:#1f3f24;
-    classDef infra fill:#f3f0f7,stroke:#5b4b8a,color:#2e2547;
+    classDef ext stroke:#5b7fa6,stroke-width:1px;
+    classDef apps stroke:#29a8cc,stroke-width:2px;
+    classDef data stroke:#b9770e,stroke-width:2px;
+    classDef pure stroke:#3a7d44,stroke-width:2px;
+    classDef infra stroke:#7a68b8,stroke-width:2px;
 ```
 
 | Package | Responsibility |

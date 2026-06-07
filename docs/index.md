@@ -63,8 +63,8 @@ flowchart LR
 
     APPS([Budgeting · Tax · Fraud · Forecasting · Notifiers · Agents]):::apps
 
-    classDef ext fill:#e8f0f7,stroke:#1b3a5e,color:#11283f;
-    classDef apps fill:#d7f0f7,stroke:#0e7da0,color:#0a3f52;
+    classDef ext stroke:#5b7fa6,stroke-width:1px;
+    classDef apps stroke:#29a8cc,stroke-width:2px;
 ```
 
 ## What you get

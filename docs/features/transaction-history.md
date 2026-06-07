@@ -20,10 +20,10 @@ flowchart LR
     V3["v3 · labeled<br/>you or a rule changed<br/>its labels"]:::lab
     V4["v4 · extended<br/>an app changed its<br/>schema extensions"]:::ext
     V1 --> V2 --> V3 --> V4
-    classDef imp fill:#eef7ee,stroke:#3a7d44;
-    classDef syn fill:#fff5e6,stroke:#b9770e;
-    classDef lab fill:#eaf2fb,stroke:#1b3a5e;
-    classDef ext fill:#f3f0f7,stroke:#5b4b8a;
+    classDef imp stroke:#3a7d44,stroke-width:2px;
+    classDef syn stroke:#b9770e,stroke-width:2px;
+    classDef lab stroke:#4f86c6,stroke-width:2px;
+    classDef ext stroke:#7a68b8,stroke-width:2px;
 ```
 
 Each version carries the **complete snapshot** at that point plus a computed

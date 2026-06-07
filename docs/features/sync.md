@@ -128,8 +128,8 @@ flowchart TD
     CH -->|yes| UE[emit transaction.updated<br/>+ history: synced]
     CH -->|no| SKIP[no event]
 
-    style NEW fill:#eef7ee,stroke:#3a7d44
-    style OLD fill:#fff5e6,stroke:#b9770e
+    style NEW stroke:#3a7d44,stroke-width:2px
+    style OLD stroke:#b9770e,stroke-width:2px
 ```
 
 For an **existing** transaction, `UpdateTransactionFromSync` writes only the
