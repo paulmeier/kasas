@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/relationships"
 )
 
 var eventsEmitted = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -205,6 +206,39 @@ func (r *Recorder) EmitExtensionDiff(ctx context.Context, q db.Querier, txnID st
 	for k, v := range oldExt {
 		if _, ok := newExt[k]; !ok {
 			if err := r.Emit(ctx, q, TypeExtensionRemoved, EntityTransaction, txnID, ExtensionPayload{TransactionID: txnID, Key: k, Value: v}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// EmitRelationshipDiff records a relationship.created event for every outbound edge
+// added and a relationship.removed for every edge dropped between a transaction's
+// old and new relationship sets. Edges are identified by (kind, target). The event
+// entity is the subject transaction. Unlike EmitLabelDiff / EmitExtensionDiff, a
+// relationship change records NO transaction version — an edge is not a field of
+// the transaction's own state. The caller writes the relationships column in the
+// same transaction; this only emits the change events.
+func (r *Recorder) EmitRelationshipDiff(ctx context.Context, q db.Querier, txnID string, oldRels, newRels []relationships.Relationship) error {
+	oldKeys := make(map[string]struct{}, len(oldRels))
+	for _, e := range oldRels {
+		oldKeys[e.Key()] = struct{}{}
+	}
+	newKeys := make(map[string]struct{}, len(newRels))
+	for _, e := range newRels {
+		newKeys[e.Key()] = struct{}{}
+	}
+	for _, e := range newRels {
+		if _, ok := oldKeys[e.Key()]; !ok {
+			if err := r.Emit(ctx, q, TypeRelationshipCreated, EntityTransaction, txnID, RelationshipPayload{TransactionID: txnID, Kind: e.Kind, Target: e.Target}); err != nil {
+				return err
+			}
+		}
+	}
+	for _, e := range oldRels {
+		if _, ok := newKeys[e.Key()]; !ok {
+			if err := r.Emit(ctx, q, TypeRelationshipRemoved, EntityTransaction, txnID, RelationshipPayload{TransactionID: txnID, Kind: e.Kind, Target: e.Target}); err != nil {
 				return err
 			}
 		}

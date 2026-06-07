@@ -21,7 +21,7 @@ func (q *Queries) CountTransactions(ctx context.Context) (int64, error) {
 }
 
 const getTransaction = `-- name: GetTransaction :one
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source, relationships FROM transactions
 WHERE id = $1
 `
 
@@ -41,6 +41,7 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 		&i.Labels,
 		&i.Extensions,
 		&i.Source,
+		&i.Relationships,
 	)
 	return i, err
 }
@@ -48,12 +49,12 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 const insertTransaction = `-- name: InsertTransaction :execrows
 INSERT INTO transactions (
     id, account_id, amount, pending, date, description, payee, memo, synced_at,
-    source, labels, extensions
+    source, labels, extensions, relationships
 )
 VALUES (
     $1, $2, $3, $4,
     $5, $6, $7, $8,
-    $9, $10, '{}', '{}'
+    $9, $10, '{}', '{}', '[]'
 )
 ON CONFLICT (id) DO NOTHING
 `
@@ -73,11 +74,12 @@ type InsertTransactionParams struct {
 
 // transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 // transaction is a no-op. This keeps polling idempotent. labels and extensions
-// are written as explicit empty objects so new rows never depend on the column
-// default (SQLite can't cheaply change a STRICT table's default; see the 00003
-// and 00009 migrations). source is the provenance of the row (which ingestion
-// path produced it) and is a bound argument, not a literal, so a future bridge
-// stamps its own; the poller passes "simplefin".
+// are written as explicit empty objects, and relationships as an empty array, so
+// new rows never depend on the column default (SQLite can't cheaply change a
+// STRICT table's default; see the 00003, 00009 and 00012 migrations). source is
+// the provenance of the row (which ingestion path produced it) and is a bound
+// argument, not a literal, so a future bridge stamps its own; the poller passes
+// "simplefin".
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, insertTransaction,
 		arg.ID,
@@ -175,8 +177,47 @@ func (q *Queries) ListLabeledTransactions(ctx context.Context) ([]ListLabeledTra
 	return items, nil
 }
 
+const listRelatedTransactions = `-- name: ListRelatedTransactions :many
+SELECT id, relationships FROM transactions WHERE relationships <> '[]' ORDER BY id
+`
+
+type ListRelatedTransactionsRow struct {
+	ID            string `json:"id"`
+	Relationships string `json:"relationships"`
+}
+
+// Returns the (id, relationships) of every transaction carrying at least one
+// outbound edge. The API explodes the JSON arrays in Go to (a) build the inbound
+// index (who points at a given transaction) and (b) build the relationship-kind
+// vocabulary with per-kind counts. Done in Go, like ListLabeledTransactions and
+// ListExtendedTransactions, to stay portable across SQLite and Postgres (json_each
+// vs jsonb_each infer different column types, which would break the byte-identical
+// pgstore adapter). ORDER BY makes the row order deterministic.
+func (q *Queries) ListRelatedTransactions(ctx context.Context) ([]ListRelatedTransactionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRelatedTransactions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRelatedTransactionsRow{}
+	for rows.Next() {
+		var i ListRelatedTransactionsRow
+		if err := rows.Scan(&i.ID, &i.Relationships); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source, relationships FROM transactions
 WHERE (date >= $1 OR $1 = 0)
   AND (date <= $2 OR $2 = 0)
 ORDER BY date DESC, id
@@ -220,6 +261,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Labels,
 			&i.Extensions,
 			&i.Source,
+			&i.Relationships,
 		); err != nil {
 			return nil, err
 		}
@@ -235,7 +277,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source, relationships FROM transactions
 WHERE account_id = $1
   AND (date >= $2 OR $2 = 0)
   AND (date <= $3 OR $3 = 0)
@@ -279,6 +321,7 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 			&i.Labels,
 			&i.Extensions,
 			&i.Source,
+			&i.Relationships,
 		); err != nil {
 			return nil, err
 		}
@@ -378,6 +421,28 @@ type UpdateTransactionLabelsParams struct {
 // so this is the only writer.
 func (q *Queries) UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTransactionLabels, arg.Labels, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateTransactionRelationships = `-- name: UpdateTransactionRelationships :execrows
+UPDATE transactions SET relationships = $1 WHERE id = $2
+`
+
+type UpdateTransactionRelationshipsParams struct {
+	Relationships string `json:"relationships"`
+	ID            string `json:"id"`
+}
+
+// Replaces the whole relationships array for one transaction. relationships is a
+// JSON array of {"kind","target"} edges asserted outbound from this row; the API
+// normalizes it before storing. :execrows lets the caller detect a missing id
+// (0 rows affected). The poller never touches relationships, so this is the only
+// writer.
+func (q *Queries) UpdateTransactionRelationships(ctx context.Context, arg UpdateTransactionRelationshipsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTransactionRelationships, arg.Relationships, arg.ID)
 	if err != nil {
 		return 0, err
 	}

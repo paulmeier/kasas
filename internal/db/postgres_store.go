@@ -102,6 +102,17 @@ func (a pgQuerier) ListExtendedTransactions(ctx context.Context) ([]ListExtended
 	}), err
 }
 
+func (a pgQuerier) UpdateTransactionRelationships(ctx context.Context, arg UpdateTransactionRelationshipsParams) (int64, error) {
+	return a.q.UpdateTransactionRelationships(ctx, pg.UpdateTransactionRelationshipsParams(arg))
+}
+
+func (a pgQuerier) ListRelatedTransactions(ctx context.Context) ([]ListRelatedTransactionsRow, error) {
+	rows, err := a.q.ListRelatedTransactions(ctx)
+	return mapSlice(rows, func(r pg.ListRelatedTransactionsRow) ListRelatedTransactionsRow {
+		return ListRelatedTransactionsRow(r)
+	}), err
+}
+
 // FilterTransactionsByLabelKey / ByLabelValue and DeleteLabelBy* push label
 // querying down to SQL. The filter params are hand-mapped (not whole-struct cast)
 // because pg emits int32 for limit/offset where db emits int64.

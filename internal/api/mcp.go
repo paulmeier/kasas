@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/provenance"
+	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/rules"
 )
 
@@ -58,6 +60,26 @@ func (s *Server) MCPServer() *mcp.Server {
 		Name:        "list_extensions",
 		Description: "List the schema-extension vocabulary: every namespaced key in use, with its namespace (the part before the first dot) and the number of transactions carrying it.",
 	}, s.mcpListExtensions)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_transaction_relationships",
+		Description: "Get one transaction's relationships: explicit directed edges to other transactions (e.g. a refund_of a purchase, a transfer_to another account). Returns both OUTBOUND edges (this transaction is the subject) and INBOUND edges (another transaction points at this one), each with its kind, direction (outbound|inbound), and the other transaction's id.",
+	}, s.mcpGetTransactionRelationships)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_transaction_relationship",
+		Description: "Assert a directed relationship from one transaction to another: an outbound edge transaction_id --kind--> target (e.g. mark a refund as refund_of its original purchase, or one leg of a transfer as transfer_to the other). kind is a freeform lowercase verb (refund_of, transfer_to, withholding_for, related_to, ...). The target transaction must exist and cannot be the subject itself. Adding an existing edge is a no-op. Returns the updated neighborhood.",
+	}, s.mcpCreateTransactionRelationship)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_transaction_relationship",
+		Description: "Remove a directed relationship: the outbound edge transaction_id --kind--> target. Removing an absent edge is a no-op. To remove an inbound edge, call this on the transaction that owns it (the edge's subject). Returns the updated neighborhood.",
+	}, s.mcpDeleteTransactionRelationship)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_relationship_kinds",
+		Description: "List the relationship-kind vocabulary: every kind in use (refund_of, transfer_to, ...) with the number of outbound edges using it.",
+	}, s.mcpListRelationshipKinds)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_rules",
@@ -237,6 +259,25 @@ type listExtensionsOutput struct {
 	Extensions []ExtensionDTO `json:"extensions"`
 }
 
+type getTransactionRelationshipsInput struct {
+	TransactionID string `json:"transaction_id" jsonschema:"the id of the transaction whose relationships to list"`
+}
+
+type relationshipMutationInput struct {
+	TransactionID string `json:"transaction_id" jsonschema:"the id of the SUBJECT transaction the outbound edge is asserted from"`
+	Target        string `json:"target" jsonschema:"the id of the target transaction the edge points at"`
+	Kind          string `json:"kind" jsonschema:"the relationship kind: a freeform lowercase verb, e.g. refund_of, transfer_to, withholding_for"`
+}
+
+type transactionRelationshipsOutput struct {
+	TransactionID string            `json:"transaction_id"`
+	Relationships []RelationshipDTO `json:"relationships"`
+}
+
+type listRelationshipKindsOutput struct {
+	Relationships []RelationshipKindDTO `json:"relationships"`
+}
+
 type listRulesOutput struct {
 	Rules []RuleDTO `json:"rules"`
 }
@@ -391,6 +432,70 @@ func (s *Server) mcpListExtensions(ctx context.Context, _ *mcp.CallToolRequest, 
 		sets[i] = row.Extensions
 	}
 	return &mcp.CallToolResult{}, listExtensionsOutput{Extensions: extensionCounts(sets)}, nil
+}
+
+func (s *Server) mcpGetTransactionRelationships(ctx context.Context, _ *mcp.CallToolRequest, in getTransactionRelationshipsInput) (*mcp.CallToolResult, transactionRelationshipsOutput, error) {
+	rels, notFound, err := s.listTransactionRelationships(ctx, in.TransactionID)
+	if err != nil {
+		return nil, transactionRelationshipsOutput{}, err
+	}
+	if notFound {
+		return nil, transactionRelationshipsOutput{}, fmt.Errorf("transaction %q not found", in.TransactionID)
+	}
+	return &mcp.CallToolResult{}, transactionRelationshipsOutput{TransactionID: in.TransactionID, Relationships: rels}, nil
+}
+
+func (s *Server) mcpCreateTransactionRelationship(ctx context.Context, _ *mcp.CallToolRequest, in relationshipMutationInput) (*mcp.CallToolResult, transactionRelationshipsOutput, error) {
+	if relationships.NormalizeKind(in.Kind) == "" {
+		return nil, transactionRelationshipsOutput{}, fmt.Errorf("a relationship must have a kind")
+	}
+	if strings.TrimSpace(in.Target) == "" {
+		return nil, transactionRelationshipsOutput{}, fmt.Errorf("a relationship must have a target")
+	}
+	_, notFound, err := s.addRelationship(ctx, in.TransactionID, in.Kind, in.Target)
+	if err != nil {
+		return nil, transactionRelationshipsOutput{}, err
+	}
+	if notFound {
+		return nil, transactionRelationshipsOutput{}, fmt.Errorf("transaction %q not found", in.TransactionID)
+	}
+	return s.mcpRelationshipsResult(ctx, in.TransactionID)
+}
+
+func (s *Server) mcpDeleteTransactionRelationship(ctx context.Context, _ *mcp.CallToolRequest, in relationshipMutationInput) (*mcp.CallToolResult, transactionRelationshipsOutput, error) {
+	if strings.TrimSpace(in.Kind) == "" || strings.TrimSpace(in.Target) == "" {
+		return nil, transactionRelationshipsOutput{}, fmt.Errorf("kind and target are required")
+	}
+	_, notFound, err := s.removeRelationship(ctx, in.TransactionID, in.Kind, in.Target)
+	if err != nil {
+		return nil, transactionRelationshipsOutput{}, err
+	}
+	if notFound {
+		return nil, transactionRelationshipsOutput{}, fmt.Errorf("transaction %q not found", in.TransactionID)
+	}
+	return s.mcpRelationshipsResult(ctx, in.TransactionID)
+}
+
+// mcpRelationshipsResult loads and returns a transaction's neighborhood as the
+// result of a create/delete tool call, so the caller sees the post-mutation state.
+func (s *Server) mcpRelationshipsResult(ctx context.Context, id string) (*mcp.CallToolResult, transactionRelationshipsOutput, error) {
+	rels, _, err := s.listTransactionRelationships(ctx, id)
+	if err != nil {
+		return nil, transactionRelationshipsOutput{}, err
+	}
+	return &mcp.CallToolResult{}, transactionRelationshipsOutput{TransactionID: id, Relationships: rels}, nil
+}
+
+func (s *Server) mcpListRelationshipKinds(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listRelationshipKindsOutput, error) {
+	rows, err := s.store.ListRelatedTransactions(ctx)
+	if err != nil {
+		return nil, listRelationshipKindsOutput{}, err
+	}
+	sets := make([]string, len(rows))
+	for i, row := range rows {
+		sets[i] = row.Relationships
+	}
+	return &mcp.CallToolResult{}, listRelationshipKindsOutput{Relationships: relationshipKindCounts(sets)}, nil
 }
 
 func (s *Server) mcpListRules(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listRulesOutput, error) {

@@ -43,6 +43,7 @@ erDiagram
         text source "ingestion path"
         text labels "JSON object"
         text extensions "JSON object"
+        text relationships "JSON array of edges"
     }
     transaction_versions {
         int  id PK "autoincrement = ordinal"
@@ -75,7 +76,7 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
 | --- | --- | --- |
 | `organizations` | Derived | Financial institutions an account belongs to. |
 | `accounts` | Derived | Your accounts: balance, currency, last-synced time. |
-| `transactions` | Derived + yours | The ledger. Source-owned fields are refreshed each sync; `labels`, `extensions`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. |
+| `transactions` | Derived + yours | The ledger. Source-owned fields are refreshed each sync; `labels`, `extensions`, `relationships`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. |
 | `sync_log` | Record | One row per [sync run](../features/sync.md): start, finish, status, error. |
 | `rules` | Yours | [Auto-labeling rules](../features/rules.md): a query + labels to apply. |
 | `events` | Record | The append-only [event stream](../features/event-stream.md). |
@@ -91,9 +92,12 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
     - **Time is unix seconds.** All `*_at` and `date` columns are `INTEGER` unix
       timestamps; the API renders them as RFC 3339 UTC.
     - **Booleans are integers.** `pending`, `enabled` are `0`/`1`.
-    - **`labels` and `extensions` are JSON columns** on `transactions` — a
-      `key:value` string map and an arbitrary namespaced JSON map respectively
-      (see [Labels](../features/labels.md) vs [Extensions](../features/schema-extensions.md)).
+    - **`labels`, `extensions`, and `relationships` are JSON columns** on
+      `transactions` — a `key:value` string map, an arbitrary namespaced JSON map,
+      and an array of directed `{kind, target}` edges to other transactions
+      (see [Labels](../features/labels.md), [Extensions](../features/schema-extensions.md),
+      and [Relationships](../features/transaction-relationships.md)). Relationship
+      edges are stored only on the subject; the inbound direction is derived on read.
     - **`source` records ingestion provenance** — which path produced the row,
       stamped at insert and never overwritten. Everything else a transaction's
       [provenance](../features/transaction-provenance.md) reports is *derived* on
@@ -166,5 +170,5 @@ with a dialect-specific set in `migrations/sqlite` and `migrations/postgres`. Th
 are applied automatically on startup (and runnable explicitly with
 [`kasas migrate`](../reference/cli.md#migrate)). The migration history doubles as a
 changelog of the data model — tags became strict `labels`, then `rules`, `events`,
-`transaction_versions`, `api_keys`, `webhooks`, `extensions`, and `plugins` were
-each added in turn.
+`transaction_versions`, `api_keys`, `webhooks`, `extensions`, `plugins`, and the
+`relationships` column were each added in turn.

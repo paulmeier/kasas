@@ -61,6 +61,15 @@ const (
 	TypeExtensionSet     = "extension.set"
 	TypeExtensionRemoved = "extension.removed"
 
+	// Transaction relationships: a directed edge from one transaction to another
+	// created or removed (via the REST API or the create/delete_transaction_relationship
+	// MCP tools). The event entity is the SUBJECT transaction (the edge's "from"
+	// side) and EntityID is its id; the payload carries the target and kind.
+	// Relationships do NOT record transaction history versions (an edge is not a
+	// field of one transaction's own state), so there is no Change* kind for them.
+	TypeRelationshipCreated = "relationship.created"
+	TypeRelationshipRemoved = "relationship.removed"
+
 	TypeRuleCreated  = "rule.created"
 	TypeRuleUpdated  = "rule.updated"
 	TypeRuleDeleted  = "rule.deleted"

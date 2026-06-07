@@ -11,6 +11,7 @@ import (
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 
 	"github.com/paulmeier/kasas/internal/extensions"
+	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/search"
 )
 
@@ -40,10 +41,11 @@ type persistedSearch struct {
 // the live row and survives a re-sort or re-render.
 type searchView struct {
 	app.Compo
-	chrome            // shared sidebar + API client + version badge
-	labelEditing      // inline label editor, shared with the Dashboard
-	historyViewing    // per-transaction history modal, shared with the Dashboard
-	provenanceViewing // per-transaction provenance modal, shared with the Dashboard
+	chrome               // shared sidebar + API client + version badge
+	labelEditing         // inline label editor, shared with the Dashboard
+	historyViewing       // per-transaction history modal, shared with the Dashboard
+	provenanceViewing    // per-transaction provenance modal, shared with the Dashboard
+	relationshipsViewing // per-transaction relationships modal, shared with the Dashboard
 
 	accounts []account
 	byID     map[string]account
@@ -74,6 +76,7 @@ type searchView struct {
 func (v *searchView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx)
 	v.initLabelEditing()
+	v.initRelationshipsViewing()
 	v.fetchHistory = v.client.transactionHistory
 	v.fetchProvenance = v.client.transactionProvenance
 	v.pageSize = defaultPageSize
@@ -106,6 +109,18 @@ func (v *searchView) initLabelEditing() {
 	}
 	v.setLabels = v.client.setLabels
 	v.reportError = func(msg string) { v.errMsg = msg }
+}
+
+// initRelationshipsViewing wires the shared relationships modal to this view's
+// transaction set. Reuses txnByID (set by initLabelEditing) for the in-place
+// row-indicator refresh, so call it after initLabelEditing.
+func (v *searchView) initRelationshipsViewing() {
+	v.fetchRelationships = v.client.transactionRelationships
+	v.createRelationship = v.client.createTransactionRelationship
+	v.deleteRelationship = v.client.deleteTransactionRelationship
+	v.relAllTxns = func() []transaction { return v.allTxns }
+	v.relTxnByID = v.txnByID
+	v.relReportError = func(msg string) { v.errMsg = msg }
 }
 
 func (v *searchView) loadAccounts(ctx app.Context) {
@@ -173,15 +188,32 @@ func (v *searchView) runSearch(ctx app.Context) {
 	}
 	v.parseErr = ""
 
+	relIndex := buildRelationshipIndex(v.allTxns)
 	results := make([]int, 0, len(v.allTxns))
 	for i := range v.allTxns {
-		if q.Match(v.toRecord(v.allTxns[i])) {
+		rec := v.toRecord(v.allTxns[i])
+		rec.Relationships = relIndex[v.allTxns[i].ID]
+		if q.Match(rec) {
 			results = append(results, i)
 		}
 	}
 	v.results = results
 	v.page = 0
 	ctx.Update()
+}
+
+// buildRelationshipIndex builds each transaction's full relationship neighborhood
+// (its own outbound edges plus the inbound edges of others targeting it) for
+// in-browser rel:/related: matching, from the already-loaded transaction set.
+func buildRelationshipIndex(txns []transaction) map[string][]search.Relationship {
+	idx := make(map[string][]search.Relationship)
+	for _, t := range txns {
+		for _, e := range t.Relationships {
+			idx[t.ID] = append(idx[t.ID], search.Relationship{Kind: e.Kind, Target: e.Target, Direction: relationships.DirectionOutbound})
+			idx[e.Target] = append(idx[e.Target], search.Relationship{Kind: e.Kind, Target: t.ID, Direction: relationships.DirectionInbound})
+		}
+	}
+	return idx
 }
 
 // toRecord adapts a transaction into the search engine's neutral Record,
@@ -351,6 +383,7 @@ func (v *searchView) Render() app.UI {
 		v.renderHelpModal(),
 		v.renderHistoryModal(),
 		v.renderProvenanceModal(),
+		v.renderRelationshipsModal(),
 	)
 }
 
@@ -477,8 +510,9 @@ func (v *searchView) renderRow(t transaction) app.UI {
 		renderExtensionsCell(t),
 		app.Td().Class("row-actions").Body(
 			pendingBadge(t.Pending),
-			v.renderProvenanceButton(t), // promoted from provenanceViewing
-			v.renderHistoryButton(t),    // promoted from historyViewing
+			v.renderRelationshipsButton(t), // promoted from relationshipsViewing
+			v.renderProvenanceButton(t),    // promoted from provenanceViewing
+			v.renderHistoryButton(t),       // promoted from historyViewing
 		),
 	)
 }

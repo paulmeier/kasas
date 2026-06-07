@@ -43,7 +43,7 @@ flowchart LR
         direction TB
         SYNC[Ingestion engine]
         DB[(SQLite / Postgres)]
-        CORE[["Core primitives<br/>labels · extensions · search<br/>rules · history"]]
+        CORE[["Core primitives<br/>labels · extensions · relationships<br/>search · rules · history"]]
         EV[(Canonical<br/>event stream)]
         SYNC --> DB --> CORE --> EV
     end
@@ -100,15 +100,17 @@ flowchart LR
 
     [:octicons-arrow-right-24: Data model](architecture/data-model.md)
 
--   :material-tag-multiple:{ .lg .middle } __Labels & extensions__
+-   :material-tag-multiple:{ .lg .middle } __Labels, extensions & relationships__
 
     ---
 
-    Strict `key:value` labels for categorization, plus arbitrary namespaced JSON
-    **extensions** any app can attach — no schema change required.
+    Strict `key:value` labels for categorization, arbitrary namespaced JSON
+    **extensions** any app can attach, and explicit **relationships** linking a
+    refund to its purchase or one leg of a transfer to the other.
 
     [:octicons-arrow-right-24: Labels](features/labels.md) ·
-    [Extensions](features/schema-extensions.md)
+    [Extensions](features/schema-extensions.md) ·
+    [Relationships](features/transaction-relationships.md)
 
 -   :material-magnify:{ .lg .middle } __Powerful search__
 

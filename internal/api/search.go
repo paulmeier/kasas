@@ -11,6 +11,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/extensions"
+	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/search"
 )
 
@@ -57,9 +58,13 @@ func (s *Server) searchTransactions(ctx context.Context, query *search.Query, li
 		return nil, 0, err
 	}
 
+	relIndex := buildRelationshipIndex(txns)
+
 	matched := make([]db.Transaction, 0)
 	for _, t := range txns {
-		if query.Match(toSearchRecord(t, names[t.AccountID])) {
+		rec := toSearchRecord(t, names[t.AccountID])
+		rec.Relationships = relIndex[t.ID]
+		if query.Match(rec) {
 			matched = append(matched, t)
 		}
 	}
@@ -119,6 +124,22 @@ func toSearchRecord(t db.Transaction, accountName string) search.Record {
 		Extensions:  searchExtensions(t.Extensions),
 		SyncedAt:    unixTime(t.SyncedAt),
 	}
+}
+
+// buildRelationshipIndex builds each transaction's full relationship neighborhood
+// for the search matcher (so rel: and related: can match), from the already-loaded
+// transaction set: each stored outbound edge contributes an outbound entry on its
+// subject and an inbound entry on its target. O(total edges); no extra query, since
+// search already holds every transaction.
+func buildRelationshipIndex(txns []db.Transaction) map[string][]search.Relationship {
+	idx := make(map[string][]search.Relationship)
+	for _, t := range txns {
+		for _, e := range relationships.Decode(t.Relationships) {
+			idx[t.ID] = append(idx[t.ID], search.Relationship{Kind: e.Kind, Target: e.Target, Direction: relationships.DirectionOutbound})
+			idx[e.Target] = append(idx[e.Target], search.Relationship{Kind: e.Kind, Target: t.ID, Direction: relationships.DirectionInbound})
+		}
+	}
+	return idx
 }
 
 // searchExtensions builds the search Record's extension map from a stored

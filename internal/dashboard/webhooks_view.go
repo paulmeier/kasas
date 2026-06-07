@@ -24,6 +24,8 @@ var webhookEventTypes = []string{
 	"transaction.created", "transaction.updated", "transaction.deleted",
 	"account.created", "account.updated",
 	"label.applied", "label.removed",
+	"extension.set", "extension.removed",
+	"relationship.created", "relationship.removed",
 	"rule.created", "rule.updated", "rule.deleted", "rule.executed",
 	"sync.completed",
 }

@@ -80,18 +80,19 @@ type SyncLog struct {
 }
 
 type Transaction struct {
-	ID          string `json:"id"`
-	AccountID   string `json:"account_id"`
-	Amount      string `json:"amount"`
-	Pending     int64  `json:"pending"`
-	Date        int64  `json:"date"`
-	Description string `json:"description"`
-	Payee       string `json:"payee"`
-	Memo        string `json:"memo"`
-	SyncedAt    int64  `json:"synced_at"`
-	Labels      string `json:"labels"`
-	Extensions  string `json:"extensions"`
-	Source      string `json:"source"`
+	ID            string `json:"id"`
+	AccountID     string `json:"account_id"`
+	Amount        string `json:"amount"`
+	Pending       int64  `json:"pending"`
+	Date          int64  `json:"date"`
+	Description   string `json:"description"`
+	Payee         string `json:"payee"`
+	Memo          string `json:"memo"`
+	SyncedAt      int64  `json:"synced_at"`
+	Labels        string `json:"labels"`
+	Extensions    string `json:"extensions"`
+	Source        string `json:"source"`
+	Relationships string `json:"relationships"`
 }
 
 type TransactionVersion struct {

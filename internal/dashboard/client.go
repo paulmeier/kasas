@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/paulmeier/kasas/internal/relationships"
 )
 
 // These structs mirror the subset of the kasas REST DTOs the dashboard needs
@@ -36,6 +38,18 @@ type transaction struct {
 	SyncedAt    time.Time                  `json:"synced_at"`
 	Labels      map[string]string          `json:"labels"`
 	Extensions  map[string]json.RawMessage `json:"extensions"`
+	// Relationships is this transaction's own OUTBOUND edges (the API inlines only
+	// these per row). Used for the row indicator and to build the inbound index for
+	// in-browser rel:/related: search; the full neighborhood is fetched on demand.
+	Relationships []relationships.Relationship `json:"relationships"`
+}
+
+// relationshipEdge mirrors api.RelationshipDTO: one edge in a transaction's
+// neighborhood (kind, direction outbound|inbound, and the other transaction's id).
+type relationshipEdge struct {
+	Kind               string `json:"kind"`
+	Direction          string `json:"direction"`
+	OtherTransactionID string `json:"other_transaction_id"`
 }
 
 type updateStatus struct {
@@ -447,6 +461,74 @@ func (c *apiClient) transactionHistory(ctx context.Context, id string) ([]versio
 		return nil, err
 	}
 	return out.Versions, nil
+}
+
+// transactionRelationships fetches one transaction's full relationship
+// neighborhood: its outbound edges plus the inbound edges of others targeting it.
+func (c *apiClient) transactionRelationships(ctx context.Context, id string) ([]relationshipEdge, error) {
+	var out struct {
+		Relationships []relationshipEdge `json:"relationships"`
+	}
+	if err := c.get(ctx, "/api/v1/transactions/"+url.PathEscape(id)+"/relationships", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Relationships, nil
+}
+
+// createTransactionRelationship asserts one outbound edge id --kind--> target.
+func (c *apiClient) createTransactionRelationship(ctx context.Context, id, kind, target string) error {
+	body, err := json.Marshal(map[string]string{"kind": kind, "target": target})
+	if err != nil {
+		return err
+	}
+	u := c.base + "/api/v1/transactions/" + url.PathEscape(id) + "/relationships"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return relationshipAPIError(resp, "create relationship")
+	}
+	return nil
+}
+
+// deleteTransactionRelationship removes the outbound edge id --kind--> target. To
+// drop an inbound edge, call this on the transaction that owns it (its subject).
+func (c *apiClient) deleteTransactionRelationship(ctx context.Context, id, kind, target string) error {
+	u := c.base + "/api/v1/transactions/" + url.PathEscape(id) + "/relationships" +
+		"?kind=" + url.QueryEscape(kind) + "&target=" + url.QueryEscape(target)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return relationshipAPIError(resp, "delete relationship")
+	}
+	return nil
+}
+
+// relationshipAPIError extracts the API's {"error":...} message from a failed
+// relationship request, falling back to the status code.
+func relationshipAPIError(resp *http.Response, op string) error {
+	var e struct {
+		Error string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if e.Error != "" {
+		return fmt.Errorf("%s", e.Error)
+	}
+	return fmt.Errorf("%s: status %d", op, resp.StatusCode)
 }
 
 // provenance mirrors provenance.Provenance: a transaction's read-only lineage — where

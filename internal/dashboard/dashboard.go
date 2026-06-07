@@ -58,10 +58,11 @@ func Routes() {
 // paginated transactions table.
 type dashboardView struct {
 	app.Compo
-	chrome            // shared sidebar + API client + version badge
-	labelEditing      // inline label editor (state + handlers), shared with the Search page
-	historyViewing    // per-transaction history modal, shared with the Search page
-	provenanceViewing // per-transaction provenance modal, shared with the Search page
+	chrome               // shared sidebar + API client + version badge
+	labelEditing         // inline label editor (state + handlers), shared with the Search page
+	historyViewing       // per-transaction history modal, shared with the Search page
+	provenanceViewing    // per-transaction provenance modal, shared with the Search page
+	relationshipsViewing // per-transaction relationships modal, shared with the Search page
 
 	accounts []account
 	byID     map[string]account // account id -> account, for name lookup
@@ -89,6 +90,7 @@ type dashboardView struct {
 func (v *dashboardView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx) // wires v.client, sidebar state, version badge
 	v.initLabelEditing()
+	v.initRelationshipsViewing()
 	v.fetchHistory = v.client.transactionHistory
 	v.fetchProvenance = v.client.transactionProvenance
 	v.pageSize = defaultPageSize
@@ -111,6 +113,18 @@ func (v *dashboardView) initLabelEditing() {
 	}
 	v.setLabels = v.client.setLabels
 	v.reportError = func(msg string) { v.errMsg = msg }
+}
+
+// initRelationshipsViewing wires the shared relationships modal to this view's
+// transaction set. It reuses txnByID (set by initLabelEditing) for the in-place
+// row-indicator refresh, so call it after initLabelEditing.
+func (v *dashboardView) initRelationshipsViewing() {
+	v.fetchRelationships = v.client.transactionRelationships
+	v.createRelationship = v.client.createTransactionRelationship
+	v.deleteRelationship = v.client.deleteTransactionRelationship
+	v.relAllTxns = func() []transaction { return v.txns }
+	v.relTxnByID = v.txnByID
+	v.relReportError = func(msg string) { v.errMsg = msg }
 }
 
 func originURL() string {
@@ -450,6 +464,7 @@ func (v *dashboardView) Render() app.UI {
 		v.renderFooter(),
 		v.renderHistoryModal(),
 		v.renderProvenanceModal(),
+		v.renderRelationshipsModal(),
 	)
 }
 
@@ -602,6 +617,7 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 		renderExtensionsCell(t),
 		app.Td().Class("row-actions").Body(
 			pendingBadge(t.Pending),
+			v.renderRelationshipsButton(t),
 			v.renderProvenanceButton(t),
 			v.renderHistoryButton(t),
 		),

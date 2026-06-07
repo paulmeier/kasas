@@ -118,6 +118,7 @@ nav:
       - Transaction Provenance: features/transaction-provenance.md
       - Labels: features/labels.md
       - Schema Extensions: features/schema-extensions.md
+      - Transaction Relationships: features/transaction-relationships.md
       - Search: features/search.md
       - Rules Engine: features/rules.md
       - Webhooks: features/webhooks.md

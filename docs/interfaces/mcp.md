@@ -49,6 +49,9 @@ corresponding REST route, so responses are identical.
     | `list_labels` | The [label](../features/labels.md) vocabulary with counts. |
     | `set_transaction_extensions` | Replace a transaction's [extensions](../features/schema-extensions.md). |
     | `list_extensions` | The extension vocabulary with counts. |
+    | `get_transaction_relationships` | One transaction's [relationships](../features/transaction-relationships.md) (outbound + inbound edges). |
+    | `create_transaction_relationship` · `delete_transaction_relationship` | Assert / remove a directed edge to another transaction. |
+    | `list_relationship_kinds` | The relationship-kind vocabulary with counts. |
 
 === "Rules"
 

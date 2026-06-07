@@ -101,6 +101,18 @@ type ExtensionPayload struct {
 	Value         json.RawMessage `json:"value,omitempty"`
 }
 
+// RelationshipPayload is the data for a relationship.created / relationship.removed
+// event. The event's entity is the SUBJECT transaction (EntityTransaction) — the
+// edge's "from" side, repeated here as TransactionID for convenience — and the edge
+// points at Target by Kind. Relationships are intentionally NOT folded into
+// TransactionPayload: an edge is not a field of one transaction's own state, so it
+// stays out of transaction snapshots, history versions, and their diffs.
+type RelationshipPayload struct {
+	TransactionID string `json:"transaction_id"`
+	Kind          string `json:"kind"`
+	Target        string `json:"target"`
+}
+
 // RulePayload is the snapshot embedded in rule.created / rule.updated /
 // rule.deleted events.
 type RulePayload struct {
