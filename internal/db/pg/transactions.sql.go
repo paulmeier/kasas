@@ -21,7 +21,7 @@ func (q *Queries) CountTransactions(ctx context.Context) (int64, error) {
 }
 
 const getTransaction = `-- name: GetTransaction :one
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
 WHERE id = $1
 `
 
@@ -40,6 +40,7 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 		&i.SyncedAt,
 		&i.Labels,
 		&i.Extensions,
+		&i.Source,
 	)
 	return i, err
 }
@@ -47,12 +48,12 @@ func (q *Queries) GetTransaction(ctx context.Context, id string) (Transaction, e
 const insertTransaction = `-- name: InsertTransaction :execrows
 INSERT INTO transactions (
     id, account_id, amount, pending, date, description, payee, memo, synced_at,
-    labels, extensions
+    source, labels, extensions
 )
 VALUES (
     $1, $2, $3, $4,
     $5, $6, $7, $8,
-    $9, '{}', '{}'
+    $9, $10, '{}', '{}'
 )
 ON CONFLICT (id) DO NOTHING
 `
@@ -67,13 +68,16 @@ type InsertTransactionParams struct {
 	Payee       string `json:"payee"`
 	Memo        string `json:"memo"`
 	SyncedAt    int64  `json:"synced_at"`
+	Source      string `json:"source"`
 }
 
 // transactions.id is the SimpleFIN transaction ID, so re-syncing the same
 // transaction is a no-op. This keeps polling idempotent. labels and extensions
 // are written as explicit empty objects so new rows never depend on the column
 // default (SQLite can't cheaply change a STRICT table's default; see the 00003
-// and 00009 migrations).
+// and 00009 migrations). source is the provenance of the row (which ingestion
+// path produced it) and is a bound argument, not a literal, so a future bridge
+// stamps its own; the poller passes "simplefin".
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, insertTransaction,
 		arg.ID,
@@ -85,6 +89,7 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		arg.Payee,
 		arg.Memo,
 		arg.SyncedAt,
+		arg.Source,
 	)
 	if err != nil {
 		return 0, err
@@ -171,7 +176,7 @@ func (q *Queries) ListLabeledTransactions(ctx context.Context) ([]ListLabeledTra
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
 WHERE (date >= $1 OR $1 = 0)
   AND (date <= $2 OR $2 = 0)
 ORDER BY date DESC, id
@@ -214,6 +219,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.SyncedAt,
 			&i.Labels,
 			&i.Extensions,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -229,7 +235,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByAccount = `-- name: ListTransactionsByAccount :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
 WHERE account_id = $1
   AND (date >= $2 OR $2 = 0)
   AND (date <= $3 OR $3 = 0)
@@ -272,6 +278,7 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 			&i.SyncedAt,
 			&i.Labels,
 			&i.Extensions,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -333,9 +340,10 @@ type UpdateTransactionFromSyncParams struct {
 }
 
 // Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
-// pending charge that has now posted, or a corrected amount). labels is
-// intentionally NOT in the SET list, so user labels are never clobbered. The
-// poller calls this only when InsertTransaction reports the row already existed
+// pending charge that has now posted, or a corrected amount). labels, extensions,
+// and source are intentionally NOT in the SET list: user metadata is never
+// clobbered, and source is immutable provenance set once at insert. The poller
+// calls this only when InsertTransaction reports the row already existed
 // (ON CONFLICT DO NOTHING affected 0 rows).
 func (q *Queries) UpdateTransactionFromSync(ctx context.Context, arg UpdateTransactionFromSyncParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTransactionFromSync,

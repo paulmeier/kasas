@@ -91,6 +91,7 @@ type Transaction struct {
 	SyncedAt    int64  `json:"synced_at"`
 	Labels      string `json:"labels"`
 	Extensions  string `json:"extensions"`
+	Source      string `json:"source"`
 }
 
 type TransactionVersion struct {

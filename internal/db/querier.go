@@ -79,7 +79,9 @@ type Querier interface {
 	// transaction is a no-op. This keeps polling idempotent. labels and extensions
 	// are written as explicit empty objects so new rows never depend on the column
 	// default (SQLite can't cheaply change a STRICT table's default; see the 00003
-	// and 00009 migrations).
+	// and 00009 migrations). source is the provenance of the row (which ingestion
+	// path produced it) and is a bound argument, not a literal, so a future bridge
+	// stamps its own; the poller passes "simplefin".
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (int64, error)
 	// Appends one immutable snapshot to a transaction's history. The generated id
 	// (insert order) and the stored row are returned. There is no per-transaction
@@ -165,9 +167,10 @@ type Querier interface {
 	// affected). The poller never touches extensions, so this is the only writer.
 	UpdateTransactionExtensions(ctx context.Context, arg UpdateTransactionExtensionsParams) (int64, error)
 	// Refreshes the bridge-owned fields of an existing transaction on re-sync (e.g. a
-	// pending charge that has now posted, or a corrected amount). labels is
-	// intentionally NOT in the SET list, so user labels are never clobbered. The
-	// poller calls this only when InsertTransaction reports the row already existed
+	// pending charge that has now posted, or a corrected amount). labels, extensions,
+	// and source are intentionally NOT in the SET list: user metadata is never
+	// clobbered, and source is immutable provenance set once at insert. The poller
+	// calls this only when InsertTransaction reports the row already existed
 	// (ON CONFLICT DO NOTHING affected 0 rows).
 	UpdateTransactionFromSync(ctx context.Context, arg UpdateTransactionFromSyncParams) (int64, error)
 	// Replaces the whole label set for one transaction. labels is a JSON object of

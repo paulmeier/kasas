@@ -63,6 +63,7 @@ corresponding REST route, so responses are identical.
     | --- | --- |
     | `list_events` | Read the [event stream](../features/event-stream.md): cursor `after`, filter by `type`/`entity_type`/`entity_id`. |
     | `get_transaction_history` | One transaction's [version history](../features/transaction-history.md) with diffs. |
+    | `get_transaction_provenance` | One transaction's [provenance](../features/transaction-provenance.md): source, identity, and its transformation lineage. |
 
 === "Sync"
 

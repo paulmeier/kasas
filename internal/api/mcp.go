@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/paulmeier/kasas/internal/extensions"
+	"github.com/paulmeier/kasas/internal/provenance"
 	"github.com/paulmeier/kasas/internal/rules"
 )
 
@@ -92,6 +93,11 @@ func (s *Server) MCPServer() *mcp.Server {
 		Name:        "get_transaction_history",
 		Description: "Get the immutable version history of one transaction: an ordered list of full snapshots (v1 imported, then synced or labeled changes), each with a diff against the previous version. Answers why a transaction looks different now than it did before. Returns an empty list for a transaction that has not changed since history began.",
 	}, s.mcpGetTransactionHistory)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_transaction_provenance",
+		Description: "Get one transaction's provenance: where it came from and how it reached its current state. Returns the source (ingestion path, e.g. simplefin), the upstream source_transaction_id, the account and institution, when it was first imported and last seen, and an ordered list of transformations (imported, synced, labeled, extended), each with a one-line summary. A read-only lineage view derived from the ledger; it mirrors get_transaction_history but as an origin summary rather than full snapshots.",
+	}, s.mcpGetTransactionProvenance)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_organizations",
@@ -285,6 +291,10 @@ type getTransactionHistoryInput struct {
 	TransactionID string `json:"transaction_id" jsonschema:"the id of the transaction whose history to fetch"`
 }
 
+type getTransactionProvenanceInput struct {
+	TransactionID string `json:"transaction_id" jsonschema:"the id of the transaction whose provenance to fetch"`
+}
+
 type listOrganizationsOutput struct {
 	Organizations []OrganizationDTO `json:"organizations"`
 }
@@ -472,6 +482,21 @@ func (s *Server) mcpGetTransactionHistory(ctx context.Context, _ *mcp.CallToolRe
 		return nil, HistoryDTO{}, err
 	}
 	return &mcp.CallToolResult{}, buildHistory(txn, rows), nil
+}
+
+func (s *Server) mcpGetTransactionProvenance(ctx context.Context, _ *mcp.CallToolRequest, in getTransactionProvenanceInput) (*mcp.CallToolResult, provenance.Provenance, error) {
+	txn, err := s.store.GetTransaction(ctx, in.TransactionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, provenance.Provenance{}, fmt.Errorf("transaction %q not found", in.TransactionID)
+	}
+	if err != nil {
+		return nil, provenance.Provenance{}, err
+	}
+	prov, err := s.buildProvenance(ctx, txn)
+	if err != nil {
+		return nil, provenance.Provenance{}, err
+	}
+	return &mcp.CallToolResult{}, prov, nil
 }
 
 func (s *Server) mcpListOrganizations(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listOrganizationsOutput, error) {

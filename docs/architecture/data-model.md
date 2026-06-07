@@ -40,6 +40,7 @@ erDiagram
         text payee
         text memo
         int  synced_at
+        text source "ingestion path"
         text labels "JSON object"
         text extensions "JSON object"
     }
@@ -74,7 +75,7 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
 | --- | --- | --- |
 | `organizations` | Derived | Financial institutions seen via SimpleFIN. |
 | `accounts` | Derived | Your accounts: balance, currency, last-synced time. |
-| `transactions` | Derived + yours | The ledger. Bridge fields are refreshed each sync; `labels` and `extensions` are yours and never overwritten. |
+| `transactions` | Derived + yours | The ledger. Bridge fields are refreshed each sync; `labels`, `extensions`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. |
 | `sync_log` | Record | One row per [sync run](../features/sync.md): start, finish, status, error. |
 | `rules` | Yours | [Auto-labeling rules](../features/rules.md): a query + labels to apply. |
 | `events` | Record | The append-only [event stream](../features/event-stream.md). |
@@ -93,6 +94,11 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
     - **`labels` and `extensions` are JSON columns** on `transactions` — a
       `key:value` string map and an arbitrary namespaced JSON map respectively
       (see [Labels](../features/labels.md) vs [Extensions](../features/schema-extensions.md)).
+    - **`source` records ingestion provenance** — which path produced the row,
+      stamped at insert and never overwritten. Everything else a transaction's
+      [provenance](../features/transaction-provenance.md) reports is *derived* on
+      read from the row, its organization, and its `transaction_versions`; `source`
+      is the one fact that can't be, so it's the one stored field.
     - **SQLite tables are `STRICT`**, so adding a `NOT NULL` column requires a
       constant default — which is why `labels`/`extensions` defaulted in via
       `ALTER TABLE`.

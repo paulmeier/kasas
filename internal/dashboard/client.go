@@ -449,6 +449,37 @@ func (c *apiClient) transactionHistory(ctx context.Context, id string) ([]versio
 	return out.Versions, nil
 }
 
+// provenance mirrors provenance.Provenance: a transaction's read-only lineage — where
+// it came from (source, upstream id, account, institution), when it was first and
+// last seen, and the ordered transformations it has undergone.
+type provenance struct {
+	TransactionID       string           `json:"transaction_id"`
+	Source              string           `json:"source"`
+	SourceTransactionID string           `json:"source_transaction_id"`
+	AccountID           string           `json:"account_id"`
+	Institution         string           `json:"institution"`
+	ImportedAt          time.Time        `json:"imported_at"`
+	LastSeen            time.Time        `json:"last_seen"`
+	Transformations     []transformation `json:"transformations"`
+}
+
+// transformation mirrors provenance.Transformation: one change in a transaction's
+// lineage with a compact human-readable summary.
+type transformation struct {
+	Kind       string    `json:"kind"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Summary    string    `json:"summary"`
+}
+
+// transactionProvenance fetches one transaction's provenance.
+func (c *apiClient) transactionProvenance(ctx context.Context, id string) (provenance, error) {
+	var out provenance
+	if err := c.get(ctx, "/api/v1/transactions/"+url.PathEscape(id)+"/provenance", nil, &out); err != nil {
+		return provenance{}, err
+	}
+	return out, nil
+}
+
 // webhook mirrors api.WebhookDTO: a registered delivery endpoint plus the health of
 // its most recent delivery. Secret is populated only by create, get, and rotate.
 type webhook struct {

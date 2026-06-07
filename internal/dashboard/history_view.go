@@ -198,6 +198,8 @@ func changeKindClass(kind string) string {
 		return "chg-synced"
 	case "labeled":
 		return "chg-labeled"
+	case "extended":
+		return "chg-extended"
 	default:
 		return ""
 	}
