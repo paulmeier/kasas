@@ -60,6 +60,27 @@ Around those sit the everyday building blocks — [labels](../features/labels.md
 [transaction history](../features/transaction-history.md) — each available
 identically across [every surface](overview.md#three-surfaces-one-core).
 
+## AI is a first-class citizen
+
+An AI agent is not a bolted-on feature or a read-only window onto kasas — it is a
+**first-class client**, equal to any app or human operator. The
+[MCP server](../interfaces/mcp.md) exposes the *whole* ledger as tools, at full
+parity with the REST API: an agent can search and label transactions, write and
+run [rules](../features/rules.md), enter transactions by hand, read the event
+stream and immutable history, and administer webhooks, API keys, and plugins.
+Anything a person can do from the dashboard, an agent can do through a tool call —
+backed by the [same core logic and identical response shapes](overview.md#three-surfaces-one-core),
+never a reduced or separate API.
+
+This is a deliberate consequence of the thesis. A ledger that can power *all kinds
+of apps* has to count agents among them — so the restraint that keeps kasas
+unopinionated for human apps is the same restraint that makes it legible to
+machines. Amounts are exact decimal strings an agent never has to second-guess,
+every change is a [structured event](../features/event-stream.md) it can react to,
+and [search](../features/search.md) is a real query language rather than a fixed
+set of filters. kasas was built to be **driven by software** — and that software,
+increasingly, reasons.
+
 ## Design principles
 
 These show up again and again in the internals.
