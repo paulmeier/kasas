@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.0](https://github.com/paulmeier/kasas/compare/v2.13.1...v2.14.0) (2026-06-07)
+
+
+### Features
+
+* split the dashboard into Transactions and Accounts pages ([#66](https://github.com/paulmeier/kasas/issues/66)) ([4eab536](https://github.com/paulmeier/kasas/commit/4eab5368b3f93aa4cb949b086f2b0f6dfd00b47d))
+
 ## [2.13.1](https://github.com/paulmeier/kasas/compare/v2.13.0...v2.13.1) (2026-06-07)
 
 
