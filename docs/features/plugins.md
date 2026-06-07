@@ -80,7 +80,7 @@ sequenceDiagram
 
     Bus->>M: event committed
     M->>M: find plugins whose hooks match the type
-    M->>Q: enqueue HookEvent (non-blocking; drop if full)
+    M->>Q: enqueue HookEvent (non-blocking — drop if full)
     Q->>VM: Invoke(hook, event) — per-hook timeout
     VM->>Host: kasas.apply_labels(id, {...})
     Host->>Host: capability check (labels:write)

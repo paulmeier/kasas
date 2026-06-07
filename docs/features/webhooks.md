@@ -27,7 +27,7 @@ sequenceDiagram
     Bus->>D: event committed
     D->>DB: load enabled webhooks
     loop each webhook matching the event type
-        D->>W: enqueue (non-blocking; drop if queue full)
+        D->>W: enqueue (non-blocking — drop if queue full)
     end
     loop attempts 1..max_attempts
         W->>EP: POST event + HMAC signature
