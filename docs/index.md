@@ -20,15 +20,16 @@ hide:
 [REST API :material-api:](interfaces/rest-api.md){ .md-button }
 </div>
 
-kasas is a **self-hosted, single-binary** Go service that syncs your
-[SimpleFIN](https://www.simplefin.org/) financial data into a local **SQLite**
-(or **Postgres**) database and turns it into a programmable substrate: a **REST
+kasas is a **self-hosted, single-binary** Go service that ingests your financial
+data through **pluggable [sources](architecture/ingestion.md)** —
+[SimpleFIN](https://www.simplefin.org/) today — into a local **SQLite** (or
+**Postgres**) database and turns it into a programmable substrate: a **REST
 API**, a built-in **[MCP](https://modelcontextprotocol.io/) server**, a canonical
 **event stream**, outbound **webhooks**, and sandboxed **plugins**.
 
 It is deliberately **not** another Mint, budgeting app, or financial planner. It
 is the **ledger those apps are built on** — and a lot more. kasas owns the boring,
-load-bearing parts (connecting to your bank, deduping and refreshing
+load-bearing parts (connecting to your accounts, deduping and refreshing
 transactions, a durable history of every change, an extensible metadata model)
 so that anything you or anyone else builds on top — budgeting, tax, fraud
 detection, forecasting, notifications, dashboards, AI agents — starts from clean,
@@ -36,18 +37,18 @@ queryable, event-driven data.
 
 ```mermaid
 flowchart LR
-    SF([SimpleFIN bridge]):::ext
+    SRC([Sources · SimpleFIN today]):::ext
 
     subgraph K["kasas — the ledger"]
         direction TB
-        SYNC[Sync engine]
+        SYNC[Ingestion engine]
         DB[(SQLite / Postgres)]
         CORE[["Core primitives<br/>labels · extensions · search<br/>rules · history"]]
         EV[(Canonical<br/>event stream)]
         SYNC --> DB --> CORE --> EV
     end
 
-    SF -->|poll| SYNC
+    SRC -->|ingest| SYNC
 
     K --> REST[REST API]
     K --> MCP[MCP server]
@@ -71,12 +72,22 @@ flowchart LR
 
 <div class="grid cards" markdown>
 
+-   :material-power-plug:{ .lg .middle } __Pluggable sources__
+
+    ---
+
+    A source SDK normalizes any provider into one neutral shape; a generic engine
+    persists it. **SimpleFIN** is the first, first-party source.
+
+    [:octicons-arrow-right-24: Ingestion & sources](architecture/ingestion.md)
+
 -   :material-sync:{ .lg .middle } __Automatic sync__
 
     ---
 
-    A background scheduler polls SimpleFIN, inserts new transactions by id, and
-    refreshes bridge-owned fields — while **always preserving your labels**.
+    A background scheduler polls the configured source, inserts new transactions
+    by id, and refreshes source-owned fields — while **always preserving your
+    labels**.
 
     [:octicons-arrow-right-24: Sync pipeline](features/sync.md)
 

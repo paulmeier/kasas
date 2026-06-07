@@ -1,6 +1,10 @@
 # Quick Start
 
-Get kasas running, connected to your bank, and syncing in about a minute.
+Get kasas running, connected to your accounts, and syncing in about a minute.
+
+kasas ingests through [pluggable sources](../architecture/ingestion.md);
+**[SimpleFIN](https://www.simplefin.org/)** is the first and the one this guide
+uses.
 
 ## Prerequisites
 

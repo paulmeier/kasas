@@ -1,8 +1,9 @@
 site_name: kasas
 site_description: >-
-  kasas is a financial ledger that can power all kinds of apps — it syncs your
-  SimpleFIN data into SQLite or Postgres and exposes it over a REST API, an MCP
-  server, a canonical event stream, webhooks, and sandboxed plugins.
+  kasas is a financial ledger that can power all kinds of apps — it ingests your
+  financial data through pluggable sources (SimpleFIN today) into SQLite or
+  Postgres and exposes it over a REST API, an MCP server, a canonical event
+  stream, webhooks, and sandboxed plugins.
 site_url: https://paulmeier.github.io/kasas/
 site_author: Paul Meier
 
@@ -108,6 +109,7 @@ nav:
   - Architecture:
       - Philosophy: architecture/philosophy.md
       - System Overview: architecture/overview.md
+      - Ingestion & Sources: architecture/ingestion.md
       - Data Model: architecture/data-model.md
   - Features:
       - Sync Pipeline: features/sync.md

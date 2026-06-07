@@ -1,9 +1,10 @@
 # System Overview
 
 kasas is one Go process. Inside it, a handful of focused packages wire together
-into a pipeline: data comes in from SimpleFIN, lands in a database, and is served
-out over several surfaces — with a canonical event stream threaded through the
-middle so changes can fan out to consumers.
+into a pipeline: data comes in through a [pluggable source](ingestion.md)
+(SimpleFIN today), lands in a database, and is served out over several surfaces —
+with a canonical event stream threaded through the middle so changes can fan out
+to consumers.
 
 ## Components
 
@@ -21,7 +22,10 @@ flowchart TB
         SEC[vault / secrets<br/>store]:::infra
 
         subgraph ingest["Ingest"]
-            POLL[poller<br/>SimpleFIN client + gocron]
+            direction TB
+            SRC[source<br/>SimpleFIN: bridge client]
+            POLL[poller<br/>ingestion engine + gocron]
+            SRC -->|ImportBatch| POLL
         end
 
         STORE[(db.Store<br/>SQLite · Postgres)]:::data
@@ -54,7 +58,7 @@ flowchart TB
 
     APPS([Your apps & agents]):::apps
 
-    SF -->|poll| POLL
+    SF -->|fetch| SRC
     POLL --> STORE
     POLL -. emit .-> EMIT
     API --> STORE
@@ -68,7 +72,7 @@ flowchart TB
     PL -. writes .-> EMIT
     SEC -.-> VAULT
     AUTH --- SEC
-    POLL --- SEC
+    SRC --- SEC
     API --> APPS
     WH --> APPS
     PL --> APPS
@@ -86,7 +90,9 @@ flowchart TB
 | `internal/config` | Loads configuration from TOML + environment (viper), with defaults and validation. |
 | `internal/vault` | Secret store: SimpleFIN access URL + dashboard token, in Vault KV v2 or a local `0600` file. |
 | `internal/auth`, `internal/apikeys` | The dashboard-token guard and scoped API keys behind the three [auth tiers](../interfaces/authentication.md). |
-| `internal/poller` | The [sync pipeline](../features/sync.md): the SimpleFIN HTTP client plus a `gocron` scheduler. |
+| `internal/source` | The [ingestion SDK](ingestion.md): the neutral `ImportBatch`, the source capability interfaces, and the self-registration registry. |
+| `internal/sources/*` | The built-in [sources](ingestion.md) — `simplefin` today: a provider client that normalizes data into an `ImportBatch`. |
+| `internal/poller` | The [ingestion engine](../features/sync.md): a `gocron` scheduler driving the configured source, plus the transactional persist. |
 | `internal/db` | The `Store` abstraction over [SQLite and Postgres](data-model.md), with sqlc-generated queries. |
 | `internal/events` | The [event stream](../features/event-stream.md): the transactional `Emitter` and the in-memory `Bus`. |
 | `internal/search`, `rules`, `labels`, `extensions` | Pure, dependency-light logic reused across every surface. |

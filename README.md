@@ -18,26 +18,27 @@
 
 ---
 
-kasas is a self-hosted, single-binary Go service that syncs your
-[SimpleFIN](https://www.simplefin.org/) financial data into a local **SQLite** (or
-**Postgres**) database and turns it into a programmable substrate: a **REST API**, a
-built-in **[MCP](https://modelcontextprotocol.io/) server**, a canonical **event
-stream**, outbound **webhooks**, and sandboxed **plugins**.
+kasas is a self-hosted, single-binary Go service that ingests your financial data
+through **pluggable sources** — [SimpleFIN](https://www.simplefin.org/) today —
+into a local **SQLite** (or **Postgres**) database and turns it into a programmable
+substrate: a **REST API**, a built-in **[MCP](https://modelcontextprotocol.io/)
+server**, a canonical **event stream**, outbound **webhooks**, and sandboxed
+**plugins**.
 
 It is deliberately **not** another Mint, budgeting app, or financial planner. It's
 the **ledger those apps are built on.** kasas owns the boring, load-bearing parts —
-connecting to your bank, deduping and refreshing transactions, a durable history of
-every change, an extensible metadata model — so anything you build on top
-(budgeting, tax, fraud detection, forecasting, notifications, AI agents) starts
+connecting to your accounts, deduping and refreshing transactions, a durable
+history of every change, an extensible metadata model — so anything you build on
+top (budgeting, tax, fraud detection, forecasting, notifications, AI agents) starts
 from clean, queryable, event-driven data.
 
 ```mermaid
 flowchart LR
-    SF([SimpleFIN bridge]) -->|poll| K
+    SRC([Sources · SimpleFIN today]) -->|ingest| K
 
     subgraph K[kasas — the ledger]
         direction TB
-        SYNC[Sync engine] --> DB[(SQLite / Postgres)]
+        SYNC[Ingestion engine] --> DB[(SQLite / Postgres)]
         DB --> CORE[labels · extensions · search · rules · history]
         CORE --> EV[(Canonical event stream)]
     end
@@ -58,9 +59,14 @@ flowchart LR
 
 - **Backbone, not app.** Unopinionated about the application layer, so the
   application layer can be anything — yours and everyone else's.
-- **The data you add is sacred.** A sync refreshes what the bank owns and **never**
-  touches your labels or extensions. Every change is a fact, recorded as a durable
-  event and an immutable history snapshot in the *same* transaction as the change.
+- **Source-agnostic by design.** Data arrives through pluggable
+  [sources](https://paulmeier.github.io/kasas/architecture/ingestion/) — SimpleFIN
+  today — that normalize a provider into one neutral shape; a generic ingestion
+  engine owns the rest. New sources plug into the *same* contract.
+- **The data you add is sacred.** A sync refreshes what the source owns and
+  **never** touches your labels or extensions. Every change is a fact, recorded as
+  a durable event and an immutable history snapshot in the *same* transaction as
+  the change.
 - **Build through real seams.** An [event stream](https://paulmeier.github.io/kasas/features/event-stream/),
   [webhooks](https://paulmeier.github.io/kasas/features/webhooks/),
   [plugins](https://paulmeier.github.io/kasas/features/plugins/), and
@@ -72,7 +78,8 @@ flowchart LR
 
 | | |
 | --- | --- |
-| 🔄 **[Automatic sync](https://paulmeier.github.io/kasas/features/sync/)** | Scheduled SimpleFIN polling; inserts new transactions, refreshes bridge fields, preserves your labels. |
+| 🔌 **[Pluggable sources](https://paulmeier.github.io/kasas/architecture/ingestion/)** | A source SDK normalizes any provider into one neutral shape; a generic engine persists it. SimpleFIN is the first, first-party source. |
+| 🔄 **[Automatic sync](https://paulmeier.github.io/kasas/features/sync/)** | Scheduled polling of the configured source; inserts new transactions, refreshes source-owned fields, preserves your labels. |
 | 🗄️ **[SQLite or Postgres](https://paulmeier.github.io/kasas/architecture/data-model/)** | Zero-dependency embedded SQLite by default, or Postgres with one config change. Same binary, no CGO. |
 | 🏷️ **[Labels & extensions](https://paulmeier.github.io/kasas/features/labels/)** | Strict `key:value` labels, plus arbitrary namespaced JSON extensions any app can attach — no schema change. |
 | 🔎 **[Search](https://paulmeier.github.io/kasas/features/search/)** | One query language over every field and label/extension combo, with `AND`/`OR`/`NOT`, ranges, and grouping. |
@@ -120,8 +127,9 @@ reference for every feature and surface — lives at
 
 ## Contributing
 
-See **[CONTRIBUTING.md](CONTRIBUTING.md)** for local development, testing (including
-the gated Postgres integration test), regenerating sqlc code, and the
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for local development, how to build and
+test each area (including [adding an ingestion source](CONTRIBUTING.md#adding-an-ingestion-source)
+and the gated Postgres integration test), regenerating sqlc code, and the
 Conventional-Commits / release-please flow. CI — gofmt, lint, race tests against
 SQLite *and* Postgres, and a build stage — must pass on every PR.
 

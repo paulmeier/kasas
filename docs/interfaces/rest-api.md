@@ -2,7 +2,7 @@
 
 The REST API is the primary programmatic surface. All responses are JSON;
 timestamps are RFC 3339 (UTC); money fields are exact decimal strings exactly as
-SimpleFIN returns them. Every route is gated by an
+the source returns them. Every route is gated by an
 [auth tier](authentication.md) — `read`, `write`, or `admin` — and all tiers are
 open when no token is configured.
 

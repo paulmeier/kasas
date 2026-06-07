@@ -103,6 +103,70 @@ The seeder (`scripts/seed`) is a small Go program: it reads `config.toml`,
 applies migrations, and upserts fixtures (transaction dates are relative to now,
 so the data always looks current). It works against SQLite or Postgres.
 
+## Adding an ingestion source
+
+kasas is **source-agnostic**. A *source* talks to one provider and normalizes its
+data into a neutral `source.ImportBatch`; the generic ingestion engine
+(`internal/poller`) owns scheduling, the transactional persist, dedup, events,
+rules, and history. A source never touches the database, so the engine's
+guarantees hold for every source for free. SimpleFIN (`internal/sources/simplefin`)
+is the reference implementation — copy its shape. Background:
+[Ingestion & Sources](https://paulmeier.github.io/kasas/architecture/ingestion/).
+
+**1. Implement the source.** Add `internal/sources/<name>/`. Implement
+`source.Source` (its `Descriptor()`) plus the capability interface for your
+archetype — `source.Puller` for a scheduled pull, the common case:
+
+```go
+package mysource
+
+const SourceType = "mysource"
+
+func (s *Source) Descriptor() source.Descriptor {
+    return source.Descriptor{Type: SourceType, Archetype: source.ArchetypePull, Title: "My Source"}
+}
+
+// Fetch normalizes the provider's data into the engine's neutral batch: map each
+// row to source.ImportTxn (universal fields only — provider-specific richness goes
+// in ImportTxn.Extensions) and stamp batch.Source = SourceType.
+func (s *Source) Fetch(ctx context.Context, since time.Time, cursor string) (*source.ImportBatch, error) { … }
+
+var _ source.Puller = (*Source)(nil) // + source.Credentialed if it has a runtime credential
+```
+
+**2. Register it.** Self-register in an `init()` so importing the package wires it
+in:
+
+```go
+func init() {
+    source.Register(descriptor(), func(env source.Env) (source.Source, error) {
+        return New(/* read env.Opt("…") and env.Secrets */), nil
+    })
+}
+```
+
+**3. Wire it in.** Import the package from `cmd/kasas` and select it via
+`source.New(<type>, env)`. SimpleFIN is hard-wired there today; until source
+selection is configurable, swap the type at that call. **No engine changes are
+needed.**
+
+**Build:** `make build` — a source compiles into the binary like any package.
+
+**Test:** unit-test the mapping and fetch in your package, modeled on
+[`internal/sources/simplefin/simplefin_test.go`](https://github.com/paulmeier/kasas/blob/main/internal/sources/simplefin/simplefin_test.go)
+(`TestToImportBatch`, `TestFetch`, `TestRegisteredAndConstructable`). You do **not**
+re-test persistence, dedup, or events — those are the engine's, covered by
+`internal/poller`'s tests. Exercise just your source:
+
+```sh
+go test ./internal/sources/<name>/
+```
+
+> `Puller` and `Credentialed` ship today. The `file`, `webhook`, `manual`, and
+> `enrichment` archetypes are reserved in `internal/source`; their capability
+> interfaces land there as each is built, and because capabilities are independent,
+> adding one never disturbs existing sources.
+
 ## Database changes (migrations + sqlc)
 
 Schema lives in `migrations/sqlite/` and `migrations/postgres/` (goose); queries
@@ -140,6 +204,30 @@ re-run `make wasm`, and refresh.
 so it won't fail with "address already in use" when a previous server is still
 bound. The port is read from `$KASAS_SERVER_ADDR` or `[server].addr` in
 `config.toml` (default 8080); override it with `make run PORT=9000`.
+
+## Building & testing each area
+
+Everything compiles into the one binary (`make build`) and is tested with
+`go test`. This maps each feature to where it lives and how to exercise *just* it —
+a fast inner loop while you work on one thing; `make test` still runs the whole
+suite. Areas with their own workflow (database, dashboard) link to the sections
+above.
+
+| Area | Package(s) | Build | Test just it |
+| --- | --- | --- | --- |
+| **Ingestion sources** | `internal/source`, `internal/sources/*` | `make build` | `go test ./internal/sources/...` — and [Adding a source](#adding-an-ingestion-source) |
+| **Ingestion engine** (sync) | `internal/poller` | `make build` | `go test ./internal/poller/` |
+| **Search · rules · labels · extensions** | `internal/{search,rules,labels,extensions}` | `go build ./...` | `go test ./internal/search/ ./internal/rules/ ./internal/labels/ ./internal/extensions/` (no DB) |
+| **Events & history** | `internal/events` | `make build` | `go test ./internal/events/` |
+| **Provenance** | `internal/provenance` | `make build` | `go test ./internal/provenance/` |
+| **Webhooks** | `internal/webhooks` | `make build` | `go test ./internal/webhooks/` |
+| **Plugins** (Lua) | `internal/plugins` | `make build` | `go test ./internal/plugins/` |
+| **REST + MCP** | `internal/api` | `make build` | `go test ./internal/api/` |
+| **Dashboard** (WASM) | `internal/dashboard`, `cmd/kasas-wasm` | `make wasm` (see [Dashboard](#dashboard-webassembly)) | `go test ./internal/dashboard/` |
+| **Database & migrations** | `internal/db`, `migrations/`, `queries/` | `make generate` then `make build` | `go test ./internal/db/` (Postgres needs a DSN — see [Testing](#testing)) |
+
+Anything that changes behaviour should land with a test, and run clean under the
+race detector the way CI does: `go test -race ./internal/<pkg>/`.
 
 ## Testing
 
