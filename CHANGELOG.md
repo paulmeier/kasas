@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.1](https://github.com/paulmeier/kasas/compare/v2.14.0...v2.14.1) (2026-06-07)
+
+
+### Documentation
+
+* replace README architecture diagram with an embedded dashboard demo ([#68](https://github.com/paulmeier/kasas/issues/68)) ([4bf8662](https://github.com/paulmeier/kasas/commit/4bf8662dd2bf9d301f9467e82f357fee15ada5b8))
+
 ## [2.14.0](https://github.com/paulmeier/kasas/compare/v2.13.1...v2.14.0) (2026-06-07)
 
 
