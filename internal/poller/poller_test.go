@@ -2,10 +2,7 @@ package poller
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"sync"
+	"errors"
 	"testing"
 	"time"
 
@@ -14,42 +11,78 @@ import (
 
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/source"
 	"github.com/paulmeier/kasas/internal/testutil"
-	"github.com/paulmeier/kasas/internal/vault"
 )
 
-// refreshBody1/2 describe the same transaction (txn-1) across two syncs: it starts
-// pending with one amount, then posts with a corrected amount. Used to verify a
-// re-sync refreshes bridge fields while preserving user labels.
-const refreshBody1 = `{"errors":[],"accounts":[{"org":{"domain":"mybank.com","name":"My Bank","sfin-url":"https://sfin.mybank.com"},"id":"acct-1","name":"Checking","currency":"USD","balance":"100.00","balance-date":1700000000,"transactions":[{"id":"txn-1","posted":1699990000,"amount":"-10.00","description":"Pending coffee","payee":"Cafe","pending":true}]}]}`
+// fakeSource is a source.Puller that returns a canned batch (or error). It lets
+// the engine tests exercise persist behaviour without any provider or HTTP — the
+// whole point of the source seam is that the engine is provider-agnostic.
+type fakeSource struct {
+	batch *source.ImportBatch
+	err   error
+}
 
-const refreshBody2 = `{"errors":[],"accounts":[{"org":{"domain":"mybank.com","name":"My Bank","sfin-url":"https://sfin.mybank.com"},"id":"acct-1","name":"Checking","currency":"USD","balance":"100.00","balance-date":1700000000,"transactions":[{"id":"txn-1","posted":1699990000,"amount":"-12.34","description":"Coffee","payee":"Cafe","pending":false}]}]}`
+func (f *fakeSource) Descriptor() source.Descriptor {
+	return source.Descriptor{Type: "fake", Archetype: source.ArchetypePull, Title: "Fake"}
+}
 
-const sampleAccounts = `{
-  "errors": [],
-  "accounts": [
-    {
-      "org": {"domain": "mybank.com", "name": "My Bank", "sfin-url": "https://sfin.mybank.com"},
-      "id": "acct-1",
-      "name": "Checking",
-      "currency": "USD",
-      "balance": "1234.56",
-      "balance-date": 1700000000,
-      "transactions": [
-        {"id": "txn-1", "posted": 1699990000, "amount": "-12.34", "description": "Coffee", "payee": "Cafe", "pending": false},
-        {"id": "txn-2", "posted": 1699995000, "amount": "-56.78", "description": "Books", "payee": "Store", "memo": "gift", "pending": true}
-      ]
-    }
-  ]
-}`
+func (f *fakeSource) Fetch(context.Context, time.Time, string) (*source.ImportBatch, error) {
+	return f.batch, f.err
+}
+
+// bareSource implements source.Source only (no Puller, no Credentialed).
+type bareSource struct{}
+
+func (bareSource) Descriptor() source.Descriptor {
+	return source.Descriptor{Type: "bare", Archetype: source.ArchetypeManual}
+}
+
+// sampleBatch mirrors the canonical two-transaction account used across tests.
+// The org id is the domain (a real source derives a stable id before the engine
+// sees it), and txn-2 is pending.
+func sampleBatch() *source.ImportBatch {
+	return &source.ImportBatch{
+		Source: "simplefin",
+		Accounts: []source.ImportAccount{{
+			ExternalID:  "acct-1",
+			Org:         source.ImportOrg{ID: "mybank.com", Domain: "mybank.com", Name: "My Bank", URL: "https://sfin.mybank.com"},
+			Name:        "Checking",
+			Currency:    "USD",
+			Balance:     "1234.56",
+			BalanceDate: 1700000000,
+			Transactions: []source.ImportTxn{
+				{ExternalID: "txn-1", Date: 1699990000, Amount: "-12.34", Description: "Coffee", Payee: "Cafe"},
+				{ExternalID: "txn-2", Date: 1699995000, Amount: "-56.78", Description: "Books", Payee: "Store", Memo: "gift", Pending: true},
+			},
+		}},
+	}
+}
+
+// refreshBatch describes txn-1 across two syncs: it starts pending with one
+// amount, then posts with a corrected amount. Used to verify a re-sync refreshes
+// bridge fields while preserving user labels.
+func refreshBatch(amount, description string, pending bool) *source.ImportBatch {
+	return &source.ImportBatch{
+		Source: "simplefin",
+		Accounts: []source.ImportAccount{{
+			ExternalID:  "acct-1",
+			Org:         source.ImportOrg{ID: "mybank.com", Domain: "mybank.com", Name: "My Bank", URL: "https://sfin.mybank.com"},
+			Name:        "Checking",
+			Currency:    "USD",
+			Balance:     "100.00",
+			BalanceDate: 1700000000,
+			Transactions: []source.ImportTxn{
+				{ExternalID: "txn-1", Date: 1699990000, Amount: amount, Description: description, Payee: "Cafe", Pending: pending},
+			},
+		}},
+	}
+}
 
 func newPoller(t *testing.T, opts Options) (*Poller, db.Querier) {
 	t.Helper()
 	if opts.Store == nil {
 		opts.Store = db.NewSQLiteStore(testutil.NewDB(t))
-	}
-	if opts.Secrets == nil {
-		opts.Secrets = vault.NewFileStore(filepath.Join(t.TempDir(), "secrets.json"))
 	}
 	if opts.Interval == 0 {
 		opts.Interval = time.Hour
@@ -58,13 +91,7 @@ func newPoller(t *testing.T, opts Options) (*Poller, db.Querier) {
 }
 
 func TestSyncPersistsAndIsIdempotent(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/accounts", r.URL.Path)
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}})
 	ctx := context.Background()
 
 	res, err := p.Sync(ctx)
@@ -80,7 +107,7 @@ func TestSyncPersistsAndIsIdempotent(t *testing.T) {
 	orgs, err := queries.ListOrganizations(ctx)
 	require.NoError(t, err)
 	require.Len(t, orgs, 1)
-	assert.Equal(t, "mybank.com", orgs[0].ID, "org id falls back to domain")
+	assert.Equal(t, "mybank.com", orgs[0].ID, "org id is the stable id the source supplied")
 
 	accounts, err := queries.ListAccounts(ctx)
 	require.NoError(t, err)
@@ -94,6 +121,7 @@ func TestSyncPersistsAndIsIdempotent(t *testing.T) {
 	pending, err := queries.GetTransaction(ctx, "txn-2")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), pending.Pending)
+	assert.Equal(t, "simplefin", pending.Source, "the batch's source is stamped as provenance")
 
 	latest, err := queries.LatestSyncLog(ctx)
 	require.NoError(t, err)
@@ -102,18 +130,8 @@ func TestSyncPersistsAndIsIdempotent(t *testing.T) {
 
 func TestSyncRefreshesExistingPreservingLabels(t *testing.T) {
 	ctx := context.Background()
-
-	var mu sync.Mutex
-	body := refreshBody1
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		b := body
-		mu.Unlock()
-		_, _ = w.Write([]byte(b))
-	}))
-	defer srv.Close()
-
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+	fake := &fakeSource{batch: refreshBatch("-10.00", "Pending coffee", true)}
+	p, queries := newPoller(t, Options{Source: fake})
 
 	// First sync inserts the pending transaction.
 	res, err := p.Sync(ctx)
@@ -129,10 +147,8 @@ func TestSyncRefreshesExistingPreservingLabels(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), n)
 
-	// The bridge now reports the same transaction as posted with a corrected amount.
-	mu.Lock()
-	body = refreshBody2
-	mu.Unlock()
+	// The source now reports the same transaction as posted with a corrected amount.
+	fake.batch = refreshBatch("-12.34", "Coffee", false)
 
 	res2, err := p.Sync(ctx)
 	require.NoError(t, err)
@@ -164,12 +180,7 @@ func mustCreateRule(t *testing.T, q db.Querier, query, labelsJSON string, enable
 }
 
 func TestSyncAppliesRulesToNewTransactions(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}})
 	ctx := context.Background()
 
 	// An enabled rule labels coffee; a disabled rule that would label books must
@@ -192,12 +203,7 @@ func TestSyncAppliesRulesToNewTransactions(t *testing.T) {
 }
 
 func TestSyncRulesOnlyApplyToNewTransactions(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}})
 	ctx := context.Background()
 
 	// First sync inserts the transactions with no rules in place.
@@ -219,73 +225,12 @@ func TestSyncRulesOnlyApplyToNewTransactions(t *testing.T) {
 	assert.JSONEq(t, `{}`, coffee.Labels, "rules do not re-label existing transactions on re-sync")
 }
 
-func TestSetCredential(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("stores an access url directly", func(t *testing.T) {
-		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-		p, _ := newPoller(t, Options{Secrets: store})
-
-		connected, err := p.CredentialConfigured(ctx)
-		require.NoError(t, err)
-		assert.False(t, connected)
-
-		require.NoError(t, p.SetCredential(ctx, "https://user:pass@bridge.example/simplefin"))
-
-		stored, err := store.AccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://user:pass@bridge.example/simplefin", stored)
-
-		connected, err = p.CredentialConfigured(ctx)
-		require.NoError(t, err)
-		assert.True(t, connected)
-	})
-
-	t.Run("claims a setup token", func(t *testing.T) {
-		claim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			require.Equal(t, http.MethodPost, r.Method)
-			_, _ = w.Write([]byte("https://claimed-access\n"))
-		}))
-		defer claim.Close()
-
-		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-		p, _ := newPoller(t, Options{Secrets: store})
-
-		require.NoError(t, p.SetCredential(ctx, base64Encode(claim.URL)))
-
-		stored, err := store.AccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://claimed-access", stored)
-	})
-
-	t.Run("rejects an empty credential", func(t *testing.T) {
-		p, _ := newPoller(t, Options{})
-		require.Error(t, p.SetCredential(ctx, "   "))
-	})
-}
-
-func TestSyncFailsWithoutAccessURL(t *testing.T) {
-	p, queries := newPoller(t, Options{})
+func TestSyncRecordsSourceErrorInLog(t *testing.T) {
+	p, queries := newPoller(t, Options{Source: &fakeSource{err: errors.New("upstream boom")}})
 
 	_, err := p.Sync(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no SimpleFIN access URL")
-
-	latest, err := queries.LatestSyncLog(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "error", latest.Status)
-	assert.Equal(t, "no SimpleFIN access URL configured (set simplefin.setup_token or simplefin.access_url)", latest.Error.String)
-}
-
-func TestSyncReportsUpstreamFailure(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "bad gateway", http.StatusBadGateway)
-	}))
-	defer srv.Close()
-
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL})
-	_, err := p.Sync(context.Background())
-	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upstream boom")
 
 	latest, err := queries.LatestSyncLog(context.Background())
 	require.NoError(t, err)
@@ -293,60 +238,68 @@ func TestSyncReportsUpstreamFailure(t *testing.T) {
 	assert.True(t, latest.Error.Valid)
 }
 
-func TestResolveAccessURLPrecedence(t *testing.T) {
+func TestSyncWithoutPullerFails(t *testing.T) {
+	p, queries := newPoller(t, Options{Source: bareSource{}})
+
+	_, err := p.Sync(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support polling")
+
+	latest, err := queries.LatestSyncLog(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "error", latest.Status)
+}
+
+// credSource implements source.Credentialed so the engine's Connector methods
+// can be exercised independently of any real source.
+type credSource struct {
+	connected bool
+	lastInput string
+	setErr    error
+}
+
+func (c *credSource) Descriptor() source.Descriptor { return source.Descriptor{Type: "cred"} }
+func (c *credSource) Fetch(context.Context, time.Time, string) (*source.ImportBatch, error) {
+	return &source.ImportBatch{Source: "cred"}, nil
+}
+func (c *credSource) CredentialConfigured(context.Context) (bool, error) { return c.connected, nil }
+func (c *credSource) SetCredential(_ context.Context, input string) error {
+	if c.setErr != nil {
+		return c.setErr
+	}
+	c.lastInput = input
+	c.connected = true
+	return nil
+}
+
+func TestConnectorDelegatesToCredentialedSource(t *testing.T) {
 	ctx := context.Background()
+	cs := &credSource{}
+	p, _ := newPoller(t, Options{Source: cs})
 
-	t.Run("stored secret wins", func(t *testing.T) {
-		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-		require.NoError(t, store.SetAccessURL(ctx, "https://stored"))
-		p, _ := newPoller(t, Options{Secrets: store, ConfigAccessURL: "https://config", SetupToken: "ignored"})
+	connected, err := p.CredentialConfigured(ctx)
+	require.NoError(t, err)
+	assert.False(t, connected)
 
-		got, err := p.resolveAccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://stored", got)
-	})
+	require.NoError(t, p.SetCredential(ctx, "the-token"))
+	assert.Equal(t, "the-token", cs.lastInput)
 
-	t.Run("config url persisted when nothing stored", func(t *testing.T) {
-		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-		p, _ := newPoller(t, Options{Secrets: store, ConfigAccessURL: "https://config"})
+	connected, err = p.CredentialConfigured(ctx)
+	require.NoError(t, err)
+	assert.True(t, connected)
+}
 
-		got, err := p.resolveAccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://config", got)
+func TestConnectorWithoutCredentialedSource(t *testing.T) {
+	ctx := context.Background()
+	p, _ := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}})
 
-		stored, err := store.AccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://config", stored, "resolved url should be persisted")
-	})
+	connected, err := p.CredentialConfigured(ctx)
+	require.NoError(t, err)
+	assert.False(t, connected, "a source without runtime credentials reports not-configured")
 
-	t.Run("claims setup token as last resort", func(t *testing.T) {
-		claim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			require.Equal(t, http.MethodPost, r.Method)
-			_, _ = w.Write([]byte("https://claimed-access\n"))
-		}))
-		defer claim.Close()
-
-		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-		token := base64Encode(claim.URL)
-		p, _ := newPoller(t, Options{Secrets: store, SetupToken: token})
-
-		got, err := p.resolveAccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://claimed-access", got)
-
-		stored, err := store.AccessURL(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, "https://claimed-access", stored)
-	})
-
-	t.Run("empty when unconfigured", func(t *testing.T) {
-		store := vault.NewFileStore(filepath.Join(t.TempDir(), "s.json"))
-		p, _ := newPoller(t, Options{Secrets: store})
-
-		got, err := p.resolveAccessURL(ctx)
-		require.NoError(t, err)
-		assert.Empty(t, got)
-	})
+	err = p.SetCredential(ctx, "anything")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support runtime credentials")
 }
 
 // --- event emission ---
@@ -362,14 +315,9 @@ func eventTypeCount(evs []db.Event, typ string) int {
 }
 
 func TestSyncEmitsCreationEvents(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
 	bus := events.NewBus()
 	defer bus.Close()
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}, Emitter: events.NewEmitter(bus)})
 	ctx := context.Background()
 
 	_, err := p.Sync(ctx)
@@ -384,19 +332,10 @@ func TestSyncEmitsCreationEvents(t *testing.T) {
 
 func TestResyncEmitsTransactionUpdatedOnlyOnChange(t *testing.T) {
 	ctx := context.Background()
-	var mu sync.Mutex
-	body := refreshBody1
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		mu.Lock()
-		b := body
-		mu.Unlock()
-		_, _ = w.Write([]byte(b))
-	}))
-	defer srv.Close()
-
+	fake := &fakeSource{batch: refreshBatch("-10.00", "Pending coffee", true)}
 	bus := events.NewBus()
 	defer bus.Close()
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	p, queries := newPoller(t, Options{Source: fake, Emitter: events.NewEmitter(bus)})
 
 	_, err := p.Sync(ctx) // insert
 	require.NoError(t, err)
@@ -409,9 +348,7 @@ func TestResyncEmitsTransactionUpdatedOnlyOnChange(t *testing.T) {
 	assert.Empty(t, updated, "an unchanged re-sync emits no transaction.updated")
 
 	// Changing the amount emits exactly one transaction.updated.
-	mu.Lock()
-	body = refreshBody2
-	mu.Unlock()
+	fake.batch = refreshBatch("-12.34", "Coffee", false)
 	_, err = p.Sync(ctx)
 	require.NoError(t, err)
 	updated, err = queries.ListEventsAfter(ctx, db.ListEventsAfterParams{EventType: events.TypeTransactionUpdated, RowLimit: 100})
@@ -420,14 +357,9 @@ func TestResyncEmitsTransactionUpdatedOnlyOnChange(t *testing.T) {
 }
 
 func TestSyncEmitsLabelAppliedFromRules(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
 	bus := events.NewBus()
 	defer bus.Close()
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}, Emitter: events.NewEmitter(bus)})
 	ctx := context.Background()
 	mustCreateRule(t, queries, "description:coffee", `{"category":"coffee"}`, true)
 
@@ -441,12 +373,7 @@ func TestSyncEmitsLabelAppliedFromRules(t *testing.T) {
 }
 
 func TestSyncWithoutEmitterRecordsNoEvents(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL}) // no Emitter
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}}) // no Emitter
 	ctx := context.Background()
 
 	_, err := p.Sync(ctx)
@@ -462,14 +389,9 @@ func TestSyncWithoutEmitterRecordsNoEvents(t *testing.T) {
 }
 
 func TestSyncRecordsImportedVersions(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
 	bus := events.NewBus()
 	defer bus.Close()
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}, Emitter: events.NewEmitter(bus)})
 	ctx := context.Background()
 
 	_, err := p.Sync(ctx)
@@ -484,14 +406,9 @@ func TestSyncRecordsImportedVersions(t *testing.T) {
 }
 
 func TestSyncImportedVersionFoldsRuleLabels(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(sampleAccounts))
-	}))
-	defer srv.Close()
-
 	bus := events.NewBus()
 	defer bus.Close()
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}, Emitter: events.NewEmitter(bus)})
 	ctx := context.Background()
 	mustCreateRule(t, queries, "description:coffee", `{"category":"coffee"}`, true)
 
@@ -507,19 +424,10 @@ func TestSyncImportedVersionFoldsRuleLabels(t *testing.T) {
 
 func TestResyncRecordsSyncedVersion(t *testing.T) {
 	ctx := context.Background()
-	var mu sync.Mutex
-	body := refreshBody1
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		mu.Lock()
-		b := body
-		mu.Unlock()
-		_, _ = w.Write([]byte(b))
-	}))
-	defer srv.Close()
-
+	fake := &fakeSource{batch: refreshBatch("-10.00", "Pending coffee", true)}
 	bus := events.NewBus()
 	defer bus.Close()
-	p, queries := newPoller(t, Options{ConfigAccessURL: srv.URL, Emitter: events.NewEmitter(bus)})
+	p, queries := newPoller(t, Options{Source: fake, Emitter: events.NewEmitter(bus)})
 
 	_, err := p.Sync(ctx) // insert: imported v1 (pending, -10.00)
 	require.NoError(t, err)
@@ -536,9 +444,7 @@ func TestResyncRecordsSyncedVersion(t *testing.T) {
 	require.Len(t, vers, 1, "an unchanged re-sync records no version")
 
 	// Correcting the amount and posting the charge records one synced version.
-	mu.Lock()
-	body = refreshBody2
-	mu.Unlock()
+	fake.batch = refreshBatch("-12.34", "Coffee", false)
 	_, err = p.Sync(ctx)
 	require.NoError(t, err)
 	vers, err = queries.ListTransactionVersions(ctx, "txn-1")
@@ -546,4 +452,9 @@ func TestResyncRecordsSyncedVersion(t *testing.T) {
 	require.Len(t, vers, 2, "a changed re-sync appends a synced version")
 	assert.Equal(t, events.ChangeSynced, vers[1].ChangeKind)
 	assert.Contains(t, vers[1].Data, "-12.34", "the synced snapshot has the corrected amount")
+}
+
+func TestBoolToInt(t *testing.T) {
+	assert.Equal(t, int64(1), boolToInt(true))
+	assert.Equal(t, int64(0), boolToInt(false))
 }

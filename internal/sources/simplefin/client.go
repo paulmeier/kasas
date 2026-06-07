@@ -1,4 +1,8 @@
-package poller
+// Package simplefin implements the SimpleFIN bridge as a kasas ingestion source.
+// It is a first-party [source.Puller]: it fetches accounts and transactions from
+// a SimpleFIN bridge and returns them as a neutral source.ImportBatch for the
+// ingestion engine to persist. See https://www.simplefin.org/protocol.html.
+package simplefin
 
 import (
 	"context"
@@ -14,14 +18,14 @@ import (
 	"time"
 )
 
-// SimpleFINClient talks to a SimpleFIN bridge. See https://www.simplefin.org/protocol.html.
-type SimpleFINClient struct {
+// Client talks to a SimpleFIN bridge over HTTP.
+type Client struct {
 	httpClient *http.Client
 }
 
-// NewSimpleFINClient returns a client with a sane default timeout.
-func NewSimpleFINClient() *SimpleFINClient {
-	return &SimpleFINClient{
+// NewClient returns a client with a sane default timeout.
+func NewClient() *Client {
+	return &Client{
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
 }
@@ -29,7 +33,7 @@ func NewSimpleFINClient() *SimpleFINClient {
 // Claim exchanges a base64-encoded setup token for a long-lived access URL.
 // The setup token decodes to a one-time claim URL that is POSTed to obtain the
 // access URL (which embeds HTTP basic-auth credentials in its userinfo).
-func (c *SimpleFINClient) Claim(ctx context.Context, setupToken string) (string, error) {
+func (c *Client) Claim(ctx context.Context, setupToken string) (string, error) {
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(setupToken))
 	if err != nil {
 		return "", fmt.Errorf("decode setup token: %w", err)
@@ -67,7 +71,7 @@ func (c *SimpleFINClient) Claim(ctx context.Context, setupToken string) (string,
 
 // Fetch retrieves accounts and their transactions from the access URL. When
 // since is non-zero, only transactions on or after that time are requested.
-func (c *SimpleFINClient) Fetch(ctx context.Context, accessURL string, since time.Time) (*AccountSet, error) {
+func (c *Client) Fetch(ctx context.Context, accessURL string, since time.Time) (*AccountSet, error) {
 	base := strings.TrimRight(accessURL, "/")
 	u, err := url.Parse(base + "/accounts")
 	if err != nil {
@@ -110,12 +114,12 @@ func (c *SimpleFINClient) Fetch(ctx context.Context, accessURL string, since tim
 
 // AccountSet is the top-level SimpleFIN /accounts response.
 type AccountSet struct {
-	Errors   []string           `json:"errors"`
-	Accounts []SimpleFINAccount `json:"accounts"`
+	Errors   []string  `json:"errors"`
+	Accounts []Account `json:"accounts"`
 }
 
-// SimpleFINOrg describes the financial institution that owns an account.
-type SimpleFINOrg struct {
+// Org describes the financial institution that owns an account.
+type Org struct {
 	Domain  string `json:"domain"`
 	Name    string `json:"name"`
 	SfinURL string `json:"sfin-url"`
@@ -123,20 +127,20 @@ type SimpleFINOrg struct {
 	ID      string `json:"id"`
 }
 
-// SimpleFINAccount is a single account with its transactions.
-type SimpleFINAccount struct {
-	Org              SimpleFINOrg           `json:"org"`
-	ID               string                 `json:"id"`
-	Name             string                 `json:"name"`
-	Currency         string                 `json:"currency"`
-	Balance          string                 `json:"balance"`
-	AvailableBalance string                 `json:"available-balance"`
-	BalanceDate      int64                  `json:"balance-date"`
-	Transactions     []SimpleFINTransaction `json:"transactions"`
+// Account is a single account with its transactions.
+type Account struct {
+	Org              Org           `json:"org"`
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	Currency         string        `json:"currency"`
+	Balance          string        `json:"balance"`
+	AvailableBalance string        `json:"available-balance"`
+	BalanceDate      int64         `json:"balance-date"`
+	Transactions     []Transaction `json:"transactions"`
 }
 
-// SimpleFINTransaction is a single posted or pending transaction.
-type SimpleFINTransaction struct {
+// Transaction is a single posted or pending transaction.
+type Transaction struct {
 	ID           string `json:"id"`
 	Posted       int64  `json:"posted"`
 	Amount       string `json:"amount"`
@@ -150,7 +154,7 @@ type SimpleFINTransaction struct {
 // StableOrgID returns a stable identifier for an organization. SimpleFIN orgs
 // are not guaranteed to carry an id, so we fall back to the domain, then the
 // SFIN URL.
-func (o SimpleFINOrg) StableOrgID() string {
+func (o Org) StableOrgID() string {
 	switch {
 	case o.ID != "":
 		return o.ID
@@ -159,4 +163,12 @@ func (o SimpleFINOrg) StableOrgID() string {
 	default:
 		return o.SfinURL
 	}
+}
+
+// transactionDate returns the posted time when set, else the transacted time.
+func transactionDate(t Transaction) int64 {
+	if t.Posted != 0 {
+		return t.Posted
+	}
+	return t.TransactedAt
 }
