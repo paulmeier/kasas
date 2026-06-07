@@ -129,9 +129,9 @@ func seed(ctx context.Context, store db.Store, extra int) (accounts, inserted in
 		{ID: "amex.com", Domain: "amex.com", Name: "American Express", SfinUrl: "https://sfin.amex.com"},
 	}
 	accts := []db.UpsertAccountParams{
-		{ID: "acct-checking", OrgID: "chase.com", Name: "Checking", Currency: "USD", Balance: "4283.19", BalanceDate: syncedAt, SyncedAt: syncedAt},
-		{ID: "acct-savings", OrgID: "chase.com", Name: "Savings", Currency: "USD", Balance: "15250.00", BalanceDate: syncedAt, SyncedAt: syncedAt},
-		{ID: "acct-card", OrgID: "amex.com", Name: "Credit Card", Currency: "USD", Balance: "-892.45", BalanceDate: syncedAt, SyncedAt: syncedAt},
+		{ID: "acct-checking", OrgID: "chase.com", Name: "Checking", Currency: "USD", Balance: "4283.19", BalanceDate: syncedAt, SyncedAt: syncedAt, Source: "simplefin"},
+		{ID: "acct-savings", OrgID: "chase.com", Name: "Savings", Currency: "USD", Balance: "15250.00", BalanceDate: syncedAt, SyncedAt: syncedAt, Source: "simplefin"},
+		{ID: "acct-card", OrgID: "amex.com", Name: "Credit Card", Currency: "USD", Balance: "-892.45", BalanceDate: syncedAt, SyncedAt: syncedAt, Source: "simplefin"},
 	}
 	txns := []db.InsertTransactionParams{
 		tx("c1", "acct-checking", "-5.75", "Coffee", "Blue Bottle", false, 1),

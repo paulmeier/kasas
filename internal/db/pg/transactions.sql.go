@@ -20,6 +20,22 @@ func (q *Queries) CountTransactions(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteTransaction = `-- name: DeleteTransaction :execrows
+DELETE FROM transactions WHERE id = $1
+`
+
+// Deletes one transaction. The API gates this on source = 'manual', and within the
+// same transaction it also deletes the row's history versions (no FK cascade exists
+// for transaction_versions) and strips any inbound relationship edges that other
+// transactions assert against this id. :execrows reports whether the row existed.
+func (q *Queries) DeleteTransaction(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTransaction, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getTransaction = `-- name: GetTransaction :one
 SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source, relationships FROM transactions
 WHERE id = $1
@@ -334,6 +350,55 @@ func (q *Queries) ListTransactionsByAccount(ctx context.Context, arg ListTransac
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateTransactionCore = `-- name: UpdateTransactionCore :execrows
+UPDATE transactions
+SET account_id  = $1,
+    amount      = $2,
+    pending     = $3,
+    date        = $4,
+    description = $5,
+    payee       = $6,
+    memo        = $7,
+    synced_at   = $8
+WHERE id = $9
+`
+
+type UpdateTransactionCoreParams struct {
+	AccountID   string `json:"account_id"`
+	Amount      string `json:"amount"`
+	Pending     int64  `json:"pending"`
+	Date        int64  `json:"date"`
+	Description string `json:"description"`
+	Payee       string `json:"payee"`
+	Memo        string `json:"memo"`
+	SyncedAt    int64  `json:"synced_at"`
+	ID          string `json:"id"`
+}
+
+// Edits the core fields of a MANUAL transaction (source = 'manual'). It is the
+// write counterpart to UpdateTransactionFromSync, but for user edits rather than a
+// bridge refresh: same field set, except the API stamps synced_at with the edit
+// time. labels, extensions, relationships, and source are intentionally NOT in the
+// SET list (those have their own writers and source is immutable provenance). The
+// manual-only gate is enforced in the API; :execrows lets it detect a missing id.
+func (q *Queries) UpdateTransactionCore(ctx context.Context, arg UpdateTransactionCoreParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTransactionCore,
+		arg.AccountID,
+		arg.Amount,
+		arg.Pending,
+		arg.Date,
+		arg.Description,
+		arg.Payee,
+		arg.Memo,
+		arg.SyncedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateTransactionExtensions = `-- name: UpdateTransactionExtensions :execrows

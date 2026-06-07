@@ -32,8 +32,9 @@ adds, removals, and changes.
 
 | `change_kind` | Recorded when |
 | --- | --- |
-| `imported` | The first version of a transaction (synced in, or a lazily-captured baseline). |
+| `imported` | The first version of a transaction (synced in, [entered manually](manual-entry.md), or a lazily-captured baseline). |
 | `synced` | A re-sync changed a source-owned field. |
+| `edited` | A [manual transaction](manual-entry.md)'s core fields were edited. |
 | `labeled` | [Labels](labels.md) changed (REST, a [rule](rules.md), or a [plugin](plugins.md)). |
 | `extended` | [Schema extensions](schema-extensions.md) changed. |
 

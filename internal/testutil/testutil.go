@@ -73,11 +73,11 @@ func Seed(t testing.TB, q db.Querier) Fixtures {
 
 	require.NoError(t, q.UpsertAccount(ctx, db.UpsertAccountParams{
 		ID: fx.CheckingID, OrgID: fx.OrgID, Name: "Checking", Currency: "USD",
-		Balance: "1000.00", BalanceDate: Date2024Dec, SyncedAt: syncedAt,
+		Balance: "1000.00", BalanceDate: Date2024Dec, SyncedAt: syncedAt, Source: "simplefin",
 	}))
 	require.NoError(t, q.UpsertAccount(ctx, db.UpsertAccountParams{
 		ID: fx.SavingsID, OrgID: fx.OrgID, Name: "Savings", Currency: "USD",
-		Balance: "5000.00", BalanceDate: Date2024Dec, SyncedAt: syncedAt,
+		Balance: "5000.00", BalanceDate: Date2024Dec, SyncedAt: syncedAt, Source: "simplefin",
 	}))
 
 	txns := []db.InsertTransactionParams{

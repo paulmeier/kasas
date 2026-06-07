@@ -1074,3 +1074,112 @@ tr:hover .relationships-btn,
   border: 1px solid var(--surface-2);
 }
 .badge.muted { color: var(--muted); background: var(--surface-2); }
+
+/* --- Manual entry: add buttons, manual account cards, row edit/delete, editor modal --- */
+
+/* "Add transaction" sits in the controls row, a touch smaller than a default btn. */
+.add-txn-btn { padding: 6px 14px; font-size: 13px; white-space: nowrap; }
+
+/* Manual account cards carry edit/delete controls that reveal on hover; a subtle
+   accent border distinguishes them from synced (bridge-owned) cards. */
+.card.manual { border-color: rgba(110, 168, 254, 0.35); }
+.card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.card.manual:hover .card-actions,
+.card.manual:focus-within .card-actions { opacity: 1; }
+.card-action {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.card-action:hover { border-color: var(--accent); color: var(--text); }
+.card-action.danger:hover { border-color: var(--neg); color: var(--neg); }
+
+/* The "+ Add account" card is a dashed button that matches the card grid. */
+.card.add-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+  cursor: pointer;
+  min-height: 64px;
+  font-size: 14px;
+}
+.card.add-card:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Per-row edit/delete reveal on hover like the other row actions. */
+.row-edit-btn,
+.row-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  vertical-align: middle;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+tr:hover .row-edit-btn,
+tr:hover .row-delete-btn,
+.row-edit-btn:focus-visible,
+.row-delete-btn:focus-visible { opacity: 1; }
+.row-edit-btn:hover { color: var(--accent); }
+.row-delete-btn:hover { color: var(--neg); }
+
+/* Create/edit modal form (reuses .modal-overlay/.modal/.modal-header/.modal-body). */
+.modal.editor-modal { max-width: 460px; }
+.form-field { margin-bottom: 14px; }
+.form-label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.form-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.form-input:focus { outline: none; border-color: var(--accent); }
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+.form-error {
+  background: rgba(248, 81, 73, 0.10);
+  border: 1px solid rgba(248, 81, 73, 0.40);
+  color: var(--neg);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.form-hint { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}

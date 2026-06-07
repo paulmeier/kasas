@@ -61,6 +61,31 @@ SET account_id  = sqlc.arg(account_id),
     synced_at   = sqlc.arg(synced_at)
 WHERE id = sqlc.arg(id);
 
+-- name: UpdateTransactionCore :execrows
+-- Edits the core fields of a MANUAL transaction (source = 'manual'). It is the
+-- write counterpart to UpdateTransactionFromSync, but for user edits rather than a
+-- bridge refresh: same field set, except the API stamps synced_at with the edit
+-- time. labels, extensions, relationships, and source are intentionally NOT in the
+-- SET list (those have their own writers and source is immutable provenance). The
+-- manual-only gate is enforced in the API; :execrows lets it detect a missing id.
+UPDATE transactions
+SET account_id  = sqlc.arg(account_id),
+    amount      = sqlc.arg(amount),
+    pending     = sqlc.arg(pending),
+    date        = sqlc.arg(date),
+    description = sqlc.arg(description),
+    payee       = sqlc.arg(payee),
+    memo        = sqlc.arg(memo),
+    synced_at   = sqlc.arg(synced_at)
+WHERE id = sqlc.arg(id);
+
+-- name: DeleteTransaction :execrows
+-- Deletes one transaction. The API gates this on source = 'manual', and within the
+-- same transaction it also deletes the row's history versions (no FK cascade exists
+-- for transaction_versions) and strips any inbound relationship edges that other
+-- transactions assert against this id. :execrows reports whether the row existed.
+DELETE FROM transactions WHERE id = sqlc.arg(id);
+
 -- name: UpdateTransactionLabels :execrows
 -- Replaces the whole label set for one transaction. labels is a JSON object of
 -- key->value pairs; the API normalizes it before storing. :execrows lets the

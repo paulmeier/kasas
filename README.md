@@ -80,6 +80,7 @@ flowchart LR
 | --- | --- |
 | 🔌 **[Pluggable sources](https://paulmeier.github.io/kasas/architecture/ingestion/)** | A source SDK normalizes any provider into one neutral shape; a generic engine persists it. SimpleFIN is the first, first-party source. |
 | 🔄 **[Automatic sync](https://paulmeier.github.io/kasas/features/sync/)** | Scheduled polling of the configured source; inserts new transactions, refreshes source-owned fields, preserves your labels. |
+| ✍️ **[Manual entry](https://paulmeier.github.io/kasas/features/manual-entry/)** | Create, edit, and delete accounts and transactions by hand — alongside synced data, or as a standalone ledger — from the dashboard, REST, or MCP. |
 | 🗄️ **[SQLite or Postgres](https://paulmeier.github.io/kasas/architecture/data-model/)** | Zero-dependency embedded SQLite by default, or Postgres with one config change. Same binary, no CGO. |
 | 🏷️ **[Labels & extensions](https://paulmeier.github.io/kasas/features/labels/)** | Strict `key:value` labels, plus arbitrary namespaced JSON extensions any app can attach — no schema change. |
 | 🔗 **[Relationships](https://paulmeier.github.io/kasas/features/transaction-relationships/)** | Explicit directed edges between transactions — link a refund to its purchase, or one leg of a transfer to the other — queryable from both ends. |

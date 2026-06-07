@@ -32,3 +32,10 @@ WHERE transaction_id = sqlc.arg(transaction_id);
 -- :execrows reports how many rows were removed, for logging. Only runs when
 -- events.history_retention_days > 0; the default keeps history forever.
 DELETE FROM transaction_versions WHERE occurred_at < sqlc.arg(cutoff);
+
+-- name: DeleteTransactionVersionsByTransaction :execrows
+-- Removes all history snapshots for one transaction. Used when a manual transaction
+-- is deleted: transaction_versions has no foreign key to transactions, so the row
+-- delete does not cascade here and the history would otherwise be orphaned. Runs in
+-- the same transaction as the DeleteTransaction call.
+DELETE FROM transaction_versions WHERE transaction_id = sqlc.arg(transaction_id);

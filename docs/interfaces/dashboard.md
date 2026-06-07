@@ -16,7 +16,7 @@ A collapsible left sidebar (the choice is remembered) navigates eight pages:
 
 | Page | What it does |
 | --- | --- |
-| **Dashboard** | A balance card per account, and a transactions table — account filter, sortable columns, selectable page size, pagination, and inline [label](../features/labels.md) editing. |
+| **Dashboard** | A balance card per account, and a transactions table — account filter, sortable columns, selectable page size, pagination, inline [label](../features/labels.md) editing, and [manual entry](../features/manual-entry.md): add/edit/delete accounts and transactions. |
 | **Search** | The [search language](../features/search.md) over a query box with a syntax-help modal; results table with the same sorting/pagination/label editing. The last query persists across navigation. |
 | **Labels** | Every [label](../features/labels.md) with its transaction count, and a delete that strips it from all of them. |
 | **Rules** | Create, edit, enable/disable, delete [rules](../features/rules.md) inline, and **Run** one or all. |
@@ -25,8 +25,10 @@ A collapsible left sidebar (the choice is remembered) navigates eight pages:
 | **Plugins** | [Plugin](../features/plugins.md) status/health, enable/disable, reload. |
 | **Settings** | Connect a source (SimpleFIN today), manage the [dashboard token](authentication.md), force a sync, and review the effective config (read-only, secrets redacted). |
 
-Browsing is read-only except for **labels**, which are editable inline;
-[extensions](../features/schema-extensions.md) are shown read-only.
+Synced data is read-only except for **labels** (editable inline);
+[extensions](../features/schema-extensions.md) are shown read-only. Accounts and
+transactions you create yourself are fully editable — see
+[Manual Entry](../features/manual-entry.md).
 
 ## How it's built and served
 

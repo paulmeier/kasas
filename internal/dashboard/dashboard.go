@@ -63,6 +63,8 @@ type dashboardView struct {
 	historyViewing       // per-transaction history modal, shared with the Search page
 	provenanceViewing    // per-transaction provenance modal, shared with the Search page
 	relationshipsViewing // per-transaction relationships modal, shared with the Search page
+	transactionEditing   // "Add/Edit transaction" modal (manual rows only)
+	accountEditing       // "Add/Edit account" modal (manual accounts only)
 
 	accounts []account
 	byID     map[string]account // account id -> account, for name lookup
@@ -91,6 +93,8 @@ func (v *dashboardView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx) // wires v.client, sidebar state, version badge
 	v.initLabelEditing()
 	v.initRelationshipsViewing()
+	v.initTransactionEditing()
+	v.initAccountEditing()
 	v.fetchHistory = v.client.transactionHistory
 	v.fetchProvenance = v.client.transactionProvenance
 	v.pageSize = defaultPageSize
@@ -98,6 +102,35 @@ func (v *dashboardView) OnMount(ctx app.Context) {
 	v.reloadTransactions(ctx)
 	v.loadVocab(ctx, v.client)
 	v.loadUpdateStatus(ctx)
+}
+
+// initTransactionEditing wires the "Add/Edit transaction" modal to this view's data
+// and API client. Call after loadChrome (the hooks need v.client).
+func (v *dashboardView) initTransactionEditing() {
+	v.txnEditAccounts = func() []account { return v.accounts }
+	v.txnCreate = v.client.createTransaction
+	v.txnUpdate = v.client.updateTransaction
+	v.txnDelete = v.client.deleteTransaction
+	v.txnAfterChange = v.reloadAfterChange
+	v.txnReportError = func(msg string) { v.errMsg = msg }
+}
+
+// initAccountEditing wires the "Add/Edit account" modal to this view's API client.
+func (v *dashboardView) initAccountEditing() {
+	v.acctCreate = v.client.createAccount
+	v.acctUpdate = v.client.updateAccount
+	v.acctDelete = v.client.deleteAccount
+	v.acctAfterChange = v.reloadAfterChange
+	v.acctReportError = func(msg string) { v.errMsg = msg }
+}
+
+// reloadAfterChange refreshes accounts, the transactions table, and the label
+// vocabulary after a manual create/edit/delete. Account deletes cascade to
+// transactions, so both are always reloaded.
+func (v *dashboardView) reloadAfterChange(ctx app.Context) {
+	v.loadAccounts(ctx)
+	v.reloadTransactions(ctx)
+	v.loadVocab(ctx, v.client)
 }
 
 // initLabelEditing wires the shared label editor to this view's transaction
@@ -465,6 +498,8 @@ func (v *dashboardView) Render() app.UI {
 		v.renderHistoryModal(),
 		v.renderProvenanceModal(),
 		v.renderRelationshipsModal(),
+		v.renderTransactionEditor(),
+		v.renderAccountEditor(),
 	)
 }
 
@@ -513,11 +548,26 @@ func (v *dashboardView) renderAccounts() app.UI {
 	return app.Section().Class("cards").Body(
 		app.Range(v.accounts).Slice(func(i int) app.UI {
 			a := v.accounts[i]
-			return app.Div().Class("card").Body(
+			cls := "card"
+			actions := app.Text("")
+			if a.Source == "manual" {
+				cls += " manual"
+				actions = app.Div().Class("card-actions").Body(
+					app.Button().Class("card-action").Title("Edit account").Text("Edit").
+						OnClick(func(ctx app.Context, _ app.Event) { v.openEditAccount(ctx, a) }),
+					app.Button().Class("card-action danger").Title("Delete account").Text("Delete").
+						OnClick(func(ctx app.Context, _ app.Event) { v.onDeleteAccount(ctx, a) }),
+				)
+			}
+			return app.Div().Class(cls).Body(
 				app.Div().Class("card-name").Text(a.Name),
 				app.Div().Class("card-balance").Text(a.Balance+" "+a.Currency),
+				actions,
 			)
 		}),
+		app.Button().Class("card add-card").Title("Add a manual account").
+			OnClick(func(ctx app.Context, _ app.Event) { v.openCreateAccount(ctx) }).
+			Body(app.Span().Class("add-card-plus").Text("+ Add account")),
 	)
 }
 
@@ -532,6 +582,8 @@ func (v *dashboardView) renderControls() app.UI {
 			}),
 		),
 		app.Span().Class("controls-spacer"),
+		app.Button().Class("btn btn-primary add-txn-btn").Text("+ Add transaction").
+			OnClick(func(ctx app.Context, _ app.Event) { v.openCreateTransaction(ctx, v.selectedAccount) }),
 		app.Label().Class("control-label").Text("Show"),
 		app.Select().Class("pagesize-select").OnChange(v.onPageSizeChange).Body(
 			app.Range(pageSizeOptions).Slice(func(i int) app.UI {
@@ -608,6 +660,24 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 	if strings.HasPrefix(strings.TrimSpace(t.Amount), "-") {
 		amountClass = "amount neg"
 	}
+	actions := []app.UI{
+		pendingBadge(t.Pending),
+		v.renderRelationshipsButton(t),
+		v.renderProvenanceButton(t),
+		v.renderHistoryButton(t),
+	}
+	// Edit/Delete are offered only for manually-created rows; synced rows are
+	// bridge-owned (their core fields would be clobbered on the next sync).
+	if t.Source == "manual" {
+		actions = append(actions,
+			app.Button().Type("button").Class("row-edit-btn").Title("Edit transaction").
+				OnClick(func(ctx app.Context, _ app.Event) { v.openEditTransaction(ctx, t) }).
+				Text("✎"),
+			app.Button().Type("button").Class("row-delete-btn").Title("Delete transaction").
+				OnClick(func(ctx app.Context, _ app.Event) { v.onDeleteTransaction(ctx, t) }).
+				Text("🗑"),
+		)
+	}
 	return app.Tr().Body(
 		app.Td().Text(t.Date.Format("2006-01-02")),
 		app.Td().Text(v.accountName(t.AccountID)),
@@ -615,12 +685,7 @@ func (v *dashboardView) renderRow(t transaction) app.UI {
 		app.Td().Class(amountClass).Text(t.Amount),
 		v.renderLabelsCell(t),
 		renderExtensionsCell(t),
-		app.Td().Class("row-actions").Body(
-			pendingBadge(t.Pending),
-			v.renderRelationshipsButton(t),
-			v.renderProvenanceButton(t),
-			v.renderHistoryButton(t),
-		),
+		app.Td().Class("row-actions").Body(actions...),
 	)
 }
 

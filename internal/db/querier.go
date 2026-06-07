@@ -22,6 +22,12 @@ type Querier interface {
 	// labels before storing. RETURNING * yields the generated id and timestamps.
 	CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error)
 	CreateSyncLog(ctx context.Context, arg CreateSyncLogParams) (SyncLog, error)
+	// Deletes one account. Its transactions are removed by the ON DELETE CASCADE on
+	// transactions.account_id; the API enumerates and emits a transaction.deleted for
+	// each cascaded row (and cleans their history/relationships) before calling this,
+	// since the cascade is invisible to the event stream. :execrows reports whether the
+	// account existed. The manual-only gate is enforced in the API.
+	DeleteAccount(ctx context.Context, id string) (int64, error)
 	// Revoke a key by id. :execrows lets the caller detect a missing id (0 rows).
 	DeleteApiKey(ctx context.Context, id int64) (int64, error)
 	// Retention prune: drops events that occurred before the cutoff (unix seconds).
@@ -34,10 +40,20 @@ type Querier interface {
 	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
 	DeletePlugin(ctx context.Context, id int64) (int64, error)
 	DeleteRule(ctx context.Context, id int64) (int64, error)
+	// Deletes one transaction. The API gates this on source = 'manual', and within the
+	// same transaction it also deletes the row's history versions (no FK cascade exists
+	// for transaction_versions) and strips any inbound relationship edges that other
+	// transactions assert against this id. :execrows reports whether the row existed.
+	DeleteTransaction(ctx context.Context, id string) (int64, error)
 	// Retention prune: drops versions that occurred before the cutoff (unix seconds).
 	// :execrows reports how many rows were removed, for logging. Only runs when
 	// events.history_retention_days > 0; the default keeps history forever.
 	DeleteTransactionVersionsBefore(ctx context.Context, cutoff int64) (int64, error)
+	// Removes all history snapshots for one transaction. Used when a manual transaction
+	// is deleted: transaction_versions has no foreign key to transactions, so the row
+	// delete does not cascade here and the history would otherwise be orphaned. Runs in
+	// the same transaction as the DeleteTransaction call.
+	DeleteTransactionVersionsByTransaction(ctx context.Context, transactionID string) (int64, error)
 	DeleteWebhook(ctx context.Context, id int64) (int64, error)
 	// SQLite-specific label queries. Labels are a JSON object (key->value) stored in
 	// the TEXT `labels` column; these push filtering and deletion down to SQL via
@@ -154,6 +170,10 @@ type Querier interface {
 	ListWebhooks(ctx context.Context) ([]Webhook, error)
 	// Toggles execution. :execrows lets the caller detect a missing id.
 	SetPluginEnabled(ctx context.Context, arg SetPluginEnabledParams) (int64, error)
+	// Updates a manual account's user-owned fields (the org and source are immutable
+	// provenance, set once at creation). :execrows lets the caller detect a missing id
+	// (0 rows affected). The manual-only gate is enforced in the API, not here.
+	UpdateAccount(ctx context.Context, arg UpdateAccountParams) (int64, error)
 	// Best-effort touch of the last-used timestamp after a successful verification.
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	// Sets the operator config overrides (a JSON object merged over the manifest's).
@@ -170,6 +190,13 @@ type Querier interface {
 	// Replaces the editable fields of a rule. :execrows lets the caller detect a
 	// missing id (0 rows affected).
 	UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, error)
+	// Edits the core fields of a MANUAL transaction (source = 'manual'). It is the
+	// write counterpart to UpdateTransactionFromSync, but for user edits rather than a
+	// bridge refresh: same field set, except the API stamps synced_at with the edit
+	// time. labels, extensions, relationships, and source are intentionally NOT in the
+	// SET list (those have their own writers and source is immutable provenance). The
+	// manual-only gate is enforced in the API; :execrows lets it detect a missing id.
+	UpdateTransactionCore(ctx context.Context, arg UpdateTransactionCoreParams) (int64, error)
 	// Replaces the whole schema-extensions object for one transaction. extensions is
 	// a JSON object of namespaced key->arbitrary-JSON-value pairs; the API normalizes
 	// it before storing. :execrows lets the caller detect a missing id (0 rows
@@ -201,6 +228,11 @@ type Querier interface {
 	UpdateWebhookDeliveryStatus(ctx context.Context, arg UpdateWebhookDeliveryStatusParams) error
 	// Rotates the signing secret (and bumps updated_at).
 	UpdateWebhookSecret(ctx context.Context, arg UpdateWebhookSecretParams) (int64, error)
+	// source is the provenance of the account ("simplefin" for synced, "manual" for a
+	// user-created one) and is a bound argument, not a literal, so the manual-account
+	// writer can stamp its own. It is intentionally NOT in the DO UPDATE SET list: like
+	// transactions.source, provenance is immutable, so a re-sync of an existing account
+	// never rewrites it.
 	UpsertAccount(ctx context.Context, arg UpsertAccountParams) error
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error
 }

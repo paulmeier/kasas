@@ -37,6 +37,21 @@ func (s *Server) MCPServer() *mcp.Server {
 	}, s.mcpGetAccount)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_account",
+		Description: "Create a manually-tracked account (e.g. Cash) so kasas can hold transactions you enter by hand, with no SimpleFIN connection required. Takes a name, a currency code (e.g. USD), and an optional starting balance (default 0). The balance is a value you maintain; kasas does not recompute it from the account's transactions. Returns the created account.",
+	}, s.mcpCreateAccount)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "update_account",
+		Description: "Edit a manually-created account's name, currency, or balance by id. Only manual accounts can be edited; SimpleFIN-synced accounts are owned by the bridge and cannot be changed this way. Returns the updated account.",
+	}, s.mcpUpdateAccount)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_account",
+		Description: "Delete a manually-created account AND all of its transactions (irreversible). Only manual accounts can be deleted; SimpleFIN-synced accounts are owned by the bridge.",
+	}, s.mcpDeleteAccount)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_transactions",
 		Description: "List transactions, optionally filtered by account, date range, and label (key, or key+value). Each transaction includes its labels and schema extensions.",
 	}, s.mcpListTransactions)
@@ -45,6 +60,21 @@ func (s *Server) MCPServer() *mcp.Server {
 		Name:        "search_transactions",
 		Description: "Search transactions with the kasas query language: free text plus field filters (description:, payee:, memo:, account:, id:, amount:>10, date:2024-03, pending:true), label filters (label:key=value, label:key for presence, or the key:value shorthand), and schema-extension filters (ext:tax.category=meal, ext:forecast.recurring=true, ext:custom.myapp.score for presence, ext:key~substr for contains), combined with AND / OR / NOT and parentheses. An empty query matches all.",
 	}, s.mcpSearchTransactions)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_transaction",
+		Description: "Manually add a transaction to an account. Takes account_id (must exist; may be a manual or a synced account), a signed decimal amount (negative for an outflow, e.g. -12.34), a date (YYYY-MM-DD, RFC3339, or unix seconds), and optional description, payee, memo, and pending flag. The new transaction is recorded with source 'manual' and full history/provenance. Returns the created transaction.",
+	}, s.mcpCreateTransaction)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "update_transaction",
+		Description: "Edit the core fields (account, amount, date, description, payee, memo, pending) of a MANUALLY-created transaction by id. Only manual transactions can be edited; SimpleFIN-synced transactions are bridge-owned and would be overwritten on the next sync, so they are read-only here — annotate those with labels or extensions instead. Returns the updated transaction.",
+	}, s.mcpUpdateTransaction)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_transaction",
+		Description: "Delete a MANUALLY-created transaction by id. Only manual transactions can be deleted; SimpleFIN-synced transactions are bridge-owned (they would reappear on the next sync). Returns whether it was deleted.",
+	}, s.mcpDeleteTransaction)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_labels",
@@ -108,7 +138,7 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_events",
-		Description: "Read the canonical event stream: an ordered, replayable log of changes (transaction.created/updated, account.created/updated, label.applied/removed, rule.created/updated/deleted/executed, sync.completed). Page with `after` (a sequence cursor; 0 or omitted starts from the beginning) and optionally filter by type, entity_type (transaction|account|label|rule|sync), or entity_id. Returns the events plus the `next` cursor to pass as `after` next time.",
+		Description: "Read the canonical event stream: an ordered, replayable log of changes (transaction.created/updated/deleted, account.created/updated/deleted, label.applied/removed, extension.set/removed, relationship.created/removed, rule.created/updated/deleted/executed, sync.completed). Page with `after` (a sequence cursor; 0 or omitted starts from the beginning) and optionally filter by type, entity_type (transaction|account|label|rule|sync), or entity_id. Returns the events plus the `next` cursor to pass as `after` next time.",
 	}, s.mcpListEvents)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -158,7 +188,7 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_webhook",
-		Description: "Register a webhook: an absolute http(s) URL that kasas POSTs each subscribed event to, HMAC-signed (X-Kasas-Signature). Subscribe to specific types (transaction.created/updated, account.created/updated, label.applied/removed, rule.*, sync.completed) or use [\"*\"] / omit for all. Returns the signing secret.",
+		Description: "Register a webhook: an absolute http(s) URL that kasas POSTs each subscribed event to, HMAC-signed (X-Kasas-Signature). Subscribe to specific types (transaction.created/updated/deleted, account.created/updated/deleted, label.applied/removed, extension.set/removed, relationship.created/removed, rule.*, sync.completed) or use [\"*\"] / omit for all. Returns the signing secret.",
 	}, s.mcpCreateWebhook)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -231,6 +261,60 @@ type listAccountsOutput struct {
 
 type getAccountInput struct {
 	ID string `json:"id" jsonschema:"the account id"`
+}
+
+type createAccountInput struct {
+	Name        string `json:"name" jsonschema:"the account name, e.g. Cash or Checking"`
+	Currency    string `json:"currency" jsonschema:"the currency code, e.g. USD"`
+	Balance     string `json:"balance,omitempty" jsonschema:"the current balance as a signed decimal (default 0); kasas does not derive it from the account's transactions"`
+	BalanceDate string `json:"balance_date,omitempty" jsonschema:"the balance as-of date as YYYY-MM-DD, RFC3339, or unix seconds (default now)"`
+}
+
+type updateAccountInput struct {
+	ID          string `json:"id" jsonschema:"the id of the manually-created account to edit"`
+	Name        string `json:"name" jsonschema:"the account name"`
+	Currency    string `json:"currency" jsonschema:"the currency code, e.g. USD"`
+	Balance     string `json:"balance,omitempty" jsonschema:"the current balance as a signed decimal; omit to leave it unchanged"`
+	BalanceDate string `json:"balance_date,omitempty" jsonschema:"the balance as-of date; omit to leave it unchanged"`
+}
+
+type deleteAccountInput struct {
+	ID string `json:"id" jsonschema:"the id of the manually-created account to delete (also deletes its transactions)"`
+}
+
+type deleteAccountOutput struct {
+	ID      string `json:"id"`
+	Deleted bool   `json:"deleted"`
+}
+
+type createTransactionInput struct {
+	AccountID   string `json:"account_id" jsonschema:"the id of the account to add the transaction to (must exist)"`
+	Amount      string `json:"amount" jsonschema:"the signed decimal amount, e.g. -12.34 for an outflow or 100.00 for an inflow"`
+	Date        string `json:"date" jsonschema:"the transaction date as YYYY-MM-DD, RFC3339, or unix seconds"`
+	Description string `json:"description,omitempty" jsonschema:"optional description"`
+	Payee       string `json:"payee,omitempty" jsonschema:"optional payee or merchant"`
+	Memo        string `json:"memo,omitempty" jsonschema:"optional memo"`
+	Pending     *bool  `json:"pending,omitempty" jsonschema:"whether the transaction is pending (default false)"`
+}
+
+type updateTransactionInput struct {
+	ID          string `json:"id" jsonschema:"the id of the manually-created transaction to edit"`
+	AccountID   string `json:"account_id" jsonschema:"the id of the account (must exist)"`
+	Amount      string `json:"amount" jsonschema:"the signed decimal amount, e.g. -12.34"`
+	Date        string `json:"date" jsonschema:"the transaction date as YYYY-MM-DD, RFC3339, or unix seconds"`
+	Description string `json:"description,omitempty" jsonschema:"optional description"`
+	Payee       string `json:"payee,omitempty" jsonschema:"optional payee or merchant"`
+	Memo        string `json:"memo,omitempty" jsonschema:"optional memo"`
+	Pending     *bool  `json:"pending,omitempty" jsonschema:"whether the transaction is pending (default false)"`
+}
+
+type deleteTransactionInput struct {
+	ID string `json:"id" jsonschema:"the id of the manually-created transaction to delete"`
+}
+
+type deleteTransactionOutput struct {
+	ID      string `json:"id"`
+	Deleted bool   `json:"deleted"`
 }
 
 type listTransactionsInput struct {
@@ -365,6 +449,71 @@ func (s *Server) mcpGetAccount(ctx context.Context, _ *mcp.CallToolRequest, in g
 		return nil, AccountDTO{}, err
 	}
 	return &mcp.CallToolResult{}, toAccountDTO(account), nil
+}
+
+func (s *Server) mcpCreateAccount(ctx context.Context, _ *mcp.CallToolRequest, in createAccountInput) (*mcp.CallToolResult, AccountDTO, error) {
+	// createAccountInput is field-for-field an accountInput (with richer schema docs).
+	acct, err := s.createManualAccount(ctx, accountInput(in))
+	if err != nil {
+		return nil, AccountDTO{}, err
+	}
+	return &mcp.CallToolResult{}, toAccountDTO(acct), nil
+}
+
+func (s *Server) mcpUpdateAccount(ctx context.Context, _ *mcp.CallToolRequest, in updateAccountInput) (*mcp.CallToolResult, AccountDTO, error) {
+	acct, notFound, err := s.updateAccount(ctx, in.ID, accountInput{Name: in.Name, Currency: in.Currency, Balance: in.Balance, BalanceDate: in.BalanceDate})
+	if err != nil {
+		return nil, AccountDTO{}, err
+	}
+	if notFound {
+		return nil, AccountDTO{}, fmt.Errorf("account %q not found", in.ID)
+	}
+	return &mcp.CallToolResult{}, toAccountDTO(acct), nil
+}
+
+func (s *Server) mcpDeleteAccount(ctx context.Context, _ *mcp.CallToolRequest, in deleteAccountInput) (*mcp.CallToolResult, deleteAccountOutput, error) {
+	notFound, err := s.deleteAccount(ctx, in.ID)
+	if err != nil {
+		return nil, deleteAccountOutput{}, err
+	}
+	if notFound {
+		return nil, deleteAccountOutput{}, fmt.Errorf("account %q not found", in.ID)
+	}
+	return &mcp.CallToolResult{}, deleteAccountOutput{ID: in.ID, Deleted: true}, nil
+}
+
+func (s *Server) mcpCreateTransaction(ctx context.Context, _ *mcp.CallToolRequest, in createTransactionInput) (*mcp.CallToolResult, TransactionDTO, error) {
+	// createTransactionInput is field-for-field a transactionInput (richer schema docs).
+	txn, err := s.createManualTransaction(ctx, transactionInput(in))
+	if err != nil {
+		return nil, TransactionDTO{}, err
+	}
+	return &mcp.CallToolResult{}, toTransactionDTO(txn), nil
+}
+
+func (s *Server) mcpUpdateTransaction(ctx context.Context, _ *mcp.CallToolRequest, in updateTransactionInput) (*mcp.CallToolResult, TransactionDTO, error) {
+	txn, notFound, err := s.updateTransactionCore(ctx, in.ID, transactionInput{
+		AccountID: in.AccountID, Amount: in.Amount, Date: in.Date,
+		Description: in.Description, Payee: in.Payee, Memo: in.Memo, Pending: in.Pending,
+	})
+	if err != nil {
+		return nil, TransactionDTO{}, err
+	}
+	if notFound {
+		return nil, TransactionDTO{}, fmt.Errorf("transaction %q not found", in.ID)
+	}
+	return &mcp.CallToolResult{}, toTransactionDTO(txn), nil
+}
+
+func (s *Server) mcpDeleteTransaction(ctx context.Context, _ *mcp.CallToolRequest, in deleteTransactionInput) (*mcp.CallToolResult, deleteTransactionOutput, error) {
+	notFound, err := s.deleteTransaction(ctx, in.ID)
+	if err != nil {
+		return nil, deleteTransactionOutput{}, err
+	}
+	if notFound {
+		return nil, deleteTransactionOutput{}, fmt.Errorf("transaction %q not found", in.ID)
+	}
+	return &mcp.CallToolResult{}, deleteTransactionOutput{ID: in.ID, Deleted: true}, nil
 }
 
 func (s *Server) mcpListTransactions(ctx context.Context, _ *mcp.CallToolRequest, in listTransactionsInput) (*mcp.CallToolResult, listTransactionsOutput, error) {

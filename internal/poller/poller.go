@@ -263,6 +263,7 @@ func (p *Poller) persist(ctx context.Context, batch *source.ImportBatch, syncedA
 				Balance:     acct.Balance,
 				BalanceDate: acct.BalanceDate,
 				SyncedAt:    syncedAt,
+				Source:      batch.Source,
 			}
 			if err := q.UpsertAccount(ctx, db.UpsertAccountParams(newAcct)); err != nil {
 				return fmt.Errorf("upsert account %q: %w", acct.ExternalID, err)

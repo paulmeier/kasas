@@ -28,7 +28,7 @@ credential, exactly as for REST.
 
 ## Tools
 
-Thirty tools (the last five only when [plugins](../features/plugins.md) are
+Thirty-six tools (the last five only when [plugins](../features/plugins.md) are
 enabled). Each maps onto the same handler logic and DTO shapes as the
 corresponding REST route, so responses are identical.
 
@@ -36,10 +36,12 @@ corresponding REST route, so responses are identical.
 
     | Tool | Description |
     | --- | --- |
-    | `list_accounts` | All synced accounts with balances. |
+    | `list_accounts` | All accounts with balances. |
     | `get_account` | One account by id. |
+    | `create_account` · `update_account` · `delete_account` | [Manual account](../features/manual-entry.md) CRUD (synced accounts are read-only). |
     | `list_transactions` | Filter by `account_id`, date range, and `label_key`/`label_value`. |
     | `search_transactions` | The [query language](../features/search.md), including `ext:`. |
+    | `create_transaction` · `update_transaction` · `delete_transaction` | [Manual transaction](../features/manual-entry.md) CRUD (synced transactions are read-only). |
     | `list_organizations` | Financial institutions owning the accounts. |
 
 === "Metadata"

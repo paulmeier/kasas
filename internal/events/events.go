@@ -44,13 +44,21 @@ type Event struct {
 const (
 	TypeTransactionCreated = "transaction.created"
 	TypeTransactionUpdated = "transaction.updated"
-	// TypeTransactionDeleted is reserved: kasas has no transaction-delete path
-	// today (transactions are owned by the SimpleFIN bridge), so nothing emits it
-	// yet. It is defined so consumers can code against a stable taxonomy.
+	// TypeTransactionDeleted fires when a manually-created transaction is deleted
+	// through the API, or when a transaction is removed as part of deleting its
+	// manual account. Synced transactions are owned by the SimpleFIN bridge and
+	// cannot be deleted (they would reappear on the next sync), so only manual rows
+	// emit this. Its payload carries the transaction's last-known snapshot.
 	TypeTransactionDeleted = "transaction.deleted"
 
 	TypeAccountCreated = "account.created"
 	TypeAccountUpdated = "account.updated"
+	// TypeAccountDeleted fires when a manually-created account is deleted through the
+	// API. Synced accounts are owned by the bridge and cannot be deleted, so only
+	// manual accounts emit this. Its payload carries the account's last-known state;
+	// each of the account's transactions emits its own transaction.deleted first
+	// (the FK cascade is invisible to the stream, so the API emits them explicitly).
+	TypeAccountDeleted = "account.deleted"
 
 	TypeLabelApplied = "label.applied"
 	TypeLabelRemoved = "label.removed"
@@ -106,4 +114,9 @@ const (
 	// ChangeExtended is a change to the transaction's schema extensions (via the
 	// REST API or the set_transaction_extensions MCP tool).
 	ChangeExtended = "extended"
+	// ChangeEdited is a manual edit of a transaction's core fields (amount, date,
+	// description, account, ...) through the API or dashboard. It applies only to
+	// manually-created transactions; synced transactions' core fields are
+	// bridge-owned and change only via ChangeSynced.
+	ChangeEdited = "edited"
 )

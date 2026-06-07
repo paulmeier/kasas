@@ -15,7 +15,9 @@ type OrganizationDTO struct {
 	SfinURL string `json:"sfin_url"`
 }
 
-// AccountDTO is the JSON representation of an account.
+// AccountDTO is the JSON representation of an account. Source is its provenance
+// ("simplefin" for a synced account, "manual" for a user-created one); the
+// dashboard keys its edit/delete affordances off it.
 type AccountDTO struct {
 	ID          string    `json:"id"`
 	OrgID       string    `json:"org_id"`
@@ -24,11 +26,14 @@ type AccountDTO struct {
 	Balance     string    `json:"balance"`
 	BalanceDate time.Time `json:"balance_date"`
 	SyncedAt    time.Time `json:"synced_at"`
+	Source      string    `json:"source"`
 }
 
 // TransactionDTO is the JSON representation of a transaction. Labels are strict
 // key->value strings; Extensions are arbitrary, app-owned namespaced metadata
 // whose values are any JSON (decoded to `any` so the type is MCP-output-safe).
+// Source is its provenance ("simplefin" or "manual"); the dashboard keys its
+// edit/delete affordances off it (only manual transactions are editable).
 type TransactionDTO struct {
 	ID          string            `json:"id"`
 	AccountID   string            `json:"account_id"`
@@ -39,6 +44,7 @@ type TransactionDTO struct {
 	Payee       string            `json:"payee"`
 	Memo        string            `json:"memo"`
 	SyncedAt    time.Time         `json:"synced_at"`
+	Source      string            `json:"source"`
 	Labels      map[string]string `json:"labels"`
 	Extensions  map[string]any    `json:"extensions"`
 	// Relationships are this transaction's own OUTBOUND edges ({kind,target}). The
@@ -109,6 +115,7 @@ func toAccountDTO(a db.Account) AccountDTO {
 		Balance:     a.Balance,
 		BalanceDate: unixTime(a.BalanceDate),
 		SyncedAt:    unixTime(a.SyncedAt),
+		Source:      a.Source,
 	}
 }
 
@@ -123,6 +130,7 @@ func toTransactionDTO(t db.Transaction) TransactionDTO {
 		Payee:         t.Payee,
 		Memo:          t.Memo,
 		SyncedAt:      unixTime(t.SyncedAt),
+		Source:        t.Source,
 		Labels:        decodeLabels(t.Labels),
 		Extensions:    decodeExtensions(t.Extensions),
 		Relationships: decodeRelationships(t.Relationships),

@@ -59,6 +59,12 @@ Base path: `/api/v1`. Source:
 
 | Method & path | Description |
 | --- | --- |
+| `POST /api/v1/accounts` | Create a [manual account](../features/manual-entry.md) (`{"name","currency","balance"}`); `source` is `manual`. |
+| `PUT /api/v1/accounts/{id}` | Edit a manual account (`409` for a synced account). |
+| `DELETE /api/v1/accounts/{id}` | Delete a manual account **and its transactions** (`409` for a synced account). |
+| `POST /api/v1/transactions` | Create a [manual transaction](../features/manual-entry.md) (`{"account_id","amount","date",...}`); `400` on a bad amount/date or unknown account. |
+| `PUT /api/v1/transactions/{id}` | Edit a manual transaction's core fields (`409` for a synced transaction). |
+| `DELETE /api/v1/transactions/{id}` | Delete a manual transaction (`409` for a synced transaction). |
 | `PUT /api/v1/transactions/{id}/labels` | Replace a transaction's labels (`{"labels":{"category":"food"}}`). |
 | `DELETE /api/v1/labels/{key}` | Remove a label key from every transaction (`?value=` to scope). |
 | `PUT /api/v1/transactions/{id}/extensions` | Replace a transaction's [extensions](../features/schema-extensions.md). |
@@ -93,6 +99,11 @@ curl "localhost:8080/api/v1/transactions/search?q=coffee%20amount:%3C0%20date:20
 
 # poll the event stream forward from a cursor
 curl "localhost:8080/api/v1/events?after=42&limit=100"   # -> {"events":[…],"next":57}
+
+# manually enter a transaction into an account
+curl -X POST localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -d '{"account_id":"<id>","amount":"-12.34","date":"2024-03-15","description":"Coffee"}'
 ```
 
 ## DTOs

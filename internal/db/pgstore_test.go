@@ -315,4 +315,55 @@ func TestPostgresStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), removed, "only the version before the cutoff is pruned")
 	})
+
+	// Exercises the manual create/edit/delete adapters (UpdateAccount, DeleteAccount,
+	// UpdateTransactionCore, DeleteTransaction, DeleteTransactionVersionsByTransaction)
+	// and the account source column against a real Postgres.
+	t.Run("manual account + transaction edit/delete", func(t *testing.T) {
+		require.NoError(t, store.UpsertOrganization(ctx, db.UpsertOrganizationParams{ID: "manual", Name: "Manual"}))
+		require.NoError(t, store.UpsertAccount(ctx, db.UpsertAccountParams{
+			ID: "man-acct", OrgID: "manual", Name: "Cash", Currency: "USD",
+			Balance: "10.00", BalanceDate: 1, SyncedAt: 1, Source: "manual",
+		}))
+		got, err := store.GetAccount(ctx, "man-acct")
+		require.NoError(t, err)
+		assert.Equal(t, "manual", got.Source)
+
+		n, err := store.UpdateAccount(ctx, db.UpdateAccountParams{
+			ID: "man-acct", Name: "Petty", Currency: "USD", Balance: "9.00", BalanceDate: 2, SyncedAt: 2,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+		got, _ = store.GetAccount(ctx, "man-acct")
+		assert.Equal(t, "Petty", got.Name)
+		assert.Equal(t, "manual", got.Source, "UpdateAccount leaves source untouched")
+
+		_, err = store.InsertTransaction(ctx, db.InsertTransactionParams{
+			ID: "man-tx", AccountID: "man-acct", Amount: "-1.00", Date: 1, SyncedAt: 1, Source: "manual",
+		})
+		require.NoError(t, err)
+		n, err = store.UpdateTransactionCore(ctx, db.UpdateTransactionCoreParams{
+			ID: "man-tx", AccountID: "man-acct", Amount: "-2.00", Date: 2, SyncedAt: 2,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+		tx, _ := store.GetTransaction(ctx, "man-tx")
+		assert.Equal(t, "-2.00", tx.Amount)
+
+		_, err = store.InsertTransactionVersion(ctx, db.InsertTransactionVersionParams{
+			TransactionID: "man-tx", ChangeKind: "imported", OccurredAt: 1, Data: "{}",
+		})
+		require.NoError(t, err)
+		vRemoved, err := store.DeleteTransactionVersionsByTransaction(ctx, "man-tx")
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), vRemoved)
+
+		n, err = store.DeleteTransaction(ctx, "man-tx")
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+
+		n, err = store.DeleteAccount(ctx, "man-acct")
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), n)
+	})
 }

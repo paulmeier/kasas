@@ -41,6 +41,22 @@ func (q *Queries) DeleteTransactionVersionsBefore(ctx context.Context, cutoff in
 	return result.RowsAffected()
 }
 
+const deleteTransactionVersionsByTransaction = `-- name: DeleteTransactionVersionsByTransaction :execrows
+DELETE FROM transaction_versions WHERE transaction_id = $1
+`
+
+// Removes all history snapshots for one transaction. Used when a manual transaction
+// is deleted: transaction_versions has no foreign key to transactions, so the row
+// delete does not cascade here and the history would otherwise be orphaned. Runs in
+// the same transaction as the DeleteTransaction call.
+func (q *Queries) DeleteTransactionVersionsByTransaction(ctx context.Context, transactionID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteTransactionVersionsByTransaction, transactionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertTransactionVersion = `-- name: InsertTransactionVersion :one
 INSERT INTO transaction_versions (transaction_id, change_kind, occurred_at, data)
 VALUES (
