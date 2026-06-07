@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.1](https://github.com/paulmeier/kasas/compare/v2.11.0...v2.11.1) (2026-06-07)
+
+
+### Documentation
+
+* document pluggable ingestion sources (SimpleFIN as the first, not the only) ([#57](https://github.com/paulmeier/kasas/issues/57)) ([df66de6](https://github.com/paulmeier/kasas/commit/df66de652bfac10f66474d39e70483968de28324))
+
 ## [2.11.0](https://github.com/paulmeier/kasas/compare/v2.10.0...v2.11.0) (2026-06-07)
 
 
