@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.12.0](https://github.com/paulmeier/kasas/compare/v2.11.1...v2.12.0) (2026-06-07)
+
+
+### Features
+
+* transaction relationships — explicit directed edges between transactions ([#59](https://github.com/paulmeier/kasas/issues/59)) ([47d3408](https://github.com/paulmeier/kasas/commit/47d3408675a4bcd7500caa5aa30df7aba3855d2b))
+
 ## [2.11.1](https://github.com/paulmeier/kasas/compare/v2.11.0...v2.11.1) (2026-06-07)
 
 
