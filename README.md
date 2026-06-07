@@ -32,28 +32,13 @@ history of every change, an extensible metadata model — so anything you build 
 top (budgeting, tax, fraud detection, forecasting, notifications, AI agents) starts
 from clean, queryable, event-driven data.
 
-```mermaid
-flowchart LR
-    SRC([Sources · SimpleFIN today]) -->|ingest| K
+<p align="center">
+  <img src=".github/assets/demo.gif" alt="A guided tour of the kasas dashboard — accounts, transactions, search, labels, rules, events, webhooks, and plugins" width="900">
+</p>
 
-    subgraph K[kasas — the ledger]
-        direction TB
-        SYNC[Ingestion engine] --> DB[(SQLite / Postgres)]
-        DB --> CORE[labels · extensions · relationships · search · rules · history]
-        CORE --> EV[(Canonical event stream)]
-    end
-
-    K --> REST[REST API]
-    K --> MCP[MCP server]
-    K --> DASH[Web dashboard]
-    EV --> WH[Webhooks]
-    EV --> PL[Plugins]
-
-    REST --> APPS([Budgeting · Tax · Fraud · Forecasting · Notifiers · Agents])
-    MCP --> APPS
-    WH --> APPS
-    PL --> APPS
-```
+<p align="center">
+  <em>The built-in dashboard — one of three surfaces (REST · MCP · dashboard) over the same core.</em>
+</p>
 
 ## Why kasas
 
