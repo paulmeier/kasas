@@ -216,6 +216,20 @@ func (s *Server) Router() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(s.requireWrite)
 
+				// Manual transaction CRUD. Create/edit/delete of core fields is
+				// gated to manually-created rows (source="manual"); synced rows are
+				// bridge-owned (409). Different methods than the read-tier
+				// /transactions and /transactions/{id} routes, so they coexist.
+				r.Post("/transactions", s.handleCreateTransaction)
+				r.Put("/transactions/{id}", s.handleUpdateTransaction)
+				r.Delete("/transactions/{id}", s.handleDeleteTransaction)
+
+				// Manual account CRUD (same manual-only gate). Deleting an account
+				// cascades to its transactions.
+				r.Post("/accounts", s.handleCreateAccount)
+				r.Put("/accounts/{id}", s.handleUpdateAccount)
+				r.Delete("/accounts/{id}", s.handleDeleteAccount)
+
 				r.Put("/transactions/{id}/labels", s.handleUpdateTransactionLabels)
 				r.Delete("/labels/{key}", s.handleDeleteLabel)
 

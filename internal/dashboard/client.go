@@ -20,24 +20,31 @@ import (
 // not import internal/api (which pulls in sqlite, the MCP SDK, etc.).
 
 type account struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Currency string `json:"currency"`
-	Balance  string `json:"balance"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Currency    string    `json:"currency"`
+	Balance     string    `json:"balance"`
+	BalanceDate time.Time `json:"balance_date"`
+	// Source is the account's provenance ("simplefin" or "manual"); the dashboard
+	// shows edit/delete affordances only for manual accounts.
+	Source string `json:"source"`
 }
 
 type transaction struct {
-	ID          string                     `json:"id"`
-	AccountID   string                     `json:"account_id"`
-	Amount      string                     `json:"amount"`
-	Pending     bool                       `json:"pending"`
-	Date        time.Time                  `json:"date"`
-	Description string                     `json:"description"`
-	Payee       string                     `json:"payee"`
-	Memo        string                     `json:"memo"`
-	SyncedAt    time.Time                  `json:"synced_at"`
-	Labels      map[string]string          `json:"labels"`
-	Extensions  map[string]json.RawMessage `json:"extensions"`
+	ID          string    `json:"id"`
+	AccountID   string    `json:"account_id"`
+	Amount      string    `json:"amount"`
+	Pending     bool      `json:"pending"`
+	Date        time.Time `json:"date"`
+	Description string    `json:"description"`
+	Payee       string    `json:"payee"`
+	Memo        string    `json:"memo"`
+	SyncedAt    time.Time `json:"synced_at"`
+	// Source is the transaction's provenance ("simplefin" or "manual"); the
+	// dashboard shows edit/delete affordances only for manual transactions.
+	Source     string                     `json:"source"`
+	Labels     map[string]string          `json:"labels"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
 	// Relationships is this transaction's own OUTBOUND edges (the API inlines only
 	// these per row). Used for the row indicator and to build the inbound index for
 	// in-browser rel:/related: search; the full neighborhood is fetched on demand.
@@ -529,6 +536,121 @@ func relationshipAPIError(resp *http.Response, op string) error {
 		return fmt.Errorf("%s", e.Error)
 	}
 	return fmt.Errorf("%s: status %d", op, resp.StatusCode)
+}
+
+// transactionPayload is the manual create/update request body (mirrors
+// api.transactionInput). Date is a string the server parses (YYYY-MM-DD here).
+type transactionPayload struct {
+	AccountID   string `json:"account_id"`
+	Amount      string `json:"amount"`
+	Date        string `json:"date"`
+	Description string `json:"description"`
+	Payee       string `json:"payee"`
+	Memo        string `json:"memo"`
+	Pending     bool   `json:"pending"`
+}
+
+func (c *apiClient) createTransaction(ctx context.Context, p transactionPayload) (transaction, error) {
+	return c.sendTransaction(ctx, http.MethodPost, "/api/v1/transactions", p)
+}
+
+func (c *apiClient) updateTransaction(ctx context.Context, id string, p transactionPayload) (transaction, error) {
+	return c.sendTransaction(ctx, http.MethodPut, "/api/v1/transactions/"+url.PathEscape(id), p)
+}
+
+// sendTransaction POSTs or PUTs a transaction payload and decodes the returned
+// transaction, surfacing the server's error message (a bad amount, a read-only
+// synced row, ...) on failure.
+func (c *apiClient) sendTransaction(ctx context.Context, method, path string, p transactionPayload) (transaction, error) {
+	body, err := json.Marshal(p)
+	if err != nil {
+		return transaction{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(body))
+	if err != nil {
+		return transaction{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return transaction{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return transaction{}, decodeAPIError(resp, "save transaction")
+	}
+	var out transaction
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return transaction{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) deleteTransaction(ctx context.Context, id string) error {
+	return c.sendDelete(ctx, "/api/v1/transactions/"+url.PathEscape(id), "delete transaction")
+}
+
+// accountPayload is the manual account create/update request body (mirrors
+// api.accountInput). Balance/BalanceDate are optional on update (omit to keep).
+type accountPayload struct {
+	Name        string `json:"name"`
+	Currency    string `json:"currency"`
+	Balance     string `json:"balance"`
+	BalanceDate string `json:"balance_date,omitempty"`
+}
+
+func (c *apiClient) createAccount(ctx context.Context, p accountPayload) (account, error) {
+	return c.sendAccount(ctx, http.MethodPost, "/api/v1/accounts", p)
+}
+
+func (c *apiClient) updateAccount(ctx context.Context, id string, p accountPayload) (account, error) {
+	return c.sendAccount(ctx, http.MethodPut, "/api/v1/accounts/"+url.PathEscape(id), p)
+}
+
+func (c *apiClient) sendAccount(ctx context.Context, method, path string, p accountPayload) (account, error) {
+	body, err := json.Marshal(p)
+	if err != nil {
+		return account{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(body))
+	if err != nil {
+		return account{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return account{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return account{}, decodeAPIError(resp, "save account")
+	}
+	var out account
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return account{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) deleteAccount(ctx context.Context, id string) error {
+	return c.sendDelete(ctx, "/api/v1/accounts/"+url.PathEscape(id), "delete account")
+}
+
+// sendDelete issues a DELETE and surfaces the API's error message on a non-200.
+func (c *apiClient) sendDelete(ctx context.Context, path, op string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+path, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, op)
+	}
+	return nil
 }
 
 // provenance mirrors provenance.Provenance: a transaction's read-only lineage — where

@@ -22,7 +22,7 @@ const allEventsKey = "*"
 // DTOs) so the WASM build does not import the server packages.
 var webhookEventTypes = []string{
 	"transaction.created", "transaction.updated", "transaction.deleted",
-	"account.created", "account.updated",
+	"account.created", "account.updated", "account.deleted",
 	"label.applied", "label.removed",
 	"extension.set", "extension.removed",
 	"relationship.created", "relationship.removed",

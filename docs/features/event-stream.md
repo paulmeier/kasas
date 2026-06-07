@@ -122,10 +122,11 @@ delivery queue** — the durable event table *is* the queue.
 
 | Type | Emitted when |
 | --- | --- |
-| `transaction.created` | A new transaction is inserted by a [sync](sync.md). |
-| `transaction.updated` | A re-sync changes a source-owned field. |
-| `transaction.deleted` | *Reserved* (no deletion path today). |
+| `transaction.created` | A new transaction is inserted by a [sync](sync.md) or [entered manually](manual-entry.md). |
+| `transaction.updated` | A re-sync changes a source-owned field, or a manual transaction is edited. |
+| `transaction.deleted` | A [manual transaction](manual-entry.md) is deleted (or removed as part of deleting its account). |
 | `account.created` / `account.updated` | An account first appears / changes. |
+| `account.deleted` | A [manual account](manual-entry.md) is deleted (its transactions emit `transaction.deleted` first). |
 | `label.applied` / `label.removed` | A transaction's [labels](labels.md) change (granular, per key). |
 | `extension.set` / `extension.removed` | A transaction's [extensions](schema-extensions.md) change (granular, per key). |
 | `rule.created` / `rule.updated` / `rule.deleted` / `rule.executed` | [Rule](rules.md) lifecycle and runs. |

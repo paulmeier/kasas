@@ -113,6 +113,7 @@ nav:
       - Data Model: architecture/data-model.md
   - Features:
       - Sync Pipeline: features/sync.md
+      - Manual Entry: features/manual-entry.md
       - Event Stream: features/event-stream.md
       - Transaction History: features/transaction-history.md
       - Transaction Provenance: features/transaction-provenance.md

@@ -9,8 +9,25 @@ import (
 	"context"
 )
 
+const deleteAccount = `-- name: DeleteAccount :execrows
+DELETE FROM accounts WHERE id = ?1
+`
+
+// Deletes one account. Its transactions are removed by the ON DELETE CASCADE on
+// transactions.account_id; the API enumerates and emits a transaction.deleted for
+// each cascaded row (and cleans their history/relationships) before calling this,
+// since the cascade is invisible to the event stream. :execrows reports whether the
+// account existed. The manual-only gate is enforced in the API.
+func (q *Queries) DeleteAccount(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteAccount, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getAccount = `-- name: GetAccount :one
-SELECT id, org_id, name, currency, balance, balance_date, synced_at FROM accounts
+SELECT id, org_id, name, currency, balance, balance_date, synced_at, source FROM accounts
 WHERE id = ?1
 `
 
@@ -25,12 +42,13 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.Balance,
 		&i.BalanceDate,
 		&i.SyncedAt,
+		&i.Source,
 	)
 	return i, err
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, org_id, name, currency, balance, balance_date, synced_at FROM accounts
+SELECT id, org_id, name, currency, balance, balance_date, synced_at, source FROM accounts
 ORDER BY name
 `
 
@@ -51,6 +69,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.Balance,
 			&i.BalanceDate,
 			&i.SyncedAt,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -66,7 +85,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 }
 
 const listAccountsByOrg = `-- name: ListAccountsByOrg :many
-SELECT id, org_id, name, currency, balance, balance_date, synced_at FROM accounts
+SELECT id, org_id, name, currency, balance, balance_date, synced_at, source FROM accounts
 WHERE org_id = ?1
 ORDER BY name
 `
@@ -88,6 +107,7 @@ func (q *Queries) ListAccountsByOrg(ctx context.Context, orgID string) ([]Accoun
 			&i.Balance,
 			&i.BalanceDate,
 			&i.SyncedAt,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -102,11 +122,48 @@ func (q *Queries) ListAccountsByOrg(ctx context.Context, orgID string) ([]Accoun
 	return items, nil
 }
 
+const updateAccount = `-- name: UpdateAccount :execrows
+UPDATE accounts
+SET name         = ?1,
+    currency     = ?2,
+    balance      = ?3,
+    balance_date = ?4,
+    synced_at    = ?5
+WHERE id = ?6
+`
+
+type UpdateAccountParams struct {
+	Name        string `json:"name"`
+	Currency    string `json:"currency"`
+	Balance     string `json:"balance"`
+	BalanceDate int64  `json:"balance_date"`
+	SyncedAt    int64  `json:"synced_at"`
+	ID          string `json:"id"`
+}
+
+// Updates a manual account's user-owned fields (the org and source are immutable
+// provenance, set once at creation). :execrows lets the caller detect a missing id
+// (0 rows affected). The manual-only gate is enforced in the API, not here.
+func (q *Queries) UpdateAccount(ctx context.Context, arg UpdateAccountParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAccount,
+		arg.Name,
+		arg.Currency,
+		arg.Balance,
+		arg.BalanceDate,
+		arg.SyncedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const upsertAccount = `-- name: UpsertAccount :exec
-INSERT INTO accounts (id, org_id, name, currency, balance, balance_date, synced_at)
+INSERT INTO accounts (id, org_id, name, currency, balance, balance_date, synced_at, source)
 VALUES (
     ?1, ?2, ?3, ?4,
-    ?5, ?6, ?7
+    ?5, ?6, ?7, ?8
 )
 ON CONFLICT (id) DO UPDATE SET
     org_id       = excluded.org_id,
@@ -125,8 +182,14 @@ type UpsertAccountParams struct {
 	Balance     string `json:"balance"`
 	BalanceDate int64  `json:"balance_date"`
 	SyncedAt    int64  `json:"synced_at"`
+	Source      string `json:"source"`
 }
 
+// source is the provenance of the account ("simplefin" for synced, "manual" for a
+// user-created one) and is a bound argument, not a literal, so the manual-account
+// writer can stamp its own. It is intentionally NOT in the DO UPDATE SET list: like
+// transactions.source, provenance is immutable, so a re-sync of an existing account
+// never rewrites it.
 func (q *Queries) UpsertAccount(ctx context.Context, arg UpsertAccountParams) error {
 	_, err := q.db.ExecContext(ctx, upsertAccount,
 		arg.ID,
@@ -136,6 +199,7 @@ func (q *Queries) UpsertAccount(ctx context.Context, arg UpsertAccountParams) er
 		arg.Balance,
 		arg.BalanceDate,
 		arg.SyncedAt,
+		arg.Source,
 	)
 	return err
 }

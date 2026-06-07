@@ -49,7 +49,9 @@ func TransactionSnapshot(t db.Transaction) TransactionPayload {
 	}
 }
 
-// AccountPayload is the snapshot embedded in account.* events.
+// AccountPayload is the snapshot embedded in account.* events. Source is the
+// account's provenance ("simplefin" or "manual"), carried so consumers can tell a
+// manually-created account from a synced one without a follow-up query.
 type AccountPayload struct {
 	ID          string    `json:"id"`
 	OrgID       string    `json:"org_id"`
@@ -57,6 +59,7 @@ type AccountPayload struct {
 	Currency    string    `json:"currency"`
 	Balance     string    `json:"balance"`
 	BalanceDate time.Time `json:"balance_date"`
+	Source      string    `json:"source"`
 }
 
 // AccountSnapshot builds an AccountPayload from a stored row.
@@ -68,6 +71,7 @@ func AccountSnapshot(a db.Account) AccountPayload {
 		Currency:    a.Currency,
 		Balance:     a.Balance,
 		BalanceDate: time.Unix(a.BalanceDate, 0).UTC(),
+		Source:      a.Source,
 	}
 }
 

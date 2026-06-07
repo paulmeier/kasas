@@ -29,6 +29,7 @@ var knownEventTypes = map[string]bool{
 	events.TypeTransactionDeleted:  true,
 	events.TypeAccountCreated:      true,
 	events.TypeAccountUpdated:      true,
+	events.TypeAccountDeleted:      true,
 	events.TypeLabelApplied:        true,
 	events.TypeLabelRemoved:        true,
 	events.TypeExtensionSet:        true,

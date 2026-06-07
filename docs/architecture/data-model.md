@@ -29,6 +29,7 @@ erDiagram
         text balance "decimal string"
         int  balance_date
         int  synced_at
+        text source "ingestion path"
     }
     transactions {
         text id PK
@@ -75,8 +76,8 @@ point at any kind of entity (a transaction, an account, a rule, a sync).
 | Table | Kind | Purpose |
 | --- | --- | --- |
 | `organizations` | Derived | Financial institutions an account belongs to. |
-| `accounts` | Derived | Your accounts: balance, currency, last-synced time. |
-| `transactions` | Derived + yours | The ledger. Source-owned fields are refreshed each sync; `labels`, `extensions`, `relationships`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. |
+| `accounts` | Derived + yours | Your accounts: balance, currency, last-synced time. Mostly synced, but you can also [create accounts manually](../features/manual-entry.md) (`source = manual`). |
+| `transactions` | Derived + yours | The ledger. Source-owned fields are refreshed each sync; `labels`, `extensions`, `relationships`, and `source` ([provenance](../features/transaction-provenance.md)) are never overwritten. Rows with `source = manual` are [entered by you](../features/manual-entry.md) and fully editable. |
 | `sync_log` | Record | One row per [sync run](../features/sync.md): start, finish, status, error. |
 | `rules` | Yours | [Auto-labeling rules](../features/rules.md): a query + labels to apply. |
 | `events` | Record | The append-only [event stream](../features/event-stream.md). |

@@ -16,6 +16,7 @@ type Account struct {
 	Balance     string `json:"balance"`
 	BalanceDate int64  `json:"balance_date"`
 	SyncedAt    int64  `json:"synced_at"`
+	Source      string `json:"source"`
 }
 
 type ApiKey struct {

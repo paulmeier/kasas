@@ -78,6 +78,16 @@ func (a pgQuerier) UpdateTransactionFromSync(ctx context.Context, arg UpdateTran
 	return a.q.UpdateTransactionFromSync(ctx, pg.UpdateTransactionFromSyncParams(arg))
 }
 
+// Manual transaction edit/delete. The core params are all int64/string, so they
+// adapt by whole-struct cast; DeleteTransaction is a plain id pass-through.
+func (a pgQuerier) UpdateTransactionCore(ctx context.Context, arg UpdateTransactionCoreParams) (int64, error) {
+	return a.q.UpdateTransactionCore(ctx, pg.UpdateTransactionCoreParams(arg))
+}
+
+func (a pgQuerier) DeleteTransaction(ctx context.Context, id string) (int64, error) {
+	return a.q.DeleteTransaction(ctx, id)
+}
+
 func (a pgQuerier) UpdateTransactionLabels(ctx context.Context, arg UpdateTransactionLabelsParams) (int64, error) {
 	return a.q.UpdateTransactionLabels(ctx, pg.UpdateTransactionLabelsParams(arg))
 }
@@ -199,6 +209,16 @@ func (a pgQuerier) UpsertAccount(ctx context.Context, arg UpsertAccountParams) e
 	return a.q.UpsertAccount(ctx, pg.UpsertAccountParams(arg))
 }
 
+// Manual account edit/delete. UpdateAccountParams is all int64/string (whole-struct
+// cast); DeleteAccount is a plain id pass-through (its transactions cascade in the DB).
+func (a pgQuerier) UpdateAccount(ctx context.Context, arg UpdateAccountParams) (int64, error) {
+	return a.q.UpdateAccount(ctx, pg.UpdateAccountParams(arg))
+}
+
+func (a pgQuerier) DeleteAccount(ctx context.Context, id string) (int64, error) {
+	return a.q.DeleteAccount(ctx, id)
+}
+
 func (a pgQuerier) UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error {
 	return a.q.UpsertOrganization(ctx, pg.UpsertOrganizationParams(arg))
 }
@@ -287,6 +307,10 @@ func (a pgQuerier) CountTransactionVersions(ctx context.Context, transactionID s
 
 func (a pgQuerier) DeleteTransactionVersionsBefore(ctx context.Context, cutoff int64) (int64, error) {
 	return a.q.DeleteTransactionVersionsBefore(ctx, cutoff)
+}
+
+func (a pgQuerier) DeleteTransactionVersionsByTransaction(ctx context.Context, transactionID string) (int64, error) {
+	return a.q.DeleteTransactionVersionsByTransaction(ctx, transactionID)
 }
 
 // API keys. All columns are int64/string, so ApiKey rows and InsertApiKeyParams
