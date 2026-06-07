@@ -85,7 +85,7 @@ func TestRenderTokenReveal(t *testing.T) {
 // renderShell shows the login screen instead of the app shell.
 func TestRenderShellLoginGate(t *testing.T) {
 	c := &chrome{authChecked: true, authRequired: true, authed: false}
-	html := printUI(t, c.renderShell(navDashboard, marker()))
+	html := printUI(t, c.renderShell(navTransactions, marker()))
 
 	if !strings.Contains(html, `id="kasas-login-token"`) {
 		t.Fatalf("login gate must render the token input\nHTML:\n%s", html)
@@ -105,7 +105,7 @@ func TestRenderShellLoginGate(t *testing.T) {
 // shell with the page content and no unsecured banner.
 func TestRenderShellAuthedShowsContent(t *testing.T) {
 	c := &chrome{authChecked: true, authRequired: true, authed: true}
-	html := printUI(t, c.renderShell(navDashboard, marker()))
+	html := printUI(t, c.renderShell(navTransactions, marker()))
 
 	if !strings.Contains(html, "MARKER") {
 		t.Fatalf("authed shell must render page content\nHTML:\n%s", html)
@@ -119,7 +119,7 @@ func TestRenderShellAuthedShowsContent(t *testing.T) {
 // the unsecured warning to every page.
 func TestRenderShellUnsecuredBanner(t *testing.T) {
 	c := &chrome{authChecked: true, authRequired: false, authed: true}
-	html := printUI(t, c.renderShell(navDashboard, marker()))
+	html := printUI(t, c.renderShell(navTransactions, marker()))
 
 	if !strings.Contains(html, "not secured") {
 		t.Fatalf("unsecured shell must show the warning banner\nHTML:\n%s", html)

@@ -18,7 +18,7 @@ import (
 // sent account_id=All+accounts as a filter, matching no account and showing
 // "No transactions." The option must carry a real, non-empty value.
 func TestAllAccountsOptionHasValue(t *testing.T) {
-	v := &dashboardView{
+	v := &transactionsView{
 		accounts: []account{{ID: "ACT-1", Name: "Checking"}},
 	}
 
@@ -47,7 +47,7 @@ func TestAllAccountsValueNotAnAccountID(t *testing.T) {
 // client-side: amounts are strings, so a lexical sort would order "100" before
 // "20" before "9". The Amount column must compare numerically.
 func TestSortedTxnsByAmountIsNumeric(t *testing.T) {
-	v := &dashboardView{
+	v := &transactionsView{
 		txns: []transaction{
 			{ID: "a", Amount: "9.00"},
 			{ID: "b", Amount: "100.00"},
@@ -72,7 +72,7 @@ func TestSortedTxnsByDateDefaultsNewestFirst(t *testing.T) {
 	mk := func(id string, day int) transaction {
 		return transaction{ID: id, Date: time.Date(2026, 1, day, 0, 0, 0, 0, time.UTC)}
 	}
-	v := &dashboardView{
+	v := &transactionsView{
 		txns:    []transaction{mk("a", 1), mk("b", 3), mk("c", 2)},
 		sortCol: sortByDate,
 		sortAsc: false,
@@ -85,7 +85,7 @@ func TestSortedTxnsByDateDefaultsNewestFirst(t *testing.T) {
 // TestSortedTxnsByDescriptionFallsBackToDescription confirms the Description
 // column sorts on the same payee-or-description text that the rows display.
 func TestSortedTxnsByDescriptionFallsBackToDescription(t *testing.T) {
-	v := &dashboardView{
+	v := &transactionsView{
 		txns: []transaction{
 			{ID: "a", Payee: "Zelle"},
 			{ID: "b", Description: " amazon"}, // no payee -> uses description
@@ -120,7 +120,7 @@ func TestPaginationSlicingAndClamp(t *testing.T) {
 	for i := range txns {
 		txns[i] = transaction{ID: fmt.Sprintf("%02d", i), Payee: fmt.Sprintf("p%02d", i)}
 	}
-	v := &dashboardView{txns: txns, pageSize: 10, sortCol: sortByDescription, sortAsc: true}
+	v := &transactionsView{txns: txns, pageSize: 10, sortCol: sortByDescription, sortAsc: true}
 
 	if got := v.pageCount(); got != 3 {
 		t.Fatalf("pageCount = %d, want 3", got)
@@ -144,7 +144,7 @@ func TestPaginationSlicingAndClamp(t *testing.T) {
 // TestPageSizeOptionsRendered ensures the "Show" dropdown offers exactly the
 // requested page sizes.
 func TestPageSizeOptionsRendered(t *testing.T) {
-	v := &dashboardView{pageSize: 50}
+	v := &transactionsView{pageSize: 50}
 	var buf bytes.Buffer
 	app.PrintHTML(&buf, v.renderControls())
 	html := buf.String()
@@ -158,7 +158,7 @@ func TestPageSizeOptionsRendered(t *testing.T) {
 // TestSortHeaderMarksActiveColumn checks the active column is clickable and
 // shows a direction arrow, while inactive columns show none.
 func TestSortHeaderMarksActiveColumn(t *testing.T) {
-	v := &dashboardView{sortCol: sortByAmount, sortAsc: true}
+	v := &transactionsView{sortCol: sortByAmount, sortAsc: true}
 
 	var buf bytes.Buffer
 	app.PrintHTML(&buf, v.sortHeader("Amount", sortByAmount, "right"))
@@ -181,7 +181,7 @@ func TestSortHeaderMarksActiveColumn(t *testing.T) {
 // four data columns (Date, Account, Description, Amount) remain sortable, but
 // Labels is not built with sortHeader and carries no sortable affordance.
 func TestLabelsColumnNotSortable(t *testing.T) {
-	v := &dashboardView{
+	v := &transactionsView{
 		txns:     []transaction{{ID: "tx-1", Amount: "1.00", Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
 		pageSize: 10,
 	}
@@ -236,7 +236,7 @@ func TestFilterLabelSuggestions(t *testing.T) {
 // remove button per label, and that the add-label input is hidden until the cell
 // is being edited (it appears on click, not on every row).
 func TestRenderLabelsCellChips(t *testing.T) {
-	v := &dashboardView{}
+	v := &transactionsView{}
 
 	// Not editing: chips + remove buttons, marked editable, but no input.
 	var buf bytes.Buffer

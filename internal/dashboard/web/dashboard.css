@@ -115,20 +115,14 @@ html, body {
 .page-title { font-size: 22px; margin: 0 0 4px; letter-spacing: 0.3px; }
 .page-subtitle { color: var(--muted); font-size: 14px; }
 
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
+/* .card is the surface used by the login screen. (It also backed the old account
+   overview cards, before accounts moved to their own table page.) */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px 16px;
 }
-.card-name { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
-.card-balance { font-size: 18px; font-variant-numeric: tabular-nums; }
 
 .controls {
   display: flex;
@@ -195,6 +189,20 @@ html, body {
   background: rgba(110, 168, 254, 0.15);
   color: var(--accent);
   border: 1px solid rgba(110, 168, 254, 0.35);
+}
+.badge.src-manual {
+  color: var(--accent);
+  background: rgba(110, 168, 254, 0.12);
+  border: 1px solid rgba(110, 168, 254, 0.35);
+}
+.badge.src-simplefin { color: var(--muted); background: var(--surface-2); }
+
+/* Accounts page: small column tweaks over the shared .txns table. */
+.accounts-table .acct-name { font-weight: 500; }
+.accounts-table .acct-balance-date {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .status, .error { padding: 24px 4px; color: var(--muted); }
@@ -1075,48 +1083,10 @@ tr:hover .relationships-btn,
 }
 .badge.muted { color: var(--muted); background: var(--surface-2); }
 
-/* --- Manual entry: add buttons, manual account cards, row edit/delete, editor modal --- */
+/* --- Manual entry: add buttons, row edit/delete, editor modal --- */
 
-/* "Add transaction" sits in the controls row, a touch smaller than a default btn. */
-.add-txn-btn { padding: 6px 14px; font-size: 13px; white-space: nowrap; }
-
-/* Manual account cards carry edit/delete controls that reveal on hover; a subtle
-   accent border distinguishes them from synced (bridge-owned) cards. */
-.card.manual { border-color: rgba(110, 168, 254, 0.35); }
-.card-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.card.manual:hover .card-actions,
-.card.manual:focus-within .card-actions { opacity: 1; }
-.card-action {
-  background: var(--surface-2);
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.card-action:hover { border-color: var(--accent); color: var(--text); }
-.card-action.danger:hover { border-color: var(--neg); color: var(--neg); }
-
-/* The "+ Add account" card is a dashed button that matches the card grid. */
-.card.add-card {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border-style: dashed;
-  color: var(--muted);
-  cursor: pointer;
-  min-height: 64px;
-  font-size: 14px;
-}
-.card.add-card:hover { border-color: var(--accent); color: var(--accent); }
+/* "Add transaction"/"Add account" sit in the controls row, a touch smaller than a default btn. */
+.add-txn-btn, .add-acct-btn { padding: 6px 14px; font-size: 13px; white-space: nowrap; }
 
 /* Per-row edit/delete reveal on hover like the other row actions. */
 .row-edit-btn,
