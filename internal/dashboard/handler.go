@@ -55,8 +55,14 @@ func Handler(opts Options) http.Handler {
 		Version:         version,
 		Styles:          []string{"/web/dashboard.css"},
 		Icon: app.Icon{
-			Default: "/web/logo.png", // favicon + PWA icon
+			// SVG is what go-app emits as the browser-tab favicon (its
+			// <link rel="icon">), in preference to Default. Left unset, go-app
+			// substitutes its OWN hosted icon — a wrong logo AND an external request
+			// on every load. Point it at our logo; it need not be a real SVG, the
+			// browser sniffs the PNG. Default/Large drive the PWA manifest + loader.
+			Default: "/web/logo.png",
 			Large:   "/web/logo.png",
+			SVG:     "/web/logo.png",
 		},
 	}
 
