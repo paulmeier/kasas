@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.13.0](https://github.com/paulmeier/kasas/compare/v2.12.0...v2.13.0) (2026-06-07)
+
+
+### Features
+
+* manual entry — create, edit, and delete transactions and accounts by hand ([#61](https://github.com/paulmeier/kasas/issues/61)) ([898c394](https://github.com/paulmeier/kasas/commit/898c39476619d602806a432030be060d80c544ad))
+
 ## [2.12.0](https://github.com/paulmeier/kasas/compare/v2.11.1...v2.12.0) (2026-06-07)
 
 
