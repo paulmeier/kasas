@@ -1,5 +1,8 @@
-// Package poller fetches data from a SimpleFIN bridge on a schedule and
-// persists it to the local database.
+// Package poller drives an ingestion source on a schedule and persists its data
+// to the local database. It owns the generic ingestion engine — scheduling, the
+// transactional persist, idempotent upserts, event/rule/history recording — while
+// a [source.Source] (e.g. the SimpleFIN bridge) owns talking to one provider and
+// shaping its data into a neutral source.ImportBatch.
 package poller
 
 import (
@@ -22,14 +25,8 @@ import (
 	"github.com/paulmeier/kasas/internal/labels"
 	"github.com/paulmeier/kasas/internal/rules"
 	"github.com/paulmeier/kasas/internal/search"
-	"github.com/paulmeier/kasas/internal/vault"
+	"github.com/paulmeier/kasas/internal/source"
 )
-
-// SourceSimpleFIN is the provenance stamp the poller writes on every transaction
-// it ingests. It identifies the ingestion path (the SimpleFIN bridge) and is
-// recorded once at insert and never overwritten on re-sync. A future bridge would
-// define and stamp its own source string.
-const SourceSimpleFIN = "simplefin"
 
 var (
 	syncTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -65,49 +62,47 @@ var (
 
 // Options configures a Poller.
 type Options struct {
-	Store           db.Store
-	Secrets         vault.SecretStore
-	Logger          *slog.Logger
-	Emitter         *events.Emitter // nil disables event recording (events.enabled=false)
-	Interval        time.Duration
-	LookbackDays    int
-	ConfigAccessURL string // simplefin.access_url from config, if any
-	SetupToken      string // simplefin.setup_token from config, if any
+	Store        db.Store
+	Source       source.Source // the ingestion source; must implement source.Puller to sync
+	Logger       *slog.Logger
+	Emitter      *events.Emitter // nil disables event recording (events.enabled=false)
+	Interval     time.Duration
+	LookbackDays int
 }
 
-// Poller owns the SimpleFIN sync loop.
+// Poller drives an ingestion source's sync loop and persists the results.
 type Poller struct {
-	client       *SimpleFINClient
+	source       source.Source
+	puller       source.Puller       // source.(Puller); nil if the source cannot be polled
+	cred         source.Credentialed // source.(Credentialed); nil if it has no runtime credential
 	store        db.Store
-	secrets      vault.SecretStore
 	logger       *slog.Logger
 	emitter      *events.Emitter
 	interval     time.Duration
 	lookbackDays int
-	configURL    string
-	setupToken   string
 
 	mu    sync.Mutex // serializes syncs (background + on-demand)
 	sched gocron.Scheduler
 }
 
-// New constructs a Poller.
+// New constructs a Poller. The source's optional capabilities (polling, runtime
+// credentials) are detected once here by type assertion.
 func New(opts Options) *Poller {
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Poller{
-		client:       NewSimpleFINClient(),
+	p := &Poller{
+		source:       opts.Source,
 		store:        opts.Store,
-		secrets:      opts.Secrets,
 		logger:       logger,
 		emitter:      opts.Emitter,
 		interval:     opts.Interval,
 		lookbackDays: opts.LookbackDays,
-		configURL:    opts.ConfigAccessURL,
-		setupToken:   opts.SetupToken,
 	}
+	p.puller, _ = opts.Source.(source.Puller)
+	p.cred, _ = opts.Source.(source.Credentialed)
+	return p
 }
 
 // SyncResult summarizes a completed sync.
@@ -189,12 +184,8 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 		}
 	}()
 
-	accessURL, err := p.resolveAccessURL(ctx)
-	if err != nil {
-		return SyncResult{}, err
-	}
-	if accessURL == "" {
-		return SyncResult{}, errors.New("no SimpleFIN access URL configured (set simplefin.setup_token or simplefin.access_url)")
+	if p.puller == nil {
+		return SyncResult{}, errors.New("configured ingestion source does not support polling")
 	}
 
 	var since time.Time
@@ -202,15 +193,12 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 		since = start.AddDate(0, 0, -p.lookbackDays)
 	}
 
-	set, err := p.client.Fetch(ctx, accessURL, since)
+	batch, err := p.puller.Fetch(ctx, since, "")
 	if err != nil {
 		return SyncResult{}, err
 	}
-	for _, e := range set.Errors {
-		p.logger.Warn("simplefin reported an error", "error", e)
-	}
 
-	result, err = p.persist(ctx, set, time.Now().Unix())
+	result, err = p.persist(ctx, batch, time.Now().Unix())
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -222,6 +210,7 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 	txUpdated.Add(float64(result.UpdatedTransactions))
 	rulesApplied.Add(float64(result.AutoLabeled))
 	p.logger.Info("sync complete",
+		"source", batch.Source,
 		"accounts", result.Accounts,
 		"new_transactions", result.NewTransactions,
 		"updated_transactions", result.UpdatedTransactions,
@@ -235,7 +224,8 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 // event for each meaningful change (account.created/updated, transaction.created/
 // updated, and label.applied from auto-labeling) so a change and its event commit
 // atomically. With the emitter disabled it is a plain transaction with no events.
-func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (SyncResult, error) {
+// Each transaction is stamped with the batch's Source as its provenance.
+func (p *Poller) persist(ctx context.Context, batch *source.ImportBatch, syncedAt int64) (SyncResult, error) {
 	var res SyncResult
 
 	err := p.emitter.Record(ctx, p.store, func(q db.Querier, rec *events.Recorder) error {
@@ -246,28 +236,28 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 			return err
 		}
 
-		for _, acct := range set.Accounts {
+		for _, acct := range batch.Accounts {
 			org := acct.Org
 			if err := q.UpsertOrganization(ctx, db.UpsertOrganizationParams{
-				ID:      org.StableOrgID(),
+				ID:      org.ID,
 				Domain:  org.Domain,
 				Name:    org.Name,
-				SfinUrl: org.SfinURL,
+				SfinUrl: org.URL,
 			}); err != nil {
-				return fmt.Errorf("upsert organization %q: %w", org.StableOrgID(), err)
+				return fmt.Errorf("upsert organization %q: %w", org.ID, err)
 			}
 
 			// Learn whether this account is new (and otherwise what changed) before
 			// the upsert, so we can emit account.created vs account.updated.
-			prevAcct, getErr := q.GetAccount(ctx, acct.ID)
+			prevAcct, getErr := q.GetAccount(ctx, acct.ExternalID)
 			isNewAccount := errors.Is(getErr, sql.ErrNoRows)
 			if getErr != nil && !isNewAccount {
-				return fmt.Errorf("get account %q: %w", acct.ID, getErr)
+				return fmt.Errorf("get account %q: %w", acct.ExternalID, getErr)
 			}
 
 			newAcct := db.Account{
-				ID:          acct.ID,
-				OrgID:       org.StableOrgID(),
+				ID:          acct.ExternalID,
+				OrgID:       org.ID,
 				Name:        acct.Name,
 				Currency:    acct.Currency,
 				Balance:     acct.Balance,
@@ -275,17 +265,17 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				SyncedAt:    syncedAt,
 			}
 			if err := q.UpsertAccount(ctx, db.UpsertAccountParams(newAcct)); err != nil {
-				return fmt.Errorf("upsert account %q: %w", acct.ID, err)
+				return fmt.Errorf("upsert account %q: %w", acct.ExternalID, err)
 			}
 			res.Accounts++
 
 			switch {
 			case isNewAccount:
-				if err := rec.Emit(ctx, q, events.TypeAccountCreated, events.EntityAccount, acct.ID, events.AccountSnapshot(newAcct)); err != nil {
+				if err := rec.Emit(ctx, q, events.TypeAccountCreated, events.EntityAccount, acct.ExternalID, events.AccountSnapshot(newAcct)); err != nil {
 					return err
 				}
 			case accountChanged(prevAcct, newAcct):
-				if err := rec.Emit(ctx, q, events.TypeAccountUpdated, events.EntityAccount, acct.ID, events.AccountSnapshot(newAcct)); err != nil {
+				if err := rec.Emit(ctx, q, events.TypeAccountUpdated, events.EntityAccount, acct.ExternalID, events.AccountSnapshot(newAcct)); err != nil {
 					return err
 				}
 			}
@@ -298,25 +288,25 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 				// deliberately leaves the labels column untouched — user labels are
 				// never clobbered by a sync.
 				n, err := q.InsertTransaction(ctx, db.InsertTransactionParams{
-					ID:          t.ID,
-					AccountID:   acct.ID,
+					ID:          t.ExternalID,
+					AccountID:   acct.ExternalID,
 					Amount:      t.Amount,
 					Pending:     boolToInt(t.Pending),
-					Date:        transactionDate(t),
+					Date:        t.Date,
 					Description: t.Description,
 					Payee:       t.Payee,
 					Memo:        t.Memo,
 					SyncedAt:    syncedAt,
-					Source:      SourceSimpleFIN,
+					Source:      batch.Source,
 				})
 				if err != nil {
-					return fmt.Errorf("insert transaction %q: %w", t.ID, err)
+					return fmt.Errorf("insert transaction %q: %w", t.ExternalID, err)
 				}
 				if n > 0 {
 					res.NewTransactions += int(n)
 					// A brand-new row starts with no labels ('{}').
 					created := newTransactionRow(acct, t, syncedAt, "{}")
-					if err := rec.Emit(ctx, q, events.TypeTransactionCreated, events.EntityTransaction, t.ID, events.TransactionSnapshot(created)); err != nil {
+					if err := rec.Emit(ctx, q, events.TypeTransactionCreated, events.EntityTransaction, t.ExternalID, events.TransactionSnapshot(created)); err != nil {
 						return err
 					}
 					// Apply any matching rules (emitting label.applied per label).
@@ -324,7 +314,7 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 					// clobbers labels.
 					labelsJSON, labeled, err := p.applyRulesToNewTxn(ctx, q, rec, compiledRules, acct, t, syncedAt)
 					if err != nil {
-						return fmt.Errorf("apply rules to transaction %q: %w", t.ID, err)
+						return fmt.Errorf("apply rules to transaction %q: %w", t.ExternalID, err)
 					}
 					if labeled {
 						res.AutoLabeled++
@@ -333,40 +323,40 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 					// labels the rules applied. (The transaction.created event above
 					// fires with empty labels; the version captures the settled state.)
 					settled := newTransactionRow(acct, t, syncedAt, labelsJSON)
-					if err := rec.Version(ctx, q, t.ID, events.TransactionSnapshot(settled), events.ChangeImported); err != nil {
-						return fmt.Errorf("record imported version for %q: %w", t.ID, err)
+					if err := rec.Version(ctx, q, t.ExternalID, events.TransactionSnapshot(settled), events.ChangeImported); err != nil {
+						return fmt.Errorf("record imported version for %q: %w", t.ExternalID, err)
 					}
 					continue
 				}
 				// Existing row: fetch it first so we can tell whether this refresh
 				// actually changed a bridge field, and thus whether to emit.
-				prevTxn, err := q.GetTransaction(ctx, t.ID)
+				prevTxn, err := q.GetTransaction(ctx, t.ExternalID)
 				if err != nil {
-					return fmt.Errorf("get transaction %q: %w", t.ID, err)
+					return fmt.Errorf("get transaction %q: %w", t.ExternalID, err)
 				}
 				if _, err := q.UpdateTransactionFromSync(ctx, db.UpdateTransactionFromSyncParams{
-					ID:          t.ID,
-					AccountID:   acct.ID,
+					ID:          t.ExternalID,
+					AccountID:   acct.ExternalID,
 					Amount:      t.Amount,
 					Pending:     boolToInt(t.Pending),
-					Date:        transactionDate(t),
+					Date:        t.Date,
 					Description: t.Description,
 					Payee:       t.Payee,
 					Memo:        t.Memo,
 					SyncedAt:    syncedAt,
 				}); err != nil {
-					return fmt.Errorf("refresh transaction %q: %w", t.ID, err)
+					return fmt.Errorf("refresh transaction %q: %w", t.ExternalID, err)
 				}
 				res.UpdatedTransactions++
 				// The refresh preserves existing labels; carry them in the snapshot.
 				updated := newTransactionRow(acct, t, syncedAt, prevTxn.Labels)
 				if transactionBridgeChanged(prevTxn, updated) {
-					if err := rec.Emit(ctx, q, events.TypeTransactionUpdated, events.EntityTransaction, t.ID, events.TransactionSnapshot(updated)); err != nil {
+					if err := rec.Emit(ctx, q, events.TypeTransactionUpdated, events.EntityTransaction, t.ExternalID, events.TransactionSnapshot(updated)); err != nil {
 						return err
 					}
 					// Append a synced version, synthesizing a v1 baseline from the prior
 					// state if this transaction predates history.
-					if err := rec.VersionChange(ctx, q, t.ID, events.TransactionSnapshot(prevTxn), events.TransactionSnapshot(updated), events.ChangeSynced); err != nil {
+					if err := rec.VersionChange(ctx, q, t.ExternalID, events.TransactionSnapshot(prevTxn), events.TransactionSnapshot(updated), events.ChangeSynced); err != nil {
 						return err
 					}
 				}
@@ -406,7 +396,7 @@ func (p *Poller) loadEnabledRules(ctx context.Context, q db.Querier) ([]rules.Co
 // matched, emitting a label.applied event per applied label. It returns the final
 // labels JSON (the new-row default '{}' when nothing matched, so the caller always
 // has a valid snapshot input) and whether the transaction was labeled.
-func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) (string, bool, error) {
+func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct source.ImportAccount, t source.ImportTxn, syncedAt int64) (string, bool, error) {
 	if len(compiled) == 0 {
 		return "{}", false, nil
 	}
@@ -418,12 +408,12 @@ func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *even
 	if err != nil {
 		return "{}", false, err
 	}
-	if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ID, Labels: encoded}); err != nil {
+	if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ExternalID, Labels: encoded}); err != nil {
 		return "{}", false, err
 	}
 	// The transaction had no labels before, so every merged label is newly applied.
 	for k, v := range merged {
-		if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, t.ID, events.LabelPayload{TransactionID: t.ID, Key: k, Value: v}); err != nil {
+		if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, t.ExternalID, events.LabelPayload{TransactionID: t.ExternalID, Key: k, Value: v}); err != nil {
 			return "{}", false, err
 		}
 	}
@@ -453,16 +443,17 @@ func transactionBridgeChanged(prev, next db.Transaction) bool {
 		prev.Memo != next.Memo
 }
 
-// newTransactionRow assembles a db.Transaction from a synced SimpleFIN transaction
+// newTransactionRow assembles a db.Transaction from a normalized import transaction
 // for use as an event snapshot, carrying the given labels JSON (the new-row default
-// '{}' for an insert, or the existing labels for a refresh).
-func newTransactionRow(acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64, labelsJSON string) db.Transaction {
+// '{}' for an insert, or the existing labels for a refresh). The source/provenance
+// stamp is omitted because event and version snapshots do not surface it.
+func newTransactionRow(acct source.ImportAccount, t source.ImportTxn, syncedAt int64, labelsJSON string) db.Transaction {
 	return db.Transaction{
-		ID:          t.ID,
-		AccountID:   acct.ID,
+		ID:          t.ExternalID,
+		AccountID:   acct.ExternalID,
 		Amount:      t.Amount,
 		Pending:     boolToInt(t.Pending),
-		Date:        transactionDate(t),
+		Date:        t.Date,
 		Description: t.Description,
 		Payee:       t.Payee,
 		Memo:        t.Memo,
@@ -492,18 +483,18 @@ func (p *Poller) emitSyncCompleted(ctx context.Context, syncLogID int64, res Syn
 	}
 }
 
-// newSearchRecord adapts a SimpleFIN account + transaction into the search
+// newSearchRecord adapts a normalized import account + transaction into the search
 // engine's neutral Record so rules can match on any field. A freshly inserted
 // transaction carries no labels yet.
-func newSearchRecord(acct SimpleFINAccount, t SimpleFINTransaction, syncedAt int64) search.Record {
+func newSearchRecord(acct source.ImportAccount, t source.ImportTxn, syncedAt int64) search.Record {
 	return search.Record{
-		ID:          t.ID,
-		AccountID:   acct.ID,
+		ID:          t.ExternalID,
+		AccountID:   acct.ExternalID,
 		AccountName: acct.Name,
 		Amount:      parseAmount(t.Amount),
 		AmountRaw:   t.Amount,
 		Pending:     t.Pending,
-		Date:        time.Unix(transactionDate(t), 0).UTC(),
+		Date:        time.Unix(t.Date, 0).UTC(),
 		Description: t.Description,
 		Payee:       t.Payee,
 		Memo:        t.Memo,
@@ -521,75 +512,22 @@ func parseAmount(s string) float64 {
 	return f
 }
 
-// resolveAccessURL determines the SimpleFIN access URL, preferring an already
-// stored value, then a directly configured URL, then claiming a setup token.
-// Resolved URLs are persisted so the (one-time) setup token is consumed once.
-func (p *Poller) resolveAccessURL(ctx context.Context) (string, error) {
-	stored, err := p.secrets.AccessURL(ctx)
-	if err != nil {
-		return "", fmt.Errorf("read stored access URL: %w", err)
-	}
-	if stored != "" {
-		return stored, nil
-	}
-
-	if p.configURL != "" {
-		if err := p.secrets.SetAccessURL(ctx, p.configURL); err != nil {
-			p.logger.Warn("failed to persist configured access URL", "error", err)
-		}
-		return p.configURL, nil
-	}
-
-	if p.setupToken != "" {
-		p.logger.Info("claiming SimpleFIN setup token")
-		url, err := p.client.Claim(ctx, p.setupToken)
-		if err != nil {
-			return "", fmt.Errorf("claim setup token: %w", err)
-		}
-		if err := p.secrets.SetAccessURL(ctx, url); err != nil {
-			p.logger.Warn("failed to persist claimed access URL", "error", err)
-		}
-		return url, nil
-	}
-
-	return "", nil
-}
-
-// CredentialConfigured reports whether a SimpleFIN access URL is currently stored
-// in the secret store (i.e. kasas is connected to a bridge and a sync can run).
+// CredentialConfigured reports whether the ingestion source currently has a
+// usable credential stored. Sources without a runtime credential report false.
 func (p *Poller) CredentialConfigured(ctx context.Context) (bool, error) {
-	stored, err := p.secrets.AccessURL(ctx)
-	if err != nil {
-		return false, fmt.Errorf("read stored access URL: %w", err)
+	if p.cred == nil {
+		return false, nil
 	}
-	return stored != "", nil
+	return p.cred.CredentialConfigured(ctx)
 }
 
-// SetCredential stores a SimpleFIN credential so the next sync uses it, no restart
-// required. input may be either a ready access URL (starts with http:// or
-// https://, stored verbatim) or a base64 setup token (claimed for an access URL
-// first; the claim is a one-time exchange). Mirrors resolveAccessURL's handling so
-// the UI-driven path and the config-driven path behave identically.
+// SetCredential stores a credential for the ingestion source so the next sync
+// uses it, no restart required. It errors if the source has no runtime credential.
 func (p *Poller) SetCredential(ctx context.Context, input string) error {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return errors.New("SimpleFIN credential is empty")
+	if p.cred == nil {
+		return errors.New("configured ingestion source does not support runtime credentials")
 	}
-
-	accessURL := input
-	if !strings.HasPrefix(input, "http://") && !strings.HasPrefix(input, "https://") {
-		p.logger.Info("claiming SimpleFIN setup token")
-		claimed, err := p.client.Claim(ctx, input)
-		if err != nil {
-			return fmt.Errorf("claim setup token: %w", err)
-		}
-		accessURL = claimed
-	}
-
-	if err := p.secrets.SetAccessURL(ctx, accessURL); err != nil {
-		return fmt.Errorf("store access URL: %w", err)
-	}
-	return nil
+	return p.cred.SetCredential(ctx, input)
 }
 
 func boolToInt(b bool) int64 {
@@ -597,11 +535,4 @@ func boolToInt(b bool) int64 {
 		return 1
 	}
 	return 0
-}
-
-func transactionDate(t SimpleFINTransaction) int64 {
-	if t.Posted != 0 {
-		return t.Posted
-	}
-	return t.TransactedAt
 }

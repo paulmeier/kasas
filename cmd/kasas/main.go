@@ -44,6 +44,8 @@ import (
 	"github.com/paulmeier/kasas/internal/plugins"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
+	"github.com/paulmeier/kasas/internal/source"
+	"github.com/paulmeier/kasas/internal/sources/simplefin"
 	"github.com/paulmeier/kasas/internal/vault"
 	"github.com/paulmeier/kasas/internal/webhooks"
 	"github.com/paulmeier/kasas/migrations"
@@ -129,15 +131,29 @@ func run(command, configPath string) error {
 		return fmt.Errorf("init dashboard auth: %w", err)
 	}
 
+	// Build the configured ingestion source. SimpleFIN is the only built-in source
+	// today; it registers itself (via its package import) and resolves its access
+	// URL / setup token from the secret store and config. Additional sources plug in
+	// here by registering under their own type.
+	ingestSource, err := source.New(simplefin.SourceType, source.Env{
+		Logger:  logger,
+		Secrets: secrets,
+		Options: map[string]string{
+			"access_url":  cfg.SimpleFIN.AccessURL,
+			"setup_token": cfg.SimpleFIN.SetupToken,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("init ingestion source: %w", err)
+	}
+
 	p := poller.New(poller.Options{
-		Store:           store,
-		Secrets:         secrets,
-		Logger:          logger,
-		Emitter:         emitter,
-		Interval:        cfg.Sync.Interval,
-		LookbackDays:    cfg.Sync.LookbackDays,
-		ConfigAccessURL: cfg.SimpleFIN.AccessURL,
-		SetupToken:      cfg.SimpleFIN.SetupToken,
+		Store:        store,
+		Source:       ingestSource,
+		Logger:       logger,
+		Emitter:      emitter,
+		Interval:     cfg.Sync.Interval,
+		LookbackDays: cfg.Sync.LookbackDays,
 	})
 
 	var dashboardHandler http.Handler
