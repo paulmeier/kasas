@@ -178,6 +178,7 @@ func (s *Server) Router() http.Handler {
 				r.Get("/transactions/search", s.handleSearchTransactions)
 				r.Get("/transactions/{id}", s.handleGetTransaction)
 				r.Get("/transactions/{id}/history", s.handleGetTransactionHistory)
+				r.Get("/transactions/{id}/provenance", s.handleGetTransactionProvenance)
 
 				r.Get("/labels", s.handleListLabels)
 				r.Get("/extensions", s.handleListExtensions)

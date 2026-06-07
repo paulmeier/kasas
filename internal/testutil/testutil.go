@@ -81,10 +81,10 @@ func Seed(t testing.TB, q db.Querier) Fixtures {
 	}))
 
 	txns := []db.InsertTransactionParams{
-		{ID: "tx-1", AccountID: fx.CheckingID, Amount: "-12.34", Pending: 0, Date: Date2024Jan, Description: "Coffee", Payee: "Cafe", SyncedAt: syncedAt},
-		{ID: "tx-2", AccountID: fx.CheckingID, Amount: "-56.78", Pending: 1, Date: Date2024Jun, Description: "Books", Payee: "Store", Memo: "gift", SyncedAt: syncedAt},
-		{ID: "tx-3", AccountID: fx.CheckingID, Amount: "100.00", Pending: 0, Date: Date2024Dec, Description: "Deposit", Payee: "Employer", SyncedAt: syncedAt},
-		{ID: "tx-4", AccountID: fx.SavingsID, Amount: "250.00", Pending: 0, Date: Date2024Jun, Description: "Transfer", Payee: "Self", SyncedAt: syncedAt},
+		{ID: "tx-1", AccountID: fx.CheckingID, Amount: "-12.34", Pending: 0, Date: Date2024Jan, Description: "Coffee", Payee: "Cafe", SyncedAt: syncedAt, Source: "simplefin"},
+		{ID: "tx-2", AccountID: fx.CheckingID, Amount: "-56.78", Pending: 1, Date: Date2024Jun, Description: "Books", Payee: "Store", Memo: "gift", SyncedAt: syncedAt, Source: "simplefin"},
+		{ID: "tx-3", AccountID: fx.CheckingID, Amount: "100.00", Pending: 0, Date: Date2024Dec, Description: "Deposit", Payee: "Employer", SyncedAt: syncedAt, Source: "simplefin"},
+		{ID: "tx-4", AccountID: fx.SavingsID, Amount: "250.00", Pending: 0, Date: Date2024Jun, Description: "Transfer", Payee: "Self", SyncedAt: syncedAt, Source: "simplefin"},
 	}
 	for _, tx := range txns {
 		_, err := q.InsertTransaction(ctx, tx)

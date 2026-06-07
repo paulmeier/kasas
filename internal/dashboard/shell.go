@@ -403,3 +403,9 @@ func iconTrash() app.UI {
 func iconHistory() app.UI {
 	return app.Raw(`<svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>`)
 }
+
+// iconProvenance is the per-row "view provenance" control: a branch/lineage glyph
+// (two nodes joined), distinct from the history clock.
+func iconProvenance() app.UI {
+	return app.Raw(`<svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`)
+}

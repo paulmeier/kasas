@@ -120,6 +120,7 @@ func seed(ctx context.Context, store db.Store, extra int) (accounts, inserted in
 		return db.InsertTransactionParams{
 			ID: id, AccountID: acct, Amount: amount, Pending: p,
 			Date: day(daysAgo), Description: desc, Payee: payee, SyncedAt: syncedAt,
+			Source: "simplefin",
 		}
 	}
 

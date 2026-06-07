@@ -41,6 +41,7 @@ Base path: `/api/v1`. Source:
 | `GET /api/v1/transactions/search` | [Search](../features/search.md) (`?q=`); returns `{query, total, transactions}`. |
 | `GET /api/v1/transactions/{id}` | Get one transaction. |
 | `GET /api/v1/transactions/{id}/history` | The transaction's [version history](../features/transaction-history.md). |
+| `GET /api/v1/transactions/{id}/provenance` | The transaction's [provenance](../features/transaction-provenance.md): source, identity, and transformation lineage. |
 | `GET /api/v1/labels` | [Labels](../features/labels.md) with per-pair transaction counts. |
 | `GET /api/v1/extensions` | [Extension](../features/schema-extensions.md) vocabulary with per-key counts. |
 | `GET /api/v1/rules` · `GET /api/v1/rules/{id}` | List / get [rules](../features/rules.md). |

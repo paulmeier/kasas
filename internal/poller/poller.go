@@ -25,6 +25,12 @@ import (
 	"github.com/paulmeier/kasas/internal/vault"
 )
 
+// SourceSimpleFIN is the provenance stamp the poller writes on every transaction
+// it ingests. It identifies the ingestion path (the SimpleFIN bridge) and is
+// recorded once at insert and never overwritten on re-sync. A future bridge would
+// define and stamp its own source string.
+const SourceSimpleFIN = "simplefin"
+
 var (
 	syncTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "kasas_sync_total",
@@ -301,6 +307,7 @@ func (p *Poller) persist(ctx context.Context, set *AccountSet, syncedAt int64) (
 					Payee:       t.Payee,
 					Memo:        t.Memo,
 					SyncedAt:    syncedAt,
+					Source:      SourceSimpleFIN,
 				})
 				if err != nil {
 					return fmt.Errorf("insert transaction %q: %w", t.ID, err)

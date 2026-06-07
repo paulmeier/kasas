@@ -47,7 +47,7 @@ func (q *Queries) DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValue
 
 const filterTransactionsByLabelKey = `-- name: FilterTransactionsByLabelKey :many
 
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
 WHERE labels::jsonb ->> $1 IS NOT NULL
   AND (account_id = $2 OR $2 = '')
   AND (date >= $3 OR $3 = 0)
@@ -99,6 +99,7 @@ func (q *Queries) FilterTransactionsByLabelKey(ctx context.Context, arg FilterTr
 			&i.SyncedAt,
 			&i.Labels,
 			&i.Extensions,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -114,7 +115,7 @@ func (q *Queries) FilterTransactionsByLabelKey(ctx context.Context, arg FilterTr
 }
 
 const filterTransactionsByLabelValue = `-- name: FilterTransactionsByLabelValue :many
-SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions FROM transactions
+SELECT id, account_id, amount, pending, date, description, payee, memo, synced_at, labels, extensions, source FROM transactions
 WHERE labels::jsonb ->> $1 = $2
   AND (account_id = $3 OR $3 = '')
   AND (date >= $4 OR $4 = 0)
@@ -162,6 +163,7 @@ func (q *Queries) FilterTransactionsByLabelValue(ctx context.Context, arg Filter
 			&i.SyncedAt,
 			&i.Labels,
 			&i.Extensions,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}

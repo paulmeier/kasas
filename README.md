@@ -77,7 +77,7 @@ flowchart LR
 | 🏷️ **[Labels & extensions](https://paulmeier.github.io/kasas/features/labels/)** | Strict `key:value` labels, plus arbitrary namespaced JSON extensions any app can attach — no schema change. |
 | 🔎 **[Search](https://paulmeier.github.io/kasas/features/search/)** | One query language over every field and label/extension combo, with `AND`/`OR`/`NOT`, ranges, and grouping. |
 | ⚙️ **[Rules](https://paulmeier.github.io/kasas/features/rules/)** | `if <query> then apply <labels>` — auto-applied to new transactions, runnable over history. |
-| 📜 **[Events & history](https://paulmeier.github.io/kasas/features/event-stream/)** | An append-only, replayable change log, plus an immutable full-snapshot history per transaction. |
+| 📜 **[Events & history](https://paulmeier.github.io/kasas/features/event-stream/)** | An append-only, replayable change log, an immutable full-snapshot history per transaction, and a derived [provenance](https://paulmeier.github.io/kasas/features/transaction-provenance/) view of each one's origin and lineage. |
 | 🪝 **[Webhooks & plugins](https://paulmeier.github.io/kasas/features/webhooks/)** | Push HMAC-signed events to your services, or run sandboxed Lua plugins in-process. |
 | 🤖 **[REST + MCP + dashboard](https://paulmeier.github.io/kasas/interfaces/rest-api/)** | Three surfaces over one core: code, an AI agent, or the built-in WebAssembly UI. |
 | 🔐 **[Auth & API keys](https://paulmeier.github.io/kasas/interfaces/authentication/)** | A dashboard token plus scoped, hash-stored API keys across read / write / admin tiers. |
