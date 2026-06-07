@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.0](https://github.com/paulmeier/kasas/compare/v2.10.0...v2.11.0) (2026-06-07)
+
+
+### Features
+
+* pluggable ingestion sources — a Source SDK with SimpleFIN as the first ([#55](https://github.com/paulmeier/kasas/issues/55)) ([88f07b8](https://github.com/paulmeier/kasas/commit/88f07b85babff2dab215c8bd4a9aea685f470a62))
+
 ## [2.10.0](https://github.com/paulmeier/kasas/compare/v2.9.0...v2.10.0) (2026-06-07)
 
 
