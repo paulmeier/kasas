@@ -44,7 +44,8 @@ const allAccountsValue = "__all__"
 // before app.RunWhenOnBrowser, and the server's Handler calls it too so these
 // paths serve the SPA shell instead of 404ing.
 func Routes() {
-	app.Route("/", func() app.Composer { return &dashboardView{} })
+	app.Route("/", func() app.Composer { return &transactionsView{} })
+	app.Route("/accounts", func() app.Composer { return &accountsView{} })
 	app.Route("/search", func() app.Composer { return &searchView{} })
 	app.Route("/labels", func() app.Composer { return &labelsView{} })
 	app.Route("/rules", func() app.Composer { return &rulesView{} })
@@ -54,9 +55,10 @@ func Routes() {
 	app.Route("/settings", func() app.Composer { return &settingsView{} })
 }
 
-// dashboardView is the root component: account overview + a filterable,
-// paginated transactions table.
-type dashboardView struct {
+// transactionsView is the Transactions page (the app root, "/"): a filterable,
+// paginated transactions table. Accounts live on their own page (accountsView);
+// this view still loads them for the account filter and the name column.
+type transactionsView struct {
 	app.Compo
 	chrome               // shared sidebar + API client + version badge
 	labelEditing         // inline label editor (state + handlers), shared with the Search page
@@ -64,7 +66,6 @@ type dashboardView struct {
 	provenanceViewing    // per-transaction provenance modal, shared with the Search page
 	relationshipsViewing // per-transaction relationships modal, shared with the Search page
 	transactionEditing   // "Add/Edit transaction" modal (manual rows only)
-	accountEditing       // "Add/Edit account" modal (manual accounts only)
 
 	accounts []account
 	byID     map[string]account // account id -> account, for name lookup
@@ -89,12 +90,11 @@ type dashboardView struct {
 	updateErr string
 }
 
-func (v *dashboardView) OnMount(ctx app.Context) {
+func (v *transactionsView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx) // wires v.client, sidebar state, version badge
 	v.initLabelEditing()
 	v.initRelationshipsViewing()
 	v.initTransactionEditing()
-	v.initAccountEditing()
 	v.fetchHistory = v.client.transactionHistory
 	v.fetchProvenance = v.client.transactionProvenance
 	v.pageSize = defaultPageSize
@@ -106,7 +106,7 @@ func (v *dashboardView) OnMount(ctx app.Context) {
 
 // initTransactionEditing wires the "Add/Edit transaction" modal to this view's data
 // and API client. Call after loadChrome (the hooks need v.client).
-func (v *dashboardView) initTransactionEditing() {
+func (v *transactionsView) initTransactionEditing() {
 	v.txnEditAccounts = func() []account { return v.accounts }
 	v.txnCreate = v.client.createTransaction
 	v.txnUpdate = v.client.updateTransaction
@@ -115,19 +115,10 @@ func (v *dashboardView) initTransactionEditing() {
 	v.txnReportError = func(msg string) { v.errMsg = msg }
 }
 
-// initAccountEditing wires the "Add/Edit account" modal to this view's API client.
-func (v *dashboardView) initAccountEditing() {
-	v.acctCreate = v.client.createAccount
-	v.acctUpdate = v.client.updateAccount
-	v.acctDelete = v.client.deleteAccount
-	v.acctAfterChange = v.reloadAfterChange
-	v.acctReportError = func(msg string) { v.errMsg = msg }
-}
-
-// reloadAfterChange refreshes accounts, the transactions table, and the label
-// vocabulary after a manual create/edit/delete. Account deletes cascade to
-// transactions, so both are always reloaded.
-func (v *dashboardView) reloadAfterChange(ctx app.Context) {
+// reloadAfterChange refreshes the transactions table and the label vocabulary
+// after a manual transaction create/edit/delete. Accounts are reloaded too so a
+// newly referenced account resolves in the name column and filter.
+func (v *transactionsView) reloadAfterChange(ctx app.Context) {
 	v.loadAccounts(ctx)
 	v.reloadTransactions(ctx)
 	v.loadVocab(ctx, v.client)
@@ -137,7 +128,7 @@ func (v *dashboardView) reloadAfterChange(ctx app.Context) {
 // slice and error field. Call after loadChrome (the setLabels hook needs
 // v.client). txnByID returns the addressable slice element so optimistic edits
 // land on the live row.
-func (v *dashboardView) initLabelEditing() {
+func (v *transactionsView) initLabelEditing() {
 	v.txnByID = func(id string) *transaction {
 		if i := v.txnIndex(id); i >= 0 {
 			return &v.txns[i]
@@ -151,7 +142,7 @@ func (v *dashboardView) initLabelEditing() {
 // initRelationshipsViewing wires the shared relationships modal to this view's
 // transaction set. It reuses txnByID (set by initLabelEditing) for the in-place
 // row-indicator refresh, so call it after initLabelEditing.
-func (v *dashboardView) initRelationshipsViewing() {
+func (v *transactionsView) initRelationshipsViewing() {
 	v.fetchRelationships = v.client.transactionRelationships
 	v.createRelationship = v.client.createTransactionRelationship
 	v.deleteRelationship = v.client.deleteTransactionRelationship
@@ -167,7 +158,7 @@ func originURL() string {
 	return ""
 }
 
-func (v *dashboardView) loadAccounts(ctx app.Context) {
+func (v *transactionsView) loadAccounts(ctx app.Context) {
 	ctx.Async(func() {
 		accts, err := v.client.accounts(context.Background())
 		ctx.Dispatch(func(ctx app.Context) {
@@ -186,14 +177,14 @@ func (v *dashboardView) loadAccounts(ctx app.Context) {
 	})
 }
 
-func (v *dashboardView) reloadTransactions(ctx app.Context) {
+func (v *transactionsView) reloadTransactions(ctx app.Context) {
 	v.txns = nil
 	v.page = 0
 	v.loading = true
 	v.fetchTransactions(ctx)
 }
 
-func (v *dashboardView) fetchTransactions(ctx app.Context) {
+func (v *transactionsView) fetchTransactions(ctx app.Context) {
 	acctID := v.selectedAccount
 	ctx.Async(func() {
 		txns, err := v.client.allTransactions(context.Background(), acctID)
@@ -212,7 +203,7 @@ func (v *dashboardView) fetchTransactions(ctx app.Context) {
 	})
 }
 
-func (v *dashboardView) onAccountChange(ctx app.Context, _ app.Event) {
+func (v *transactionsView) onAccountChange(ctx app.Context, _ app.Event) {
 	val := ctx.JSSrc().Get("value").String()
 	if val == allAccountsValue {
 		val = ""
@@ -223,7 +214,7 @@ func (v *dashboardView) onAccountChange(ctx app.Context, _ app.Event) {
 
 // txnIndex returns the index of the transaction with the given id, or -1. The
 // set is small (one filter's worth), so a linear scan is fine.
-func (v *dashboardView) txnIndex(id string) int {
+func (v *transactionsView) txnIndex(id string) int {
 	for i := range v.txns {
 		if v.txns[i].ID == id {
 			return i
@@ -232,7 +223,7 @@ func (v *dashboardView) txnIndex(id string) int {
 	return -1
 }
 
-func (v *dashboardView) onPageSizeChange(ctx app.Context, _ app.Event) {
+func (v *transactionsView) onPageSizeChange(ctx app.Context, _ app.Event) {
 	n, err := strconv.Atoi(ctx.JSSrc().Get("value").String())
 	if err != nil || n <= 0 {
 		return
@@ -244,7 +235,7 @@ func (v *dashboardView) onPageSizeChange(ctx app.Context, _ app.Event) {
 
 // toggleSort selects a sort column, or flips direction when the column is
 // already active. Sorting and paging happen client-side, so no refetch.
-func (v *dashboardView) toggleSort(ctx app.Context, col sortColumn) {
+func (v *transactionsView) toggleSort(ctx app.Context, col sortColumn) {
 	if v.sortCol == col {
 		v.sortAsc = !v.sortAsc
 	} else {
@@ -255,7 +246,7 @@ func (v *dashboardView) toggleSort(ctx app.Context, col sortColumn) {
 	ctx.Update()
 }
 
-func (v *dashboardView) goToPage(ctx app.Context, p int) {
+func (v *transactionsView) goToPage(ctx app.Context, p int) {
 	if last := v.pageCount() - 1; p > last {
 		p = last
 	}
@@ -283,7 +274,7 @@ func defaultAscForColumn(col sortColumn) bool {
 
 // sortedTxns returns a copy of the full transaction set ordered by the active
 // column and direction. The original slice is left untouched.
-func (v *dashboardView) sortedTxns() []transaction {
+func (v *transactionsView) sortedTxns() []transaction {
 	out := make([]transaction, len(v.txns))
 	copy(out, v.txns)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -337,7 +328,7 @@ func clampPage(page, total, size int) int {
 }
 
 // pageCount is the number of pages at the current page size (always >= 1).
-func (v *dashboardView) pageCount() int {
+func (v *transactionsView) pageCount() int {
 	if v.pageSize <= 0 {
 		return 1
 	}
@@ -349,7 +340,7 @@ func (v *dashboardView) pageCount() int {
 
 // clampedPage keeps the requested page within [0, pageCount-1] so a shrinking
 // result set (e.g. after switching accounts) can't leave us past the end.
-func (v *dashboardView) clampedPage() int {
+func (v *transactionsView) clampedPage() int {
 	if last := v.pageCount() - 1; v.page > last {
 		return last
 	}
@@ -360,7 +351,7 @@ func (v *dashboardView) clampedPage() int {
 }
 
 // visibleTxns is the sorted slice for the current page.
-func (v *dashboardView) visibleTxns() []transaction {
+func (v *transactionsView) visibleTxns() []transaction {
 	sorted := v.sortedTxns()
 	if v.pageSize <= 0 {
 		return sorted
@@ -417,7 +408,7 @@ func cmpTime(a, b time.Time, asc bool) bool {
 
 // loadUpdateStatus fetches the update banner state. It is best-effort: when the
 // update check is disabled (404) or the request fails, the banner stays hidden.
-func (v *dashboardView) loadUpdateStatus(ctx app.Context) {
+func (v *transactionsView) loadUpdateStatus(ctx app.Context) {
 	ctx.Async(func() {
 		st, err := v.client.updateStatus(context.Background())
 		ctx.Dispatch(func(ctx app.Context) {
@@ -430,7 +421,7 @@ func (v *dashboardView) loadUpdateStatus(ctx app.Context) {
 	})
 }
 
-func (v *dashboardView) onApplyUpdate(ctx app.Context, _ app.Event) {
+func (v *transactionsView) onApplyUpdate(ctx app.Context, _ app.Event) {
 	if v.updating {
 		return
 	}
@@ -458,7 +449,7 @@ func (v *dashboardView) onApplyUpdate(ctx app.Context, _ app.Event) {
 
 // waitForRestart polls until the server comes back reporting the new version,
 // then reloads the page so the browser picks up the matching UI build.
-func (v *dashboardView) waitForRestart(ctx app.Context, target string) {
+func (v *transactionsView) waitForRestart(ctx app.Context, target string) {
 	ctx.Async(func() {
 		deadline := time.Now().Add(60 * time.Second)
 		for time.Now().Before(deadline) {
@@ -478,19 +469,18 @@ func (v *dashboardView) waitForRestart(ctx app.Context, target string) {
 	})
 }
 
-func (v *dashboardView) onDismissUpdateErr(ctx app.Context, _ app.Event) {
+func (v *transactionsView) onDismissUpdateErr(ctx app.Context, _ app.Event) {
 	v.updateErr = ""
 	ctx.Update()
 }
 
-func (v *dashboardView) Render() app.UI {
-	return v.renderShell(navDashboard,
+func (v *transactionsView) Render() app.UI {
+	return v.renderShell(navTransactions,
 		v.renderUpdateBanner(),
 		app.Header().Class("page-header").Body(
 			app.H1().Class("page-title").Text("Transactions"),
-			app.Span().Class("page-subtitle").Text("Your synced accounts and transactions"),
+			app.Span().Class("page-subtitle").Text("Browse and filter your transactions"),
 		),
-		v.renderAccounts(),
 		v.renderControls(),
 		v.renderError(),
 		v.renderTable(),
@@ -499,13 +489,12 @@ func (v *dashboardView) Render() app.UI {
 		v.renderProvenanceModal(),
 		v.renderRelationshipsModal(),
 		v.renderTransactionEditor(),
-		v.renderAccountEditor(),
 	)
 }
 
 // renderUpdateBanner shows a lightweight notice at the top of the dashboard when
 // a newer release is available, with an optional "Update & restart" button.
-func (v *dashboardView) renderUpdateBanner() app.UI {
+func (v *transactionsView) renderUpdateBanner() app.UI {
 	switch {
 	case v.updateErr != "":
 		return app.Div().Class("update-banner err").Body(
@@ -544,34 +533,7 @@ func (v *dashboardView) renderUpdateBanner() app.UI {
 	return app.Div().Class("update-banner").Body(body...)
 }
 
-func (v *dashboardView) renderAccounts() app.UI {
-	return app.Section().Class("cards").Body(
-		app.Range(v.accounts).Slice(func(i int) app.UI {
-			a := v.accounts[i]
-			cls := "card"
-			actions := app.Text("")
-			if a.Source == "manual" {
-				cls += " manual"
-				actions = app.Div().Class("card-actions").Body(
-					app.Button().Class("card-action").Title("Edit account").Text("Edit").
-						OnClick(func(ctx app.Context, _ app.Event) { v.openEditAccount(ctx, a) }),
-					app.Button().Class("card-action danger").Title("Delete account").Text("Delete").
-						OnClick(func(ctx app.Context, _ app.Event) { v.onDeleteAccount(ctx, a) }),
-				)
-			}
-			return app.Div().Class(cls).Body(
-				app.Div().Class("card-name").Text(a.Name),
-				app.Div().Class("card-balance").Text(a.Balance+" "+a.Currency),
-				actions,
-			)
-		}),
-		app.Button().Class("card add-card").Title("Add a manual account").
-			OnClick(func(ctx app.Context, _ app.Event) { v.openCreateAccount(ctx) }).
-			Body(app.Span().Class("add-card-plus").Text("+ Add account")),
-	)
-}
-
-func (v *dashboardView) renderControls() app.UI {
+func (v *transactionsView) renderControls() app.UI {
 	return app.Div().Class("controls").Body(
 		app.Label().Class("control-label").Text("Account"),
 		app.Select().Class("account-select").OnChange(v.onAccountChange).Body(
@@ -595,14 +557,14 @@ func (v *dashboardView) renderControls() app.UI {
 	)
 }
 
-func (v *dashboardView) renderError() app.UI {
+func (v *transactionsView) renderError() app.UI {
 	if v.errMsg == "" {
 		return app.Text("")
 	}
 	return app.Div().Class("error").Text("Error: " + v.errMsg)
 }
 
-func (v *dashboardView) renderTable() app.UI {
+func (v *transactionsView) renderTable() app.UI {
 	if v.loading {
 		return app.Div().Class("status").Text("Loading…")
 	}
@@ -634,7 +596,7 @@ func (v *dashboardView) renderTable() app.UI {
 
 // sortHeader renders a clickable column header with a direction arrow when it is
 // the active sort column. extraClass carries presentation classes (e.g. "right").
-func (v *dashboardView) sortHeader(label string, col sortColumn, extraClass string) app.UI {
+func (v *transactionsView) sortHeader(label string, col sortColumn, extraClass string) app.UI {
 	cls := "sortable"
 	if extraClass != "" {
 		cls += " " + extraClass
@@ -655,7 +617,7 @@ func (v *dashboardView) sortHeader(label string, col sortColumn, extraClass stri
 		)
 }
 
-func (v *dashboardView) renderRow(t transaction) app.UI {
+func (v *transactionsView) renderRow(t transaction) app.UI {
 	amountClass := "amount pos"
 	if strings.HasPrefix(strings.TrimSpace(t.Amount), "-") {
 		amountClass = "amount neg"
@@ -698,7 +660,7 @@ func pendingBadge(pending bool) app.UI {
 	return app.Span().Class("badge pending").Text("pending")
 }
 
-func (v *dashboardView) accountName(id string) string {
+func (v *transactionsView) accountName(id string) string {
 	if a, ok := v.byID[id]; ok {
 		return a.Name
 	}
@@ -707,7 +669,7 @@ func (v *dashboardView) accountName(id string) string {
 
 // renderFooter shows the row range and, when the result set spans more than one
 // page, the pagination controls.
-func (v *dashboardView) renderFooter() app.UI {
+func (v *transactionsView) renderFooter() app.UI {
 	if v.loading || len(v.txns) == 0 {
 		return app.Text("")
 	}
@@ -744,7 +706,7 @@ func (v *dashboardView) renderFooter() app.UI {
 // renderPageNumbers renders a windowed set of page buttons: the first and last
 // page, the current page with one neighbour on each side, and an ellipsis to
 // bridge any gap, so the control stays compact for long lists.
-func (v *dashboardView) renderPageNumbers(page, pages int) app.UI {
+func (v *transactionsView) renderPageNumbers(page, pages int) app.UI {
 	lo, hi := page-1, page+1
 	if lo < 0 {
 		lo = 0

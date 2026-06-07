@@ -12,7 +12,8 @@ import (
 type navItem int
 
 const (
-	navDashboard navItem = iota
+	navTransactions navItem = iota
+	navAccounts
 	navSearch
 	navLabels
 	navRules
@@ -307,7 +308,8 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 			app.Span().Class("brand").Text("kasas"),
 		),
 		app.Div().Class("nav").Body(
-			navLink("/", "Dashboard", iconDashboard(), active == navDashboard),
+			navLink("/", "Transactions", iconTransactions(), active == navTransactions),
+			navLink("/accounts", "Accounts", iconAccounts(), active == navAccounts),
 			navLink("/search", "Search", iconSearch(), active == navSearch),
 			navLink("/labels", "Labels", iconLabels(), active == navLabels),
 			navLink("/rules", "Rules", iconRules(), active == navRules),
@@ -358,8 +360,12 @@ func (c *chrome) renderVersion() app.UI {
 // size and colour. They render via app.Raw, which needs a single root element —
 // the <svg> — so each is one self-contained string.
 
-func iconDashboard() app.UI {
-	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>`)
+func iconTransactions() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>`)
+}
+
+func iconAccounts() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>`)
 }
 
 func iconSearch() app.UI {
