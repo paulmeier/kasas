@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.0](https://github.com/paulmeier/kasas/compare/v2.9.0...v2.10.0) (2026-06-07)
+
+
+### Features
+
+* transaction provenance — a derived lineage view per transaction ([#53](https://github.com/paulmeier/kasas/issues/53)) ([6ce78ba](https://github.com/paulmeier/kasas/commit/6ce78bafea73304b31ec89b71eb2a9815aeee345))
+
 ## [2.9.0](https://github.com/paulmeier/kasas/compare/v2.8.0...v2.9.0) (2026-06-06)
 
 
