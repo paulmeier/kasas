@@ -1,0 +1,36 @@
+name: Docs
+
+# Build the MkDocs site and publish the rendered output to the `docs` branch,
+# which GitHub Pages serves. Source lives in /docs and mkdocs.yml on main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+# Allow the job to push the built site to the `docs` branch.
+permissions:
+  contents: write
+
+# Never let two deploys race the docs branch.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+          cache: pip
+      - name: Install MkDocs Material
+        run: pip install "mkdocs-material==9.7.6"
+      - name: Build (strict) and deploy to the docs branch
+        run: mkdocs gh-deploy --force --strict --branch docs

@@ -1,0 +1,130 @@
+site_name: kasas
+site_description: >-
+  kasas is a financial ledger that can power all kinds of apps — it syncs your
+  SimpleFIN data into SQLite or Postgres and exposes it over a REST API, an MCP
+  server, a canonical event stream, webhooks, and sandboxed plugins.
+site_url: https://paulmeier.github.io/kasas/
+site_author: Paul Meier
+
+repo_name: paulmeier/kasas
+repo_url: https://github.com/paulmeier/kasas
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; Paul Meier — released under the MIT License
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tooltips
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/paulmeier/kasas
+      name: kasas on GitHub
+    - icon: fontawesome/brands/docker
+      link: https://github.com/paulmeier/kasas/pkgs/container/kasas
+      name: kasas container image
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quick Start: getting-started/quick-start.md
+      - Configuration: getting-started/configuration.md
+      - Deployment: getting-started/deployment.md
+  - Architecture:
+      - Philosophy: architecture/philosophy.md
+      - System Overview: architecture/overview.md
+      - Data Model: architecture/data-model.md
+  - Features:
+      - Sync Pipeline: features/sync.md
+      - Event Stream: features/event-stream.md
+      - Transaction History: features/transaction-history.md
+      - Labels: features/labels.md
+      - Schema Extensions: features/schema-extensions.md
+      - Search: features/search.md
+      - Rules Engine: features/rules.md
+      - Webhooks: features/webhooks.md
+      - Plugins: features/plugins.md
+  - Interfaces:
+      - REST API: interfaces/rest-api.md
+      - MCP Server: interfaces/mcp.md
+      - Dashboard: interfaces/dashboard.md
+      - Authentication & API Keys: interfaces/authentication.md
+      - Metrics & Observability: interfaces/metrics.md
+  - Reference:
+      - CLI & Subcommands: reference/cli.md
+      - Development: reference/development.md
