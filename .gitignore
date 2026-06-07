@@ -35,6 +35,11 @@ go.work.sum
 /internal/dashboard/web/app.wasm
 /internal/dashboard/web/app.wasm.gz
 
+# kasas: MkDocs documentation build output + local preview venv (the docs branch
+# is published by CI; source lives in /docs and mkdocs.yml)
+/site/
+.venv/
+
 # kasas: local database, secrets, and config (never commit these)
 /data/
 /pgdata/

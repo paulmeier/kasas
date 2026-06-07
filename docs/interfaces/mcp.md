@@ -1,0 +1,96 @@
+# MCP Server
+
+kasas embeds a [Model Context Protocol](https://modelcontextprotocol.io/) server,
+so an AI agent can drive your ledger directly — list and search transactions,
+manage labels and rules, read the event stream and history, and administer
+webhooks, API keys, and plugins — as first-class tools. It's the same core logic
+as the [REST API](rest-api.md), exposed as MCP tools.
+
+Source: [`internal/api/mcp.go`](https://github.com/paulmeier/kasas/blob/main/internal/api/mcp.go),
+built on [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
+Enabled by `mcp.enabled` (default on).
+
+## Transports
+
+| Transport | Endpoint | Auth |
+| --- | --- | --- |
+| **Streamable HTTP** | `/mcp` | The [dashboard token](authentication.md) (not API keys). |
+| **stdio** | `kasas mcp` subcommand | None — it's a local subprocess. |
+
+For desktop MCP clients that launch a subprocess, run it over stdio:
+
+```sh
+kasas -config config.toml mcp
+```
+
+For HTTP clients, point them at `/mcp` and send the dashboard token as a bearer
+credential, exactly as for REST.
+
+## Tools
+
+Thirty tools (the last five only when [plugins](../features/plugins.md) are
+enabled). Each maps onto the same handler logic and DTO shapes as the
+corresponding REST route, so responses are identical.
+
+=== "Accounts & transactions"
+
+    | Tool | Description |
+    | --- | --- |
+    | `list_accounts` | All synced accounts with balances. |
+    | `get_account` | One account by id. |
+    | `list_transactions` | Filter by `account_id`, date range, and `label_key`/`label_value`. |
+    | `search_transactions` | The [query language](../features/search.md), including `ext:`. |
+    | `list_organizations` | Financial institutions owning the accounts. |
+
+=== "Metadata"
+
+    | Tool | Description |
+    | --- | --- |
+    | `list_labels` | The [label](../features/labels.md) vocabulary with counts. |
+    | `set_transaction_extensions` | Replace a transaction's [extensions](../features/schema-extensions.md). |
+    | `list_extensions` | The extension vocabulary with counts. |
+
+=== "Rules"
+
+    | Tool | Description |
+    | --- | --- |
+    | `list_rules` · `create_rule` · `update_rule` · `delete_rule` | [Rule](../features/rules.md) CRUD. |
+    | `run_rules` | Run one rule (pass `id`) or all enabled rules (omit it). |
+
+=== "Events & history"
+
+    | Tool | Description |
+    | --- | --- |
+    | `list_events` | Read the [event stream](../features/event-stream.md): cursor `after`, filter by `type`/`entity_type`/`entity_id`. |
+    | `get_transaction_history` | One transaction's [version history](../features/transaction-history.md) with diffs. |
+
+=== "Sync"
+
+    | Tool | Description |
+    | --- | --- |
+    | `sync_status` | The most recent [sync](../features/sync.md) status. |
+    | `trigger_sync` | Run a sync now; returns counts. |
+
+=== "Admin"
+
+    | Tool | Description |
+    | --- | --- |
+    | `list_api_keys` · `create_api_key` · `revoke_api_key` | [API key](authentication.md#api-keys) management. |
+    | `list_webhooks` · `create_webhook` · `update_webhook` · `delete_webhook` · `test_webhook` | [Webhook](../features/webhooks.md) management. |
+    | `list_plugins` · `get_plugin` · `enable_plugin` · `disable_plugin` · `reload_plugin` | [Plugin](../features/plugins.md) lifecycle (when enabled). |
+
+## One core, two surfaces
+
+The MCP tools are thin wrappers over the very same functions the REST handlers
+call — `search.Parse` + the matcher for `search_transactions`, the
+[emitter](../features/event-stream.md) for any write, the shared DTO converters
+for output. There is no second implementation of search, rules, or labels to drift
+out of sync. Anything you can do over REST, an agent can do over MCP, with
+identical semantics and identical event/history side effects.
+
+!!! info "Why extension values are `any`, not raw JSON"
+    The MCP SDK's schema generator rejects `json.RawMessage`, so tool inputs and
+    outputs that carry free-form data (event `data`, extension values, history
+    snapshots) use `any` / `map[string]any` rather than raw bytes. The values are
+    the same JSON; only the Go type at the boundary differs from the internal
+    storage type.
