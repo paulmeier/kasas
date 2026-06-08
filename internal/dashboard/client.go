@@ -271,28 +271,31 @@ func (c *apiClient) setLabels(ctx context.Context, id string, labels map[string]
 	return out.Labels, nil
 }
 
-// rule mirrors api.RuleDTO: an auto-labeling rule (a condition query plus the
-// labels applied to every matching transaction).
+// rule mirrors api.RuleDTO: a rule (a condition query plus the labels and/or
+// schema extensions applied to every matching transaction). Extensions are kept as
+// raw JSON (like transaction.Extensions) so chips render losslessly client-side.
 type rule struct {
-	ID        int64             `json:"id"`
-	Name      string            `json:"name"`
-	Query     string            `json:"query"`
-	Labels    map[string]string `json:"labels"`
-	Enabled   bool              `json:"enabled"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID         int64                      `json:"id"`
+	Name       string                     `json:"name"`
+	Query      string                     `json:"query"`
+	Labels     map[string]string          `json:"labels"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
+	Enabled    bool                       `json:"enabled"`
+	CreatedAt  time.Time                  `json:"created_at"`
+	UpdatedAt  time.Time                  `json:"updated_at"`
 }
 
 // rulePayload is the create/update request body (mirrors api.ruleInput).
 type rulePayload struct {
-	Name    string            `json:"name"`
-	Query   string            `json:"query"`
-	Labels  map[string]string `json:"labels"`
-	Enabled bool              `json:"enabled"`
+	Name       string                     `json:"name"`
+	Query      string                     `json:"query"`
+	Labels     map[string]string          `json:"labels"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
+	Enabled    bool                       `json:"enabled"`
 }
 
 // runResult is the rules run response: how many transactions matched and how many
-// were newly labeled.
+// were updated (labels and/or extensions changed).
 type runResult struct {
 	Matched int `json:"matched"`
 	Updated int `json:"updated"`

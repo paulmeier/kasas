@@ -32,9 +32,9 @@ func renderExtensionsCell(t transaction) app.UI {
 	return app.Td().Class("ext-cell").Body(app.Div().Class("ext-chips").Body(chips...))
 }
 
-// sortedExtKeys returns a transaction's extension keys in sorted order so chips
-// render deterministically (Go map iteration is randomized). Sorting also groups
-// keys by namespace, since a namespace is the dotted prefix.
+// sortedExtKeys returns extension keys in sorted order so chips render
+// deterministically (Go map iteration is randomized). Sorting also groups keys by
+// namespace, since a namespace is the dotted prefix.
 func sortedExtKeys(ext map[string]json.RawMessage) []string {
 	keys := make([]string, 0, len(ext))
 	for k := range ext {
@@ -42,4 +42,15 @@ func sortedExtKeys(ext map[string]json.RawMessage) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// cloneExtensions returns a shallow copy of an extensions map (raw values are
+// immutable), used to stage a rule's extension action in the editor without
+// mutating the rule in the list. Returns a non-nil empty map for nil input.
+func cloneExtensions(in map[string]json.RawMessage) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

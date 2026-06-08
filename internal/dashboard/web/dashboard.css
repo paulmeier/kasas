@@ -699,6 +699,22 @@ html, body {
 .rule-form-labels .empty-hint { font-size: 13px; opacity: 0.8; }
 .rule-form-labels .label-chip { padding: 3px 6px 3px 10px; }
 
+/* Extension action: a namespaced key + a JSON/text value, shown as removable
+   green chips (matching the read-only transaction extensions cell). The two
+   inputs share the row's remaining width and shrink before wrapping. */
+.rule-ext-key { flex: 0 1 200px; min-width: 140px; }
+.rule-ext-value { flex: 1 1 220px; min-width: 160px; }
+.rule-form-extensions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 26px;
+  margin: 0 0 12px;
+}
+.rule-form-extensions .empty-hint { font-size: 13px; opacity: 0.8; }
+.rule-form-extensions .ext-chip { padding-right: 5px; }
+
 .rule-enabled-toggle {
   display: inline-flex;
   align-items: center;

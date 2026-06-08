@@ -118,23 +118,27 @@ type RelationshipPayload struct {
 }
 
 // RulePayload is the snapshot embedded in rule.created / rule.updated /
-// rule.deleted events.
+// rule.deleted events. Extensions are decoded to map[string]any (not
+// json.RawMessage) so this type is safe to surface as MCP tool output, matching
+// how the event Data field uses `any`.
 type RulePayload struct {
-	ID      int64             `json:"id"`
-	Name    string            `json:"name"`
-	Query   string            `json:"query"`
-	Labels  map[string]string `json:"labels"`
-	Enabled bool              `json:"enabled"`
+	ID         int64             `json:"id"`
+	Name       string            `json:"name"`
+	Query      string            `json:"query"`
+	Labels     map[string]string `json:"labels"`
+	Extensions map[string]any    `json:"extensions"`
+	Enabled    bool              `json:"enabled"`
 }
 
 // RuleSnapshot builds a RulePayload from a stored row.
 func RuleSnapshot(r db.Rule) RulePayload {
 	return RulePayload{
-		ID:      r.ID,
-		Name:    r.Name,
-		Query:   r.Query,
-		Labels:  labels.Decode(r.Labels),
-		Enabled: r.Enabled != 0,
+		ID:         r.ID,
+		Name:       r.Name,
+		Query:      r.Query,
+		Labels:     labels.Decode(r.Labels),
+		Extensions: extensions.Values(r.Extensions),
+		Enabled:    r.Enabled != 0,
 	}
 }
 

@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -8,16 +9,31 @@ import (
 	"github.com/paulmeier/kasas/internal/search"
 )
 
-// compile is a test helper: build a rule from primitives and compile it,
+// compile is a test helper: build a labels rule from primitives and compile it,
 // failing the test on an unexpected parse error.
 func compile(t *testing.T, id int64, query string, labels map[string]string) rules.Compiled {
 	t.Helper()
-	r := rules.Rule{ID: id, Query: query, Labels: labels, Enabled: true}
+	return compileFull(t, id, query, labels, nil)
+}
+
+// compileFull builds and compiles a rule that may apply labels and/or extensions.
+func compileFull(t *testing.T, id int64, query string, labels map[string]string, ext map[string]json.RawMessage) rules.Compiled {
+	t.Helper()
+	r := rules.Rule{ID: id, Query: query, Labels: labels, Extensions: ext, Enabled: true}
 	c, err := rules.Compile(r)
 	if err != nil {
 		t.Fatalf("compile %q: %v", query, err)
 	}
 	return c
+}
+
+// ext builds an extensions map from alternating key/raw-JSON-value strings.
+func ext(pairs ...string) map[string]json.RawMessage {
+	m := map[string]json.RawMessage{}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		m[pairs[i]] = json.RawMessage(pairs[i+1])
+	}
+	return m
 }
 
 func rec(amount float64, payee string, lbls map[string]string) search.Record {
@@ -30,13 +46,17 @@ func TestCompileInvalidQuery(t *testing.T) {
 	}
 }
 
-func TestNewRuleDecodesLabels(t *testing.T) {
-	r := rules.NewRule(7, "Coffee", "payee:starbucks", `{"category":"coffee"}`, true)
+func TestNewRuleDecodesLabelsAndExtensions(t *testing.T) {
+	r := rules.NewRule(7, "Coffee", "payee:starbucks", `{"category":"coffee"}`, `{"tax.category":"meal","forecast.recurring":true}`, true)
 	if r.ID != 7 || r.Name != "Coffee" || !r.Enabled {
 		t.Fatalf("unexpected rule fields: %+v", r)
 	}
 	if !reflect.DeepEqual(r.Labels, map[string]string{"category": "coffee"}) {
 		t.Fatalf("labels = %v", r.Labels)
+	}
+	wantExt := map[string]json.RawMessage{"tax.category": json.RawMessage(`"meal"`), "forecast.recurring": json.RawMessage(`true`)}
+	if !reflect.DeepEqual(r.Extensions, wantExt) {
+		t.Fatalf("extensions = %v, want %v", r.Extensions, wantExt)
 	}
 }
 
@@ -115,5 +135,60 @@ func TestApplyEmptyRuleSetUnchanged(t *testing.T) {
 	got, changed := rules.Apply(nil, rec(5, "acme", nil), nil)
 	if changed || len(got) != 0 {
 		t.Fatalf("got %v, changed=%v; want no change", got, changed)
+	}
+}
+
+func TestApplyExtensionsMatchMerges(t *testing.T) {
+	c := compileFull(t, 1, "amount:>50", nil, ext("tax.category", `"meal"`, "x.score", `88`))
+	got, changed := rules.ApplyExtensions([]rules.Compiled{c}, rec(75, "acme", nil), map[string]json.RawMessage{})
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	want := ext("tax.category", `"meal"`, "x.score", `88`)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestApplyExtensionsNoMatchUnchanged(t *testing.T) {
+	c := compileFull(t, 1, "amount:>50", nil, ext("tax.category", `"meal"`))
+	current := ext("forecast.recurring", `true`)
+	got, changed := rules.ApplyExtensions([]rules.Compiled{c}, rec(10, "acme", nil), current)
+	if changed {
+		t.Fatalf("expected changed=false, got %v", got)
+	}
+	if !reflect.DeepEqual(got, current) {
+		t.Fatalf("got %v, want %v", got, current)
+	}
+}
+
+func TestApplyExtensionsOverwritesConflictingValue(t *testing.T) {
+	c := compileFull(t, 1, "amount:>0", nil, ext("x.score", `2`))
+	current := ext("x.score", `1`, "keep.me", `"v"`)
+	got, changed := rules.ApplyExtensions([]rules.Compiled{c}, rec(5, "acme", nil), current)
+	if !changed {
+		t.Fatal("expected changed=true (value overwritten)")
+	}
+	want := ext("x.score", `2`, "keep.me", `"v"`)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestApplyExtensionsLaterRuleWins(t *testing.T) {
+	c1 := compileFull(t, 1, "amount:>0", nil, ext("tier.level", `"low"`))
+	c2 := compileFull(t, 2, "amount:>0", nil, ext("tier.level", `"high"`))
+	got, changed := rules.ApplyExtensions([]rules.Compiled{c1, c2}, rec(5, "acme", nil), nil)
+	if !changed || string(got["tier.level"]) != `"high"` {
+		t.Fatalf("got %v, changed=%v; want tier.level=\"high\"", got, changed)
+	}
+}
+
+func TestApplyExtensionsLabelsOnlyRuleIsNoop(t *testing.T) {
+	// A rule that applies only labels contributes nothing to the extensions merge.
+	c := compileFull(t, 1, "amount:>0", map[string]string{"status": "review"}, nil)
+	got, changed := rules.ApplyExtensions([]rules.Compiled{c}, rec(5, "acme", nil), nil)
+	if changed || len(got) != 0 {
+		t.Fatalf("got %v, changed=%v; want no extension change", got, changed)
 	}
 }

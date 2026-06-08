@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/provenance"
 	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/rules"
@@ -113,27 +111,27 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_rules",
-		Description: "List the auto-labeling rules. Each rule applies its labels to every transaction matching its query (the kasas search syntax).",
+		Description: "List the rules. Each rule applies its labels and/or schema extensions to every transaction matching its query (the kasas search syntax).",
 	}, s.mcpListRules)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "create_rule",
-		Description: "Create an auto-labeling rule: a condition (a kasas search query, e.g. 'amount:<0 description:coffee') and the labels to apply to every matching transaction. Enabled rules apply automatically to newly-synced transactions; use run_rules to also apply over existing ones.",
+		Description: "Create a rule: a condition (a kasas search query, e.g. 'amount:<0 description:coffee') and the labels and/or schema extensions to apply to every matching transaction. A rule must apply at least one label or extension. Enabled rules apply automatically to newly-synced transactions; use run_rules to also apply over existing ones.",
 	}, s.mcpCreateRule)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "update_rule",
-		Description: "Replace an existing rule's name, query, labels, and enabled flag by id.",
+		Description: "Replace an existing rule's name, query, labels, extensions, and enabled flag by id.",
 	}, s.mcpUpdateRule)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "delete_rule",
-		Description: "Delete a rule by id. Does not remove labels already applied to transactions.",
+		Description: "Delete a rule by id. Does not remove labels or extensions already applied to transactions.",
 	}, s.mcpDeleteRule)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "run_rules",
-		Description: "Run rules over all existing transactions, applying labels to matches. Pass an id to run a single rule (even if disabled); omit it to run every enabled rule. Returns how many transactions matched and how many were newly labeled.",
+		Description: "Run rules over all existing transactions, applying labels and extensions to matches. Pass an id to run a single rule (even if disabled); omit it to run every enabled rule. Returns how many transactions matched and how many were updated.",
 	}, s.mcpRunRules)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -367,18 +365,20 @@ type listRulesOutput struct {
 }
 
 type createRuleInput struct {
-	Name    string            `json:"name,omitempty" jsonschema:"optional human-readable name for the rule"`
-	Query   string            `json:"query" jsonschema:"the condition: a kasas search query, e.g. 'amount:<0 description:coffee' or 'label:category=food amount:>50'"`
-	Labels  map[string]string `json:"labels" jsonschema:"the key:value labels to apply to every transaction the query matches"`
-	Enabled *bool             `json:"enabled,omitempty" jsonschema:"whether the rule auto-applies to newly-synced transactions (default true)"`
+	Name       string            `json:"name,omitempty" jsonschema:"optional human-readable name for the rule"`
+	Query      string            `json:"query" jsonschema:"the condition: a kasas search query, e.g. 'amount:<0 description:coffee' or 'label:category=food amount:>50'"`
+	Labels     map[string]string `json:"labels,omitempty" jsonschema:"the key:value labels to apply to every transaction the query matches"`
+	Extensions map[string]any    `json:"extensions,omitempty" jsonschema:"namespaced schema extensions to apply to every matching transaction; keys are namespaced (e.g. tax.category) and values may be any JSON. A rule must apply at least one label or extension"`
+	Enabled    *bool             `json:"enabled,omitempty" jsonschema:"whether the rule auto-applies to newly-synced transactions (default true)"`
 }
 
 type updateRuleInput struct {
-	ID      int64             `json:"id" jsonschema:"the id of the rule to replace"`
-	Name    string            `json:"name,omitempty" jsonschema:"optional human-readable name for the rule"`
-	Query   string            `json:"query" jsonschema:"the condition: a kasas search query"`
-	Labels  map[string]string `json:"labels" jsonschema:"the key:value labels to apply to every transaction the query matches"`
-	Enabled *bool             `json:"enabled,omitempty" jsonschema:"whether the rule auto-applies to newly-synced transactions (default true)"`
+	ID         int64             `json:"id" jsonschema:"the id of the rule to replace"`
+	Name       string            `json:"name,omitempty" jsonschema:"optional human-readable name for the rule"`
+	Query      string            `json:"query" jsonschema:"the condition: a kasas search query"`
+	Labels     map[string]string `json:"labels,omitempty" jsonschema:"the key:value labels to apply to every transaction the query matches"`
+	Extensions map[string]any    `json:"extensions,omitempty" jsonschema:"namespaced schema extensions to apply to every matching transaction; keys are namespaced (e.g. tax.category) and values may be any JSON. A rule must apply at least one label or extension"`
+	Enabled    *bool             `json:"enabled,omitempty" jsonschema:"whether the rule auto-applies to newly-synced transactions (default true)"`
 }
 
 type deleteRuleInput struct {
@@ -396,7 +396,7 @@ type runRulesInput struct {
 
 type runRulesOutput struct {
 	Matched int `json:"matched"` // transactions matched by at least one rule
-	Updated int `json:"updated"` // transactions whose labels actually changed
+	Updated int `json:"updated"` // transactions whose labels and/or extensions actually changed
 }
 
 type listEventsInput struct {
@@ -557,11 +557,11 @@ func (s *Server) mcpListLabels(ctx context.Context, _ *mcp.CallToolRequest, _ em
 func (s *Server) mcpSetTransactionExtensions(ctx context.Context, _ *mcp.CallToolRequest, in setTransactionExtensionsInput) (*mcp.CallToolResult, TransactionDTO, error) {
 	// Round-trip the decoded values back to raw JSON so the shared write path can
 	// normalize/validate them losslessly.
-	b, err := json.Marshal(in.Extensions)
+	raw, err := rawExtensionsFromAny(in.Extensions)
 	if err != nil {
 		return nil, TransactionDTO{}, err
 	}
-	next, notFound, err := s.setExtensions(ctx, in.TransactionID, extensions.Decode(string(b)))
+	next, notFound, err := s.setExtensions(ctx, in.TransactionID, raw)
 	if err != nil {
 		return nil, TransactionDTO{}, err
 	}
@@ -656,8 +656,11 @@ func (s *Server) mcpListRules(ctx context.Context, _ *mcp.CallToolRequest, _ emp
 }
 
 func (s *Server) mcpCreateRule(ctx context.Context, _ *mcp.CallToolRequest, in createRuleInput) (*mcp.CallToolResult, RuleDTO, error) {
-	// createRuleInput is field-for-field a ruleInput (with richer schema docs).
-	rule, err := s.createRule(ctx, ruleInput(in))
+	ext, err := rawExtensionsFromAny(in.Extensions)
+	if err != nil {
+		return nil, RuleDTO{}, err
+	}
+	rule, err := s.createRule(ctx, ruleInput{Name: in.Name, Query: in.Query, Labels: in.Labels, Extensions: ext, Enabled: in.Enabled})
 	if err != nil {
 		return nil, RuleDTO{}, err
 	}
@@ -665,7 +668,11 @@ func (s *Server) mcpCreateRule(ctx context.Context, _ *mcp.CallToolRequest, in c
 }
 
 func (s *Server) mcpUpdateRule(ctx context.Context, _ *mcp.CallToolRequest, in updateRuleInput) (*mcp.CallToolResult, RuleDTO, error) {
-	rule, err := s.updateRule(ctx, in.ID, ruleInput{Name: in.Name, Query: in.Query, Labels: in.Labels, Enabled: in.Enabled})
+	ext, err := rawExtensionsFromAny(in.Extensions)
+	if err != nil {
+		return nil, RuleDTO{}, err
+	}
+	rule, err := s.updateRule(ctx, in.ID, ruleInput{Name: in.Name, Query: in.Query, Labels: in.Labels, Extensions: ext, Enabled: in.Enabled})
 	if errors.Is(err, errRuleNotFound) {
 		return nil, RuleDTO{}, fmt.Errorf("rule %d not found", in.ID)
 	}
