@@ -19,27 +19,30 @@ import (
 	"github.com/paulmeier/kasas/internal/search"
 )
 
-// RuleDTO is the JSON representation of a labeling rule: a condition (a kasas
-// search query) and the labels applied to every transaction it matches.
+// RuleDTO is the JSON representation of a rule: a condition (a kasas search
+// query) and the labels and/or schema extensions applied to every transaction it
+// matches.
 type RuleDTO struct {
-	ID        int64             `json:"id"`
-	Name      string            `json:"name"`
-	Query     string            `json:"query"`
-	Labels    map[string]string `json:"labels"`
-	Enabled   bool              `json:"enabled"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID         int64             `json:"id"`
+	Name       string            `json:"name"`
+	Query      string            `json:"query"`
+	Labels     map[string]string `json:"labels"`
+	Extensions map[string]any    `json:"extensions"`
+	Enabled    bool              `json:"enabled"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
 func toRuleDTO(r db.Rule) RuleDTO {
 	return RuleDTO{
-		ID:        r.ID,
-		Name:      r.Name,
-		Query:     r.Query,
-		Labels:    decodeLabels(r.Labels),
-		Enabled:   r.Enabled != 0,
-		CreatedAt: unixTime(r.CreatedAt),
-		UpdatedAt: unixTime(r.UpdatedAt),
+		ID:         r.ID,
+		Name:       r.Name,
+		Query:      r.Query,
+		Labels:     decodeLabels(r.Labels),
+		Extensions: decodeExtensions(r.Extensions),
+		Enabled:    r.Enabled != 0,
+		CreatedAt:  unixTime(r.CreatedAt),
+		UpdatedAt:  unixTime(r.UpdatedAt),
 	}
 }
 
@@ -51,36 +54,45 @@ func toRuleDTOs(in []db.Rule) []RuleDTO {
 	return out
 }
 
-// ruleInput is the create/update request body (and the MCP create/update tool
-// input). Enabled is a pointer so an omitted field defaults to enabled.
+// ruleInput is the create/update request body. The MCP create/update tool inputs
+// mirror it but take extensions as map[string]any (the SDK rejects RawMessage in a
+// tool schema) and round-trip them to raw JSON before building a ruleInput.
+// Enabled is a pointer so an omitted field defaults to enabled.
 type ruleInput struct {
-	Name    string            `json:"name"`
-	Query   string            `json:"query"`
-	Labels  map[string]string `json:"labels"`
-	Enabled *bool             `json:"enabled"`
+	Name       string                     `json:"name"`
+	Query      string                     `json:"query"`
+	Labels     map[string]string          `json:"labels"`
+	Extensions map[string]json.RawMessage `json:"extensions"`
+	Enabled    *bool                      `json:"enabled"`
 }
 
 // validateRule checks the input shared by create and update: the query must be
 // non-empty (a rule needs a real condition — an empty query would match every
 // transaction) and parse cleanly, and the action must normalize to at least one
-// label. It returns the canonical query string and the JSON-encoded labels.
-func validateRule(in ruleInput) (query, encodedLabels string, err error) {
+// label or extension. It returns the canonical query string plus the JSON-encoded
+// labels and extensions.
+func validateRule(in ruleInput) (query, encodedLabels, encodedExtensions string, err error) {
 	query = strings.TrimSpace(in.Query)
 	if query == "" {
-		return "", "", errors.New("a rule must have a query")
+		return "", "", "", errors.New("a rule must have a query")
 	}
 	if _, perr := search.Parse(query); perr != nil {
-		return "", "", fmt.Errorf("invalid query: %s", perr.Error())
+		return "", "", "", fmt.Errorf("invalid query: %s", perr.Error())
 	}
-	norm := normalizeLabels(in.Labels)
-	if len(norm) == 0 {
-		return "", "", errors.New("a rule must apply at least one label")
+	normLabels := normalizeLabels(in.Labels)
+	normExt := normalizeExtensions(in.Extensions)
+	if len(normLabels) == 0 && len(normExt) == 0 {
+		return "", "", "", errors.New("a rule must apply at least one label or extension")
 	}
-	encoded, eerr := encodeLabels(norm)
-	if eerr != nil {
-		return "", "", eerr
+	encodedLabels, err = encodeLabels(normLabels)
+	if err != nil {
+		return "", "", "", err
 	}
-	return query, encoded, nil
+	encodedExtensions, err = encodeExtensions(normExt)
+	if err != nil {
+		return "", "", "", err
+	}
+	return query, encodedLabels, encodedExtensions, nil
 }
 
 func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +246,7 @@ func isValidationError(err error) bool {
 // createRule validates and inserts a rule. Validation failures are returned as
 // validationError so handlers map them to 400.
 func (s *Server) createRule(ctx context.Context, in ruleInput) (db.Rule, error) {
-	query, encoded, err := validateRule(in)
+	query, encodedLabels, encodedExt, err := validateRule(in)
 	if err != nil {
 		return db.Rule{}, validationError{err}
 	}
@@ -247,12 +259,13 @@ func (s *Server) createRule(ctx context.Context, in ruleInput) (db.Rule, error) 
 	err = s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
 		var cerr error
 		created, cerr = q.CreateRule(ctx, db.CreateRuleParams{
-			Name:      strings.TrimSpace(in.Name),
-			Query:     query,
-			Labels:    encoded,
-			Enabled:   boolToInt64(enabled),
-			CreatedAt: now,
-			UpdatedAt: now,
+			Name:       strings.TrimSpace(in.Name),
+			Query:      query,
+			Labels:     encodedLabels,
+			Extensions: encodedExt,
+			Enabled:    boolToInt64(enabled),
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		})
 		if cerr != nil {
 			return cerr
@@ -268,7 +281,7 @@ func (s *Server) createRule(ctx context.Context, in ruleInput) (db.Rule, error) 
 // updateRule validates and replaces a rule's editable fields, returning the
 // canonical stored rule. errRuleNotFound signals an unknown id.
 func (s *Server) updateRule(ctx context.Context, id int64, in ruleInput) (db.Rule, error) {
-	query, encoded, err := validateRule(in)
+	query, encodedLabels, encodedExt, err := validateRule(in)
 	if err != nil {
 		return db.Rule{}, validationError{err}
 	}
@@ -279,12 +292,13 @@ func (s *Server) updateRule(ctx context.Context, id int64, in ruleInput) (db.Rul
 	var updated db.Rule
 	err = s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
 		n, uerr := q.UpdateRule(ctx, db.UpdateRuleParams{
-			ID:        id,
-			Name:      strings.TrimSpace(in.Name),
-			Query:     query,
-			Labels:    encoded,
-			Enabled:   boolToInt64(enabled),
-			UpdatedAt: time.Now().Unix(),
+			ID:         id,
+			Name:       strings.TrimSpace(in.Name),
+			Query:      query,
+			Labels:     encodedLabels,
+			Extensions: encodedExt,
+			Enabled:    boolToInt64(enabled),
+			UpdatedAt:  time.Now().Unix(),
 		})
 		if uerr != nil {
 			return uerr
@@ -332,10 +346,10 @@ func (s *Server) deleteRule(ctx context.Context, id int64) (bool, error) {
 }
 
 // applyRules runs the compiled rules over every stored transaction, writing the
-// merged labels for each transaction whose set changed. All writes happen in one
-// transaction. It returns the number of transactions matched by at least one
-// rule and the number actually updated (a match whose label was already present
-// is matched but not updated).
+// merged labels and/or extensions for each transaction whose set changed. All
+// writes happen in one transaction. It returns the number of transactions matched
+// by at least one rule and the number actually updated (a match whose labels and
+// extensions were all already present is matched but not updated).
 func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled, ruleID int64) (matched, updated int, err error) {
 	if len(compiled) == 0 {
 		return 0, 0, nil
@@ -361,32 +375,55 @@ func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled, rule
 			if anyMatch(compiled, sr) {
 				matched++
 			}
-			old := decodeLabels(t.Labels)
-			merged, changed := rules.Apply(compiled, sr, old)
-			if !changed {
+
+			oldLabels := decodeLabels(t.Labels)
+			mergedLabels, labelsChanged := rules.Apply(compiled, sr, oldLabels)
+			oldExt := decodeExtensionsRaw(t.Extensions)
+			mergedExt, extChanged := rules.ApplyExtensions(compiled, sr, oldExt)
+			if !labelsChanged && !extChanged {
 				continue
 			}
-			encoded, eerr := encodeLabels(merged)
-			if eerr != nil {
-				return eerr
+
+			// Labels and extensions are independent mutation seams: write each that
+			// changed and record a version per seam (labeled, then extended). next
+			// accumulates the run's changes so each version's diff-on-read is exactly
+			// that seam's change; VersionChange synthesizes a v1 baseline from the
+			// prior state only on the first version a transaction predating history gets.
+			next := t
+			if labelsChanged {
+				encoded, eerr := encodeLabels(mergedLabels)
+				if eerr != nil {
+					return eerr
+				}
+				if _, eerr := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ID, Labels: encoded}); eerr != nil {
+					return eerr
+				}
+				if eerr := rec.EmitLabelDiff(ctx, q, t.ID, oldLabels, mergedLabels); eerr != nil {
+					return eerr
+				}
+				next.Labels = encoded
+				if eerr := rec.VersionChange(ctx, q, t.ID, events.TransactionSnapshot(t), events.TransactionSnapshot(next), events.ChangeLabeled); eerr != nil {
+					return eerr
+				}
 			}
-			if _, eerr := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{
-				ID:     t.ID,
-				Labels: encoded,
-			}); eerr != nil {
-				return eerr
+			if extChanged {
+				beforeExt := events.TransactionSnapshot(next) // state before this extension change
+				encoded, eerr := encodeExtensions(mergedExt)
+				if eerr != nil {
+					return eerr
+				}
+				if _, eerr := q.UpdateTransactionExtensions(ctx, db.UpdateTransactionExtensionsParams{ID: t.ID, Extensions: encoded}); eerr != nil {
+					return eerr
+				}
+				if eerr := rec.EmitExtensionDiff(ctx, q, t.ID, oldExt, mergedExt); eerr != nil {
+					return eerr
+				}
+				next.Extensions = encoded
+				if eerr := rec.VersionChange(ctx, q, t.ID, beforeExt, events.TransactionSnapshot(next), events.ChangeExtended); eerr != nil {
+					return eerr
+				}
 			}
 			updated++
-			if eerr := rec.EmitLabelDiff(ctx, q, t.ID, old, merged); eerr != nil {
-				return eerr
-			}
-			// Append a labeled version, synthesizing a v1 baseline from the prior
-			// state if this transaction predates history.
-			next := t
-			next.Labels = encoded
-			if eerr := rec.VersionChange(ctx, q, t.ID, events.TransactionSnapshot(t), events.TransactionSnapshot(next), events.ChangeLabeled); eerr != nil {
-				return eerr
-			}
 		}
 		// One rule.executed summarizes the run (ruleID 0 means run-all-enabled).
 		entityID := ""
@@ -434,9 +471,10 @@ func anyMatch(compiled []rules.Compiled, rec search.Record) bool {
 	return false
 }
 
-// ruleFromDB adapts a stored rule row into the engine's Rule (decoding labels).
+// ruleFromDB adapts a stored rule row into the engine's Rule (decoding labels and
+// extensions).
 func ruleFromDB(r db.Rule) rules.Rule {
-	return rules.NewRule(r.ID, r.Name, r.Query, r.Labels, r.Enabled != 0)
+	return rules.NewRule(r.ID, r.Name, r.Query, r.Labels, r.Extensions, r.Enabled != 0)
 }
 
 // decodeRuleInput reads and JSON-decodes a rule request body, writing a 400 and

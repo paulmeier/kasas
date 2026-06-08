@@ -50,18 +50,22 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body, out any) in
 func TestRuleCRUD(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 
-	// Create: the key is lowercased, the value's case preserved (label normalization).
+	// Create: the key is lowercased, the value's case preserved (label normalization);
+	// extensions keep their case and arbitrary-JSON values.
 	var created api.RuleDTO
 	code := postJSON(t, srv, "/api/v1/rules", map[string]any{
-		"name":   "Coffee",
-		"query":  "description:coffee",
-		"labels": map[string]string{"Category": "Coffee"},
+		"name":       "Coffee",
+		"query":      "description:coffee",
+		"labels":     map[string]string{"Category": "Coffee"},
+		"extensions": map[string]any{"tax.category": "meal", "x.score": 88},
 	}, &created)
 	require.Equal(t, http.StatusCreated, code)
 	assert.NotZero(t, created.ID)
 	assert.Equal(t, "Coffee", created.Name)
 	assert.True(t, created.Enabled)
 	assert.Equal(t, map[string]string{"category": "Coffee"}, created.Labels)
+	assert.Equal(t, "meal", created.Extensions["tax.category"])
+	assert.Equal(t, float64(88), created.Extensions["x.score"], "numbers round-trip through the any boundary as float64")
 
 	// Get
 	var got api.RuleDTO
@@ -74,18 +78,21 @@ func TestRuleCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/rules", &list))
 	require.Len(t, list.Rules, 1)
 
-	// Update replaces all editable fields.
+	// Update replaces all editable fields (including the extensions action).
 	var updated api.RuleDTO
 	code = putJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d", created.ID), map[string]any{
-		"name":    "Coffee shops",
-		"query":   "payee:cafe",
-		"labels":  map[string]string{"category": "coffee"},
-		"enabled": false,
+		"name":       "Coffee shops",
+		"query":      "payee:cafe",
+		"labels":     map[string]string{"category": "coffee"},
+		"extensions": map[string]any{"tax.category": "drink"},
+		"enabled":    false,
 	}, &updated)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "Coffee shops", updated.Name)
 	assert.Equal(t, "payee:cafe", updated.Query)
 	assert.False(t, updated.Enabled)
+	assert.Equal(t, "drink", updated.Extensions["tax.category"])
+	assert.NotContains(t, updated.Extensions, "x.score", "update replaces the whole extensions action")
 
 	// Delete, then it is gone.
 	require.Equal(t, http.StatusOK, deleteJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d", created.ID), nil))
@@ -101,8 +108,9 @@ func TestCreateRuleValidation(t *testing.T) {
 	}{
 		{"invalid query", map[string]any{"query": "amount:>", "labels": map[string]string{"a": "b"}}},
 		{"empty query", map[string]any{"query": "   ", "labels": map[string]string{"a": "b"}}},
-		{"no labels", map[string]any{"query": "description:coffee", "labels": map[string]string{}}},
+		{"no labels or extensions", map[string]any{"query": "description:coffee", "labels": map[string]string{}}},
 		{"only invalid labels", map[string]any{"query": "description:coffee", "labels": map[string]string{"   ": "x"}}},
+		{"only invalid extensions", map[string]any{"query": "description:coffee", "extensions": map[string]any{"   ": "x"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -112,6 +120,20 @@ func TestCreateRuleValidation(t *testing.T) {
 			assert.NotEmpty(t, e["error"])
 		})
 	}
+}
+
+func TestCreateRuleExtensionsOnlyIsValid(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	// A rule with no labels but at least one extension is valid (the action need
+	// only apply one or the other).
+	var created api.RuleDTO
+	code := postJSON(t, srv, "/api/v1/rules", map[string]any{
+		"query":      "description:coffee",
+		"extensions": map[string]any{"tax.category": "meal"},
+	}, &created)
+	require.Equal(t, http.StatusCreated, code)
+	assert.Empty(t, created.Labels)
+	assert.Equal(t, "meal", created.Extensions["tax.category"])
 }
 
 func TestRunRuleAppliesLabels(t *testing.T) {
@@ -144,6 +166,76 @@ func TestRunRuleAppliesLabels(t *testing.T) {
 	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &res))
 	assert.Equal(t, 2, res.Matched)
 	assert.Equal(t, 0, res.Updated)
+}
+
+func TestRunRuleAppliesExtensions(t *testing.T) {
+	srv, _ := newEventsServer(t) // emitter enabled so versions/events are recorded
+
+	// A rule that applies only extensions (no labels).
+	var rule api.RuleDTO
+	require.Equal(t, http.StatusCreated, postJSON(t, srv, "/api/v1/rules", map[string]any{
+		"query":      "amount:<0",
+		"extensions": map[string]any{"tax.category": "expense", "x.flagged": true},
+	}, &rule))
+
+	// Run: the two outflows (tx-1, tx-2) match and get the extension.
+	var res runResp
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &res))
+	assert.Equal(t, 2, res.Matched)
+	assert.Equal(t, 2, res.Updated)
+
+	var tx api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx))
+	assert.Equal(t, "expense", tx.Extensions["tax.category"])
+	assert.Equal(t, true, tx.Extensions["x.flagged"])
+
+	// A non-matching inflow is untouched.
+	var dep api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-3", &dep))
+	assert.NotContains(t, dep.Extensions, "tax.category")
+
+	// History: imported baseline + an "extended" version for the matched transaction.
+	var h api.HistoryDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1/history", &h))
+	require.Len(t, h.Versions, 2)
+	assert.Equal(t, "imported", h.Versions[0].ChangeKind)
+	assert.Equal(t, "extended", h.Versions[1].ChangeKind)
+
+	// Idempotent: a second run matches but changes nothing.
+	res = runResp{}
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &res))
+	assert.Equal(t, 2, res.Matched)
+	assert.Equal(t, 0, res.Updated)
+}
+
+func TestRunRuleAppliesLabelsAndExtensions(t *testing.T) {
+	srv, _ := newEventsServer(t) // emitter enabled so versions/events are recorded
+
+	// A single rule applies both a label and an extension.
+	var rule api.RuleDTO
+	require.Equal(t, http.StatusCreated, postJSON(t, srv, "/api/v1/rules", map[string]any{
+		"query":      "id:tx-1",
+		"labels":     map[string]string{"flow": "out"},
+		"extensions": map[string]any{"tax.category": "expense"},
+	}, &rule))
+
+	var res runResp
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &res))
+	assert.Equal(t, 1, res.Matched)
+	assert.Equal(t, 1, res.Updated, "a transaction changed by either seam counts once")
+
+	var tx api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx))
+	assert.Equal(t, "out", tx.Labels["flow"])
+	assert.Equal(t, "expense", tx.Extensions["tax.category"])
+
+	// History records both seams in order: imported baseline, then labeled, then extended.
+	var h api.HistoryDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1/history", &h))
+	require.Len(t, h.Versions, 3)
+	assert.Equal(t, "imported", h.Versions[0].ChangeKind)
+	assert.Equal(t, "labeled", h.Versions[1].ChangeKind)
+	assert.Equal(t, "extended", h.Versions[2].ChangeKind)
 }
 
 func TestRunRuleOverwritesConflictingValue(t *testing.T) {
@@ -214,11 +306,13 @@ func TestMCPRulesTools(t *testing.T) {
 
 	var created api.RuleDTO
 	callTool(t, session, "create_rule", map[string]any{
-		"name":   "Coffee",
-		"query":  "description:coffee",
-		"labels": map[string]any{"category": "coffee"},
+		"name":       "Coffee",
+		"query":      "description:coffee",
+		"labels":     map[string]any{"category": "coffee"},
+		"extensions": map[string]any{"tax.category": "meal"},
 	}, &created)
 	require.NotZero(t, created.ID)
+	assert.Equal(t, "meal", created.Extensions["tax.category"], "create_rule round-trips extensions")
 
 	var list rulesList
 	callTool(t, session, "list_rules", map[string]any{}, &list)

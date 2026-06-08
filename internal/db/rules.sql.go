@@ -10,31 +10,34 @@ import (
 )
 
 const createRule = `-- name: CreateRule :one
-INSERT INTO rules (name, query, labels, enabled, created_at, updated_at)
+INSERT INTO rules (name, query, labels, extensions, enabled, created_at, updated_at)
 VALUES (
     ?1, ?2, ?3, ?4,
-    ?5, ?6
+    ?5, ?6, ?7
 )
-RETURNING id, name, "query", labels, enabled, created_at, updated_at
+RETURNING id, name, "query", labels, enabled, created_at, updated_at, extensions
 `
 
 type CreateRuleParams struct {
-	Name      string `json:"name"`
-	Query     string `json:"query"`
-	Labels    string `json:"labels"`
-	Enabled   int64  `json:"enabled"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	Name       string `json:"name"`
+	Query      string `json:"query"`
+	Labels     string `json:"labels"`
+	Extensions string `json:"extensions"`
+	Enabled    int64  `json:"enabled"`
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
 }
 
-// A rule pairs a condition (a kasas search query) with an action (a JSON object
-// of labels to apply on a match). The API validates the query and normalizes the
-// labels before storing. RETURNING * yields the generated id and timestamps.
+// A rule pairs a condition (a kasas search query) with an action: a JSON object
+// of labels and a JSON object of schema extensions to apply on a match. The API
+// validates the query and normalizes both before storing. RETURNING * yields the
+// generated id and timestamps.
 func (q *Queries) CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error) {
 	row := q.db.QueryRowContext(ctx, createRule,
 		arg.Name,
 		arg.Query,
 		arg.Labels,
+		arg.Extensions,
 		arg.Enabled,
 		arg.CreatedAt,
 		arg.UpdatedAt,
@@ -48,6 +51,7 @@ func (q *Queries) CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, e
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Extensions,
 	)
 	return i, err
 }
@@ -65,7 +69,7 @@ func (q *Queries) DeleteRule(ctx context.Context, id int64) (int64, error) {
 }
 
 const getRule = `-- name: GetRule :one
-SELECT id, name, "query", labels, enabled, created_at, updated_at FROM rules WHERE id = ?1
+SELECT id, name, "query", labels, enabled, created_at, updated_at, extensions FROM rules WHERE id = ?1
 `
 
 func (q *Queries) GetRule(ctx context.Context, id int64) (Rule, error) {
@@ -79,12 +83,13 @@ func (q *Queries) GetRule(ctx context.Context, id int64) (Rule, error) {
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Extensions,
 	)
 	return i, err
 }
 
 const listEnabledRules = `-- name: ListEnabledRules :many
-SELECT id, name, "query", labels, enabled, created_at, updated_at FROM rules WHERE enabled = 1 ORDER BY id
+SELECT id, name, "query", labels, enabled, created_at, updated_at, extensions FROM rules WHERE enabled = 1 ORDER BY id
 `
 
 // The deterministic id order makes rule precedence predictable when several
@@ -106,6 +111,7 @@ func (q *Queries) ListEnabledRules(ctx context.Context) ([]Rule, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Extensions,
 		); err != nil {
 			return nil, err
 		}
@@ -121,7 +127,7 @@ func (q *Queries) ListEnabledRules(ctx context.Context) ([]Rule, error) {
 }
 
 const listRules = `-- name: ListRules :many
-SELECT id, name, "query", labels, enabled, created_at, updated_at FROM rules ORDER BY id
+SELECT id, name, "query", labels, enabled, created_at, updated_at, extensions FROM rules ORDER BY id
 `
 
 func (q *Queries) ListRules(ctx context.Context) ([]Rule, error) {
@@ -141,6 +147,7 @@ func (q *Queries) ListRules(ctx context.Context) ([]Rule, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Extensions,
 		); err != nil {
 			return nil, err
 		}
@@ -160,18 +167,20 @@ UPDATE rules
 SET name       = ?1,
     query      = ?2,
     labels     = ?3,
-    enabled    = ?4,
-    updated_at = ?5
-WHERE id = ?6
+    extensions = ?4,
+    enabled    = ?5,
+    updated_at = ?6
+WHERE id = ?7
 `
 
 type UpdateRuleParams struct {
-	Name      string `json:"name"`
-	Query     string `json:"query"`
-	Labels    string `json:"labels"`
-	Enabled   int64  `json:"enabled"`
-	UpdatedAt int64  `json:"updated_at"`
-	ID        int64  `json:"id"`
+	Name       string `json:"name"`
+	Query      string `json:"query"`
+	Labels     string `json:"labels"`
+	Extensions string `json:"extensions"`
+	Enabled    int64  `json:"enabled"`
+	UpdatedAt  int64  `json:"updated_at"`
+	ID         int64  `json:"id"`
 }
 
 // Replaces the editable fields of a rule. :execrows lets the caller detect a
@@ -181,6 +190,7 @@ func (q *Queries) UpdateRule(ctx context.Context, arg UpdateRuleParams) (int64, 
 		arg.Name,
 		arg.Query,
 		arg.Labels,
+		arg.Extensions,
 		arg.Enabled,
 		arg.UpdatedAt,
 		arg.ID,

@@ -38,7 +38,7 @@ Extensions and [labels](labels.md) are deliberately separate models:
 | Value type | strings only | **any JSON value** |
 | Keys | lowercased, canonical | **namespaced, case-preserved** |
 | Audience | human categorization | **app-owned data** |
-| Mutators | UI, REST, rules, plugins | REST, MCP, plugins (UI is read-only) |
+| Mutators | UI, REST, rules, plugins | REST, MCP, rules, plugins (transaction cell is read-only) |
 
 Where labels are normalized and lowercased, extension keys are **case-preserved**
 and values keep their exact JSON type, stored **verbatim**. A `PUT` replaces the

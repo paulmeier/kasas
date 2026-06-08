@@ -17,9 +17,10 @@ type Querier interface {
 	// (see CountTransactions), keeping the pgstore adapter a plain pass-through.
 	CountTransactionVersions(ctx context.Context, transactionID string) (int64, error)
 	CountTransactions(ctx context.Context) (int64, error)
-	// A rule pairs a condition (a kasas search query) with an action (a JSON object
-	// of labels to apply on a match). The API validates the query and normalizes the
-	// labels before storing. RETURNING * yields the generated id and timestamps.
+	// A rule pairs a condition (a kasas search query) with an action: a JSON object
+	// of labels and a JSON object of schema extensions to apply on a match. The API
+	// validates the query and normalizes both before storing. RETURNING * yields the
+	// generated id and timestamps.
 	CreateRule(ctx context.Context, arg CreateRuleParams) (Rule, error)
 	CreateSyncLog(ctx context.Context, arg CreateSyncLogParams) (SyncLog, error)
 	// Deletes one account. Its transactions are removed by the ON DELETE CASCADE on

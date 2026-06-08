@@ -36,6 +36,18 @@ func normalizeExtensions(in map[string]json.RawMessage) map[string]json.RawMessa
 	return extensions.Normalize(in)
 }
 
+// rawExtensionsFromAny round-trips a decoded extensions map (map[string]any — the
+// MCP tool-input form, since the SDK rejects json.RawMessage in a tool schema)
+// back to raw JSON values for the shared write/normalize path. A nil map yields an
+// empty (non-nil) map, so callers treat it as "no extensions" / "clear all".
+func rawExtensionsFromAny(in map[string]any) (map[string]json.RawMessage, error) {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	return decodeExtensionsRaw(string(b)), nil
+}
+
 // extensionCounts explodes the stored JSON extension objects into the global
 // extension vocabulary: one entry per distinct key, annotated with its namespace
 // and the number of transactions carrying it. Each input string is one

@@ -8,6 +8,7 @@ package poller
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/extensions"
 	"github.com/paulmeier/kasas/internal/labels"
 	"github.com/paulmeier/kasas/internal/rules"
 	"github.com/paulmeier/kasas/internal/search"
@@ -48,7 +50,7 @@ var (
 	})
 	rulesApplied = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "kasas_rules_applied_total",
-		Help: "Total number of newly-synced transactions auto-labeled by a matching rule.",
+		Help: "Total number of newly-synced transactions modified (labeled and/or extended) by a matching rule.",
 	})
 	lastSuccess = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "kasas_last_successful_sync_timestamp_seconds",
@@ -110,7 +112,7 @@ type SyncResult struct {
 	Accounts            int           `json:"accounts"`
 	NewTransactions     int           `json:"new_transactions"`
 	UpdatedTransactions int           `json:"updated_transactions"`
-	AutoLabeled         int           `json:"auto_labeled"` // new transactions a rule labeled
+	AutoLabeled         int           `json:"auto_labeled"` // new transactions a rule modified (labeled and/or extended)
 	Duration            time.Duration `json:"duration"`
 }
 
@@ -305,25 +307,25 @@ func (p *Poller) persist(ctx context.Context, batch *source.ImportBatch, syncedA
 				}
 				if n > 0 {
 					res.NewTransactions += int(n)
-					// A brand-new row starts with no labels ('{}').
-					created := newTransactionRow(acct, t, syncedAt, "{}")
+					// A brand-new row starts with no labels or extensions ('{}').
+					created := newTransactionRow(acct, t, syncedAt, "{}", "{}")
 					if err := rec.Emit(ctx, q, events.TypeTransactionCreated, events.EntityTransaction, t.ExternalID, events.TransactionSnapshot(created)); err != nil {
 						return err
 					}
-					// Apply any matching rules (emitting label.applied per label).
-					// Re-synced (existing) rows are left alone so a sync never
-					// clobbers labels.
-					labelsJSON, labeled, err := p.applyRulesToNewTxn(ctx, q, rec, compiledRules, acct, t, syncedAt)
+					// Apply any matching rules (emitting label.applied / extension.set
+					// per applied key). Re-synced (existing) rows are left alone so a
+					// sync never clobbers labels or extensions.
+					labelsJSON, extJSON, modified, err := p.applyRulesToNewTxn(ctx, q, rec, compiledRules, acct, t, syncedAt)
 					if err != nil {
 						return fmt.Errorf("apply rules to transaction %q: %w", t.ExternalID, err)
 					}
-					if labeled {
+					if modified {
 						res.AutoLabeled++
 					}
 					// Record v1 of the transaction's history, folding in any birth
-					// labels the rules applied. (The transaction.created event above
-					// fires with empty labels; the version captures the settled state.)
-					settled := newTransactionRow(acct, t, syncedAt, labelsJSON)
+					// labels/extensions the rules applied. (The transaction.created event
+					// above fires empty; the version captures the settled state.)
+					settled := newTransactionRow(acct, t, syncedAt, labelsJSON, extJSON)
 					if err := rec.Version(ctx, q, t.ExternalID, events.TransactionSnapshot(settled), events.ChangeImported); err != nil {
 						return fmt.Errorf("record imported version for %q: %w", t.ExternalID, err)
 					}
@@ -349,8 +351,8 @@ func (p *Poller) persist(ctx context.Context, batch *source.ImportBatch, syncedA
 					return fmt.Errorf("refresh transaction %q: %w", t.ExternalID, err)
 				}
 				res.UpdatedTransactions++
-				// The refresh preserves existing labels; carry them in the snapshot.
-				updated := newTransactionRow(acct, t, syncedAt, prevTxn.Labels)
+				// The refresh preserves existing labels and extensions; carry them in the snapshot.
+				updated := newTransactionRow(acct, t, syncedAt, prevTxn.Labels, prevTxn.Extensions)
 				if transactionBridgeChanged(prevTxn, updated) {
 					if err := rec.Emit(ctx, q, events.TypeTransactionUpdated, events.EntityTransaction, t.ExternalID, events.TransactionSnapshot(updated)); err != nil {
 						return err
@@ -382,7 +384,7 @@ func (p *Poller) loadEnabledRules(ctx context.Context, q db.Querier) ([]rules.Co
 	}
 	compiled := make([]rules.Compiled, 0, len(rows))
 	for _, r := range rows {
-		c, cerr := rules.Compile(rules.NewRule(r.ID, r.Name, r.Query, r.Labels, r.Enabled != 0))
+		c, cerr := rules.Compile(rules.NewRule(r.ID, r.Name, r.Query, r.Labels, r.Extensions, r.Enabled != 0))
 		if cerr != nil {
 			p.logger.Warn("skipping rule with invalid query", "rule_id", r.ID, "name", r.Name, "error", cerr)
 			continue
@@ -393,32 +395,47 @@ func (p *Poller) loadEnabledRules(ctx context.Context, q db.Querier) ([]rules.Co
 }
 
 // applyRulesToNewTxn applies the compiled rules to one just-inserted transaction
-// (whose labels are still empty) and writes the merged label set when any rule
-// matched, emitting a label.applied event per applied label. It returns the final
-// labels JSON (the new-row default '{}' when nothing matched, so the caller always
-// has a valid snapshot input) and whether the transaction was labeled.
-func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct source.ImportAccount, t source.ImportTxn, syncedAt int64) (string, bool, error) {
+// (whose labels and extensions are still empty), writing the merged label and
+// extension sets when any rule matched and emitting a label.applied / extension.set
+// event per applied key (the diff is against an empty set, so every applied key is
+// "added"). It returns the final labels and extensions JSON — the new-row default
+// '{}' when nothing matched, so the caller always has valid snapshot inputs — and
+// whether the transaction was modified.
+func (p *Poller) applyRulesToNewTxn(ctx context.Context, q db.Querier, rec *events.Recorder, compiled []rules.Compiled, acct source.ImportAccount, t source.ImportTxn, syncedAt int64) (labelsJSON, extJSON string, modified bool, err error) {
+	labelsJSON, extJSON = "{}", "{}"
 	if len(compiled) == 0 {
-		return "{}", false, nil
+		return labelsJSON, extJSON, false, nil
 	}
-	merged, changed := rules.Apply(compiled, newSearchRecord(acct, t, syncedAt), map[string]string{})
-	if !changed {
-		return "{}", false, nil
-	}
-	encoded, err := labels.Encode(merged)
-	if err != nil {
-		return "{}", false, err
-	}
-	if _, err := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ExternalID, Labels: encoded}); err != nil {
-		return "{}", false, err
-	}
-	// The transaction had no labels before, so every merged label is newly applied.
-	for k, v := range merged {
-		if err := rec.Emit(ctx, q, events.TypeLabelApplied, events.EntityTransaction, t.ExternalID, events.LabelPayload{TransactionID: t.ExternalID, Key: k, Value: v}); err != nil {
-			return "{}", false, err
+	rec0 := newSearchRecord(acct, t, syncedAt)
+
+	if merged, changed := rules.Apply(compiled, rec0, map[string]string{}); changed {
+		encoded, eerr := labels.Encode(merged)
+		if eerr != nil {
+			return "{}", "{}", false, eerr
 		}
+		if _, eerr := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ExternalID, Labels: encoded}); eerr != nil {
+			return "{}", "{}", false, eerr
+		}
+		if eerr := rec.EmitLabelDiff(ctx, q, t.ExternalID, map[string]string{}, merged); eerr != nil {
+			return "{}", "{}", false, eerr
+		}
+		labelsJSON, modified = encoded, true
 	}
-	return encoded, true, nil
+
+	if merged, changed := rules.ApplyExtensions(compiled, rec0, map[string]json.RawMessage{}); changed {
+		encoded, eerr := extensions.Encode(merged)
+		if eerr != nil {
+			return "{}", "{}", false, eerr
+		}
+		if _, eerr := q.UpdateTransactionExtensions(ctx, db.UpdateTransactionExtensionsParams{ID: t.ExternalID, Extensions: encoded}); eerr != nil {
+			return "{}", "{}", false, eerr
+		}
+		if eerr := rec.EmitExtensionDiff(ctx, q, t.ExternalID, map[string]json.RawMessage{}, merged); eerr != nil {
+			return "{}", "{}", false, eerr
+		}
+		extJSON, modified = encoded, true
+	}
+	return labelsJSON, extJSON, modified, nil
 }
 
 // accountChanged reports whether any consumer-meaningful field of an account
@@ -445,10 +462,11 @@ func transactionBridgeChanged(prev, next db.Transaction) bool {
 }
 
 // newTransactionRow assembles a db.Transaction from a normalized import transaction
-// for use as an event snapshot, carrying the given labels JSON (the new-row default
-// '{}' for an insert, or the existing labels for a refresh). The source/provenance
-// stamp is omitted because event and version snapshots do not surface it.
-func newTransactionRow(acct source.ImportAccount, t source.ImportTxn, syncedAt int64, labelsJSON string) db.Transaction {
+// for use as an event snapshot, carrying the given labels and extensions JSON (the
+// new-row default '{}' for an insert, or the existing values for a refresh). The
+// source/provenance stamp is omitted because event and version snapshots do not
+// surface it.
+func newTransactionRow(acct source.ImportAccount, t source.ImportTxn, syncedAt int64, labelsJSON, extJSON string) db.Transaction {
 	return db.Transaction{
 		ID:          t.ExternalID,
 		AccountID:   acct.ExternalID,
@@ -460,6 +478,7 @@ func newTransactionRow(acct source.ImportAccount, t source.ImportTxn, syncedAt i
 		Memo:        t.Memo,
 		SyncedAt:    syncedAt,
 		Labels:      labelsJSON,
+		Extensions:  extJSON,
 	}
 }
 

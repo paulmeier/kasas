@@ -1,11 +1,12 @@
 -- name: CreateRule :one
--- A rule pairs a condition (a kasas search query) with an action (a JSON object
--- of labels to apply on a match). The API validates the query and normalizes the
--- labels before storing. RETURNING * yields the generated id and timestamps.
-INSERT INTO rules (name, query, labels, enabled, created_at, updated_at)
+-- A rule pairs a condition (a kasas search query) with an action: a JSON object
+-- of labels and a JSON object of schema extensions to apply on a match. The API
+-- validates the query and normalizes both before storing. RETURNING * yields the
+-- generated id and timestamps.
+INSERT INTO rules (name, query, labels, extensions, enabled, created_at, updated_at)
 VALUES (
-    sqlc.arg(name), sqlc.arg(query), sqlc.arg(labels), sqlc.arg(enabled),
-    sqlc.arg(created_at), sqlc.arg(updated_at)
+    sqlc.arg(name), sqlc.arg(query), sqlc.arg(labels), sqlc.arg(extensions),
+    sqlc.arg(enabled), sqlc.arg(created_at), sqlc.arg(updated_at)
 )
 RETURNING *;
 
@@ -27,6 +28,7 @@ UPDATE rules
 SET name       = sqlc.arg(name),
     query      = sqlc.arg(query),
     labels     = sqlc.arg(labels),
+    extensions = sqlc.arg(extensions),
     enabled    = sqlc.arg(enabled),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);

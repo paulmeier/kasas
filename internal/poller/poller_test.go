@@ -165,15 +165,21 @@ func TestSyncRefreshesExistingPreservingLabels(t *testing.T) {
 	assert.JSONEq(t, `{"category":"food"}`, got.Labels, "labels must not be clobbered by a sync")
 }
 
-// mustCreateRule inserts a labeling rule directly for tests.
+// mustCreateRule inserts a labels-only rule directly for tests.
 func mustCreateRule(t *testing.T, q db.Querier, query, labelsJSON string, enabled bool) db.Rule {
+	t.Helper()
+	return mustCreateRuleFull(t, q, query, labelsJSON, "{}", enabled)
+}
+
+// mustCreateRuleFull inserts a rule that may apply labels and/or extensions.
+func mustCreateRuleFull(t *testing.T, q db.Querier, query, labelsJSON, extJSON string, enabled bool) db.Rule {
 	t.Helper()
 	en := int64(0)
 	if enabled {
 		en = 1
 	}
 	r, err := q.CreateRule(context.Background(), db.CreateRuleParams{
-		Query: query, Labels: labelsJSON, Enabled: en, CreatedAt: 1, UpdatedAt: 1,
+		Query: query, Labels: labelsJSON, Extensions: extJSON, Enabled: en, CreatedAt: 1, UpdatedAt: 1,
 	})
 	require.NoError(t, err)
 	return r
@@ -420,6 +426,38 @@ func TestSyncImportedVersionFoldsRuleLabels(t *testing.T) {
 	require.Len(t, vers, 1, "still a single imported version, with the rule labels folded in")
 	assert.Equal(t, events.ChangeImported, vers[0].ChangeKind)
 	assert.Contains(t, vers[0].Data, `"category":"coffee"`, "v1 snapshot captures the auto-applied label")
+}
+
+func TestSyncAppliesExtensionRuleToNewTransactions(t *testing.T) {
+	bus := events.NewBus()
+	defer bus.Close()
+	p, queries := newPoller(t, Options{Source: &fakeSource{batch: sampleBatch()}, Emitter: events.NewEmitter(bus)})
+	ctx := context.Background()
+
+	// A rule that applies only a schema extension (no label) to coffee.
+	mustCreateRuleFull(t, queries, "description:coffee", "{}", `{"tax.category":"meal"}`, true)
+
+	res, err := p.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.AutoLabeled, "the coffee transaction was modified by an extension rule")
+
+	coffee, err := queries.GetTransaction(ctx, "txn-1")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"tax.category":"meal"}`, coffee.Extensions)
+	assert.JSONEq(t, `{}`, coffee.Labels, "the rule applied only an extension")
+
+	// An extension.set event was emitted for the new key.
+	set, err := queries.ListEventsAfter(ctx, db.ListEventsAfterParams{EventType: events.TypeExtensionSet, RowLimit: 100})
+	require.NoError(t, err)
+	require.Len(t, set, 1)
+	assert.Equal(t, "txn-1", set[0].EntityID)
+
+	// The single imported version folds in the auto-applied extension.
+	vers, err := queries.ListTransactionVersions(ctx, "txn-1")
+	require.NoError(t, err)
+	require.Len(t, vers, 1, "still a single imported version, with the rule extension folded in")
+	assert.Equal(t, events.ChangeImported, vers[0].ChangeKind)
+	assert.Contains(t, vers[0].Data, `"tax.category":"meal"`, "v1 snapshot captures the auto-applied extension")
 }
 
 func TestResyncRecordsSyncedVersion(t *testing.T) {

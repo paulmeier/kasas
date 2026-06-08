@@ -63,13 +63,14 @@ type Plugin struct {
 }
 
 type Rule struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Query     string `json:"query"`
-	Labels    string `json:"labels"`
-	Enabled   int64  `json:"enabled"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Query      string `json:"query"`
+	Labels     string `json:"labels"`
+	Enabled    int64  `json:"enabled"`
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
+	Extensions string `json:"extensions"`
 }
 
 type SyncLog struct {
