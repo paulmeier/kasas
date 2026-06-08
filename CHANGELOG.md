@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.1](https://github.com/paulmeier/kasas/compare/v2.15.0...v2.15.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* apply dashboard updates instead of serving the stale cached UI ([#74](https://github.com/paulmeier/kasas/issues/74)) ([ce4ccd6](https://github.com/paulmeier/kasas/commit/ce4ccd67113970abc2284656d3698601135ce133))
+
 ## [2.15.0](https://github.com/paulmeier/kasas/compare/v2.14.2...v2.15.0) (2026-06-08)
 
 
