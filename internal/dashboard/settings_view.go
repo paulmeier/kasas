@@ -286,6 +286,11 @@ func (v *settingsView) renderSimpleFIN() app.UI {
 		app.P().Class("settings-help").Text(
 			"Paste a SimpleFIN setup token (the one-time base64 token from your bridge) " +
 				"or a full access URL. It is stored securely and used on the next sync — no restart needed."),
+		app.P().Class("settings-help").Body(
+			app.Text("Manage every ingestion source — including CSV file import — on the "),
+			app.A().Class("settings-link").Href("/sources").Text("Sources page"),
+			app.Text("."),
+		),
 		app.Div().Class("form-row").Body(
 			app.Input().
 				ID(tokenInputID).

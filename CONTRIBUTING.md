@@ -145,10 +145,11 @@ func init() {
 }
 ```
 
-**3. Wire it in.** Import the package from `cmd/kasas` and select it via
-`source.New(<type>, env)`. SimpleFIN is hard-wired there today; until source
-selection is configurable, swap the type at that call. **No engine changes are
-needed.**
+**3. Wire it in.** Import the package from `cmd/kasas` and construct it in
+`buildEngine`: `source.New(<type>, env)`, wrap it in a `poller.New`, and append it
+to the slice passed to `poller.NewEngine`. The engine runs one poller per source
+and exposes them all across REST/MCP/dashboard automatically. **No engine changes
+are needed.**
 
 **Build:** `make build` — a source compiles into the binary like any package.
 
@@ -162,10 +163,17 @@ re-test persistence, dedup, or events — those are the engine's, covered by
 go test ./internal/sources/<name>/
 ```
 
-> `Puller` and `Credentialed` ship today. The `file`, `webhook`, `manual`, and
-> `enrichment` archetypes are reserved in `internal/source`; their capability
-> interfaces land there as each is built, and because capabilities are independent,
-> adding one never disturbs existing sources.
+> **Two archetypes ship:** `pull` (SimpleFIN) and `file`
+> ([CSV import](https://paulmeier.github.io/kasas/features/csv-import/),
+> `internal/sources/csv`). A `file` source doesn't need a separate upload
+> interface — it implements `source.Puller` and **scans its folder on the sync
+> schedule**, abstracting storage behind a small `FileStore` (`List`/`Open`) with
+> `local` and `gdrive` backends, and synthesizing a content-hash `ExternalID` per
+> row so re-imports dedup. `Credentialed` (pasted secret) and `OAuthCredentialed`
+> (browser OAuth, e.g. Google Drive) are optional add-on capabilities. The
+> `webhook` and `enrichment` archetypes are reserved in `internal/source`; their
+> capability interfaces land there as each is built, and because capabilities are
+> independent, adding one never disturbs existing sources.
 
 ## Database changes (migrations + sqlc)
 

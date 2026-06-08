@@ -25,14 +25,23 @@ type Syncer interface {
 	Sync(ctx context.Context) (poller.SyncResult, error)
 }
 
-// Connector manages the SimpleFIN connection credential at runtime. Implemented
-// by *poller.Poller. When provided, the Settings page can set the credential and
-// the config endpoint can report whether kasas is connected.
-type Connector interface {
-	// SetCredential stores a SimpleFIN setup token or access URL for future syncs.
-	SetCredential(ctx context.Context, input string) error
-	// CredentialConfigured reports whether an access URL is currently stored.
-	CredentialConfigured(ctx context.Context) (bool, error)
+// SourceManager manages all ingestion sources at runtime: listing them, syncing
+// one, and managing each one's credential (pasted or via the browser OAuth flow).
+// Implemented by *poller.Engine. When provided, it powers the dashboard's Sources
+// page, the /sources REST endpoints, and the connected status in /config.
+type SourceManager interface {
+	// Sources lists every configured source with its readiness and credential shape.
+	Sources(ctx context.Context) ([]poller.SourceStatus, error)
+	// SyncSource runs a single source by type.
+	SyncSource(ctx context.Context, typ string) (poller.SyncResult, error)
+	// SetCredential stores a pasted credential for a source.
+	SetCredential(ctx context.Context, typ, input string) error
+	// CredentialConfigured reports whether a source is ready to sync.
+	CredentialConfigured(ctx context.Context, typ string) (bool, error)
+	// OAuthStart returns the provider consent URL for a source's browser OAuth flow.
+	OAuthStart(typ, state string) (string, error)
+	// OAuthExchange completes the OAuth flow, storing the credential.
+	OAuthExchange(ctx context.Context, typ, code string) error
 }
 
 // UpdateChecker reports the running build's status against the latest release
@@ -46,7 +55,7 @@ type UpdateChecker interface {
 type Server struct {
 	store      db.Store
 	syncer     Syncer
-	connector  Connector       // nil when runtime credential management is unavailable
+	sources    SourceManager   // nil when source management is unavailable
 	config     *config.Config  // resolved config for the read-only Settings display
 	auth       Authenticator   // nil when token auth is unavailable; gates /api/v1 + /mcp
 	emitter    *events.Emitter // nil when events are disabled; records + streams events
@@ -58,6 +67,7 @@ type Server struct {
 	allowApply bool
 	restart    func()
 	pluginMgr  *plugins.Manager // nil when the plugin system is disabled
+	oauth      *oauthStates     // pending source OAuth flows (anti-CSRF state)
 }
 
 // Options configures a Server.
@@ -67,9 +77,11 @@ type Options struct {
 	Logger     *slog.Logger
 	Version    string
 	MCPEnabled bool
-	// Connector, when non-nil, enables PUT /api/v1/simplefin/credential (set the
-	// SimpleFIN token/access URL) and the connected status in GET /api/v1/config.
-	Connector Connector
+	// Sources, when non-nil, enables the /api/v1/sources endpoints (list sources,
+	// per-source sync, credential, and OAuth), the back-compat
+	// PUT /api/v1/simplefin/credential alias, and the connected status in
+	// GET /api/v1/config.
+	Sources SourceManager
 	// Config, when non-nil, is exposed (with secrets redacted) by
 	// GET /api/v1/config to power the dashboard's read-only Settings view.
 	Config *config.Config
@@ -106,7 +118,7 @@ func New(opts Options) *Server {
 	return &Server{
 		store:      opts.Store,
 		syncer:     opts.Syncer,
-		connector:  opts.Connector,
+		sources:    opts.Sources,
 		config:     opts.Config,
 		auth:       opts.Auth,
 		emitter:    opts.Emitter,
@@ -118,6 +130,7 @@ func New(opts Options) *Server {
 		allowApply: opts.AllowApply,
 		restart:    opts.Restart,
 		pluginMgr:  opts.PluginManager,
+		oauth:      newOAuthStates(),
 	}
 }
 
@@ -162,6 +175,13 @@ func (s *Server) Router() http.Handler {
 			// can learn whether to show a login screen before it holds a token.
 			r.Get("/auth", s.handleAuthStatus)
 
+			// The OAuth callback is open: the provider redirects the browser here
+			// with no Authorization header. It is protected by the unguessable
+			// state value issued by the admin-gated /oauth/start, which it verifies.
+			if s.sources != nil {
+				r.Get("/sources/{type}/oauth/callback", s.handleSourceOAuthCallback)
+			}
+
 			// Read tier.
 			r.Group(func(r chi.Router) {
 				r.Use(s.requireRead)
@@ -204,6 +224,11 @@ func (s *Server) Router() http.Handler {
 
 				r.Get("/sync", s.handleSyncStatus)
 				r.Get("/sync/history", s.handleSyncHistory)
+
+				// Ingestion sources: list each source with its readiness and
+				// credential shape. Registered even when source management is
+				// unavailable so the dashboard gets a clean response, not a 404.
+				r.Get("/sources", s.handleListSources)
 
 				// Read-only effective configuration (secrets redacted) for the Settings page.
 				r.Get("/config", s.handleGetConfig)
@@ -248,14 +273,23 @@ func (s *Server) Router() http.Handler {
 				r.Post("/rules/{id}/run", s.handleRunRule)
 
 				r.Post("/sync", s.handleTriggerSync)
+
+				// Per-source sync (the global /sync above syncs every source).
+				if s.sources != nil {
+					r.Post("/sources/{type}/sync", s.handleSyncSource)
+				}
 			})
 
 			// Admin / provisioning tier (dashboard token only).
 			r.Group(func(r chi.Router) {
 				r.Use(s.requireToken)
 
-				// Runtime-writable SimpleFIN credential.
-				if s.connector != nil {
+				// Per-source credential management: set a pasted credential, and
+				// begin the browser OAuth flow (which returns the consent URL). The
+				// PUT /simplefin/credential alias is kept for back-compat.
+				if s.sources != nil {
+					r.Put("/sources/{type}/credential", s.handleSetSourceCredential)
+					r.Get("/sources/{type}/oauth/start", s.handleSourceOAuthStart)
 					r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
 				}
 

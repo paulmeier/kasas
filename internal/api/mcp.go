@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/provenance"
 	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/rules"
@@ -20,7 +21,7 @@ import (
 func (s *Server) MCPServer() *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "kasas",
-		Title:   "kasas — SimpleFIN financial data",
+		Title:   "kasas — your financial data",
 		Version: s.version,
 	}, nil)
 
@@ -156,13 +157,23 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "sync_status",
-		Description: "Report the status of the most recent SimpleFIN sync.",
+		Description: "Report the status of the most recent sync (across all ingestion sources).",
 	}, s.mcpSyncStatus)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "trigger_sync",
-		Description: "Trigger an immediate SimpleFIN sync and wait for it to finish.",
+		Description: "Trigger an immediate sync of all ingestion sources and wait for it to finish.",
 	}, s.mcpTriggerSync)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_sources",
+		Description: "List the configured ingestion sources (e.g. simplefin, csv) with each one's archetype (pull, file, ...), whether it is connected and ready to sync, and how its credential is set.",
+	}, s.mcpListSources)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "sync_source",
+		Description: "Trigger an immediate sync of a single ingestion source by type (e.g. csv) and wait for it to finish. Use trigger_sync to sync every source at once.",
+	}, s.mcpSyncSource)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_api_keys",
@@ -428,6 +439,14 @@ type triggerSyncOutput struct {
 	Accounts        int    `json:"accounts"`
 	NewTransactions int    `json:"new_transactions"`
 	Duration        string `json:"duration"`
+}
+
+type listSourcesOutput struct {
+	Sources []poller.SourceStatus `json:"sources"`
+}
+
+type syncSourceInput struct {
+	Type string `json:"type" jsonschema:"the source type to sync, e.g. csv or simplefin"`
 }
 
 // --- Tool handlers ---
@@ -788,6 +807,35 @@ func (s *Server) mcpTriggerSync(ctx context.Context, _ *mcp.CallToolRequest, _ e
 		return nil, triggerSyncOutput{}, errors.New("sync is not available")
 	}
 	res, err := s.syncer.Sync(ctx)
+	if err != nil {
+		return nil, triggerSyncOutput{}, err
+	}
+	return &mcp.CallToolResult{}, triggerSyncOutput{
+		Accounts:        res.Accounts,
+		NewTransactions: res.NewTransactions,
+		Duration:        res.Duration.String(),
+	}, nil
+}
+
+func (s *Server) mcpListSources(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listSourcesOutput, error) {
+	if s.sources == nil {
+		return nil, listSourcesOutput{}, errors.New("source management is not available")
+	}
+	statuses, err := s.sources.Sources(ctx)
+	if err != nil {
+		return nil, listSourcesOutput{}, err
+	}
+	return &mcp.CallToolResult{}, listSourcesOutput{Sources: statuses}, nil
+}
+
+func (s *Server) mcpSyncSource(ctx context.Context, _ *mcp.CallToolRequest, in syncSourceInput) (*mcp.CallToolResult, triggerSyncOutput, error) {
+	if s.sources == nil {
+		return nil, triggerSyncOutput{}, errors.New("source management is not available")
+	}
+	if strings.TrimSpace(in.Type) == "" {
+		return nil, triggerSyncOutput{}, errors.New("type is required")
+	}
+	res, err := s.sources.SyncSource(ctx, in.Type)
 	if err != nil {
 		return nil, triggerSyncOutput{}, err
 	}

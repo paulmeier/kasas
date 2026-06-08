@@ -36,6 +36,49 @@ setup_token = ""
 # store on first use.
 access_url = ""
 
+[csv]
+# CSV file-import source: ingest transactions from CSV files in a folder — a local
+# directory or a Google Drive folder — alongside SimpleFIN. Add one [[csv.folders]]
+# entry per account; the source starts only when at least one folder is configured.
+# Files are re-scanned each sync; rows get a content-hash id so re-imports dedup.
+# Full guide (column mapping + Google OAuth): docs/features/csv-import.md
+#
+# Google Drive OAuth app credentials (needed only for "gdrive" folders). Create an
+# OAuth 2.0 Client ID (Web application) in Google Cloud, enable the Drive API, and
+# register the redirect URL below. These may also come from the environment
+# (KASAS_CSV_GDRIVE_CLIENT_ID, KASAS_CSV_GDRIVE_CLIENT_SECRET).
+gdrive_client_id     = ""
+gdrive_client_secret = ""
+# The exact redirect URI registered with Google, pointing at this instance:
+gdrive_redirect_url  = ""  # e.g. "https://your-kasas-host/api/v1/sources/csv/oauth/callback"
+
+# A local-folder example. Each row in the folder belongs to `account`.
+# [[csv.folders]]
+# name     = "Chase Checking"        # display name + basis for the account id
+# backend  = "local"                 # "local" (default) or "gdrive"
+# path     = "/data/imports/chase"   # directory to scan (local backend)
+# account  = "Chase Checking"        # the account these rows belong to
+# org      = "Chase"                 # institution name (optional)
+# currency = "USD"                   # ISO code (optional; defaults to USD)
+#
+# Column mapping is optional — omitted columns are auto-detected from the header.
+# Give a column by header name or 0-based index. Use a single signed amount_column,
+# OR a debit_column/credit_column pair. Amounts assume "." as the decimal separator.
+#   [csv.folders.mapping]
+#   date_column        = "Transaction Date"
+#   date_format        = "01/02/2006"   # Go layout; omit to try common formats
+#   amount_column      = "Amount"
+#   description_column = "Description"
+
+# A Google Drive example (connect it from the dashboard Sources page, or paste a
+# refresh token, after setting the gdrive_* keys above).
+# [[csv.folders]]
+# name      = "Amex (Drive)"
+# backend   = "gdrive"
+# folder_id = "1AbCdEf..."            # the Drive folder id (from its URL)
+# account   = "Amex Gold"
+# currency  = "USD"
+
 [sync]
 enabled       = true
 interval      = "6h"  # any Go duration: "30m", "1h", "12h"

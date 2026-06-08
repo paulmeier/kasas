@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -45,6 +46,7 @@ import (
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/source"
+	"github.com/paulmeier/kasas/internal/sources/csv"
 	"github.com/paulmeier/kasas/internal/sources/simplefin"
 	"github.com/paulmeier/kasas/internal/vault"
 	"github.com/paulmeier/kasas/internal/webhooks"
@@ -131,30 +133,15 @@ func run(command, configPath string) error {
 		return fmt.Errorf("init dashboard auth: %w", err)
 	}
 
-	// Build the configured ingestion source. SimpleFIN is the only built-in source
-	// today; it registers itself (via its package import) and resolves its access
-	// URL / setup token from the secret store and config. Additional sources plug in
-	// here by registering under their own type.
-	ingestSource, err := source.New(simplefin.SourceType, source.Env{
-		Logger:  logger,
-		Secrets: secrets,
-		Options: map[string]string{
-			"access_url":  cfg.SimpleFIN.AccessURL,
-			"setup_token": cfg.SimpleFIN.SetupToken,
-		},
-	})
+	// Build the configured ingestion sources. Each source registers itself (via its
+	// package import) and is constructed by type through the registry; the engine
+	// then drives one poller per source. SimpleFIN is always built (it surfaces its
+	// own "not configured" error on sync); CSV is built only when folders are
+	// configured. Additional sources plug in here by registering under their type.
+	engine, err := buildEngine(cfg, store, secrets, emitter, logger)
 	if err != nil {
-		return fmt.Errorf("init ingestion source: %w", err)
+		return err
 	}
-
-	p := poller.New(poller.Options{
-		Store:        store,
-		Source:       ingestSource,
-		Logger:       logger,
-		Emitter:      emitter,
-		Interval:     cfg.Sync.Interval,
-		LookbackDays: cfg.Sync.LookbackDays,
-	})
 
 	var dashboardHandler http.Handler
 	if cfg.Dashboard.Enabled {
@@ -189,8 +176,8 @@ func run(command, configPath string) error {
 
 	apiOpts := api.Options{
 		Store:      store,
-		Syncer:     p,
-		Connector:  p,
+		Syncer:     engine,
+		Sources:    engine,
 		Config:     cfg,
 		Auth:       guard,
 		Emitter:    emitter,
@@ -212,12 +199,12 @@ func run(command, configPath string) error {
 
 	switch command {
 	case "", "serve":
-		return serve(cfg, logger, p, srv, updateChecker, guard, store, eventBus, pluginManager)
+		return serve(cfg, logger, engine, srv, updateChecker, guard, store, eventBus, pluginManager)
 	case "migrate":
 		logger.Info("migrations applied")
 		return nil
 	case "sync":
-		_, err := p.Sync(context.Background())
+		_, err := engine.Sync(context.Background())
 		return err
 	case "mcp":
 		return srv.RunMCPStdio(context.Background())
@@ -228,7 +215,7 @@ func run(command, configPath string) error {
 
 // serve runs the HTTP server plus the background sync scheduler until an
 // interrupt or SIGTERM is received, then shuts down gracefully.
-func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard, store db.Store, eventBus *events.Bus, pluginManager *plugins.Manager) error {
+func serve(cfg *config.Config, logger *slog.Logger, engine *poller.Engine, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard, store db.Store, eventBus *events.Bus, pluginManager *plugins.Manager) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -275,18 +262,18 @@ func serve(cfg *config.Config, logger *slog.Logger, p *poller.Poller, srv *api.S
 	}
 
 	if cfg.Sync.Enabled {
-		if err := p.Start(ctx); err != nil {
-			return fmt.Errorf("start poller: %w", err)
+		if err := engine.Start(ctx); err != nil {
+			return fmt.Errorf("start ingestion engine: %w", err)
 		}
 		defer func() {
-			if err := p.Stop(context.Background()); err != nil {
-				logger.Error("poller shutdown error", "error", err)
+			if err := engine.Stop(context.Background()); err != nil {
+				logger.Error("ingestion engine shutdown error", "error", err)
 			}
 		}()
 
 		if cfg.Sync.RunOnStart {
 			go func() {
-				if _, err := p.Sync(ctx); err != nil {
+				if _, err := engine.Sync(ctx); err != nil {
 					logger.Error("initial sync failed", "error", err)
 				}
 			}()
@@ -528,6 +515,55 @@ func openPostgres(dsn string) (*sql.DB, error) {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
 	return database, nil
+}
+
+// buildEngine constructs the ingestion engine: one poller per configured source.
+// SimpleFIN is always built (it reports "not connected" and is skipped on sync
+// until a credential is set, so a CSV-only setup is quiet); the CSV file-import
+// source is built only when folders are configured. Each source is constructed by
+// type through the registry, resolving its credentials/config from the secret
+// store and config via the env.
+func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, emitter *events.Emitter, logger *slog.Logger) (*poller.Engine, error) {
+	newPoller := func(typ string, opts map[string]string) (*poller.Poller, error) {
+		src, err := source.New(typ, source.Env{Logger: logger, Secrets: secrets, Options: opts})
+		if err != nil {
+			return nil, fmt.Errorf("init %s source: %w", typ, err)
+		}
+		return poller.New(poller.Options{
+			Store:        store,
+			Source:       src,
+			Logger:       logger,
+			Emitter:      emitter,
+			Interval:     cfg.Sync.Interval,
+			LookbackDays: cfg.Sync.LookbackDays,
+		}), nil
+	}
+
+	sfin, err := newPoller(simplefin.SourceType, map[string]string{
+		"access_url":  cfg.SimpleFIN.AccessURL,
+		"setup_token": cfg.SimpleFIN.SetupToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+	pollers := []*poller.Poller{sfin}
+
+	// The CSV source carries a structured config (folder profiles), so it is passed
+	// as JSON through the registry's flat options map.
+	if len(cfg.CSV.Folders) > 0 {
+		raw, err := json.Marshal(cfg.CSV)
+		if err != nil {
+			return nil, fmt.Errorf("encode csv config: %w", err)
+		}
+		csvPoller, err := newPoller(csv.SourceType, map[string]string{"config": string(raw)})
+		if err != nil {
+			return nil, err
+		}
+		pollers = append(pollers, csvPoller)
+		logger.Info("csv file-import source enabled", "folders", len(cfg.CSV.Folders))
+	}
+
+	return poller.NewEngine(pollers...), nil
 }
 
 // newStore wraps the open database in the matching Store implementation.

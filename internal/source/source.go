@@ -60,6 +60,29 @@ type Credentialed interface {
 	SetCredential(ctx context.Context, input string) error
 }
 
+// OAuthCredentialed is implemented by sources whose runtime credential is obtained
+// through a browser OAuth 2.0 authorization-code flow (e.g. Google Drive). The
+// engine exposes two endpoints per such source: one that begins the flow
+// (redirecting the user to the provider's consent screen) and one the provider
+// redirects back to with an authorization code, which the source exchanges for a
+// long-lived token and stores. It composes with [Credentialed]: both ultimately
+// persist the same secret, so a user can either click through the flow or paste a
+// pre-obtained token directly.
+type OAuthCredentialed interface {
+	// OAuthConfigured reports whether the OAuth client is fully set up (client id,
+	// secret, and the registered redirect URL), i.e. whether the browser flow can be
+	// offered. When false, only a pasted credential (Credentialed.SetCredential) is
+	// possible. The source owns its redirect URL (it must match what is registered
+	// with the provider), so the engine does not supply one.
+	OAuthConfigured() bool
+	// AuthCodeURL builds the provider consent URL to redirect the user to. state is
+	// an opaque anti-CSRF value the engine generated and verifies on callback.
+	AuthCodeURL(state string) string
+	// ExchangeCode exchanges an authorization code (delivered to the callback) for a
+	// token and persists it for future syncs.
+	ExchangeCode(ctx context.Context, code string) error
+}
+
 // Archetype classifies how a source delivers data, which determines how the
 // engine triggers it. See the package doc for the full set.
 type Archetype string
@@ -139,9 +162,10 @@ type ImportAccount struct {
 // ImportTxn is one transaction, normalized to kasas's universal core fields.
 // Anything source-specific (gas, symbol, fee, line items) belongs in Extensions.
 type ImportTxn struct {
-	// ExternalID is the source's own id for the transaction. When a source has no
-	// stable id (e.g. a CSV row), the engine will synthesize a content hash; in
-	// that case the source may leave this empty.
+	// ExternalID is the source's own stable id for the transaction; the engine
+	// deduplicates by (source, external id) across re-fetches. When the upstream has
+	// no stable id (e.g. a CSV row), the source synthesizes a deterministic one from
+	// the row's content (a content hash) so re-importing the same row is idempotent.
 	ExternalID  string `json:"external_id"`
 	Amount      string `json:"amount"`
 	Date        int64  `json:"date"` // unix seconds, already resolved by the source
