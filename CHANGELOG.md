@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.14.2](https://github.com/paulmeier/kasas/compare/v2.14.1...v2.14.2) (2026-06-08)
+
+
+### Bug Fixes
+
+* handle a disabled plugin system and show event details in a modal ([#70](https://github.com/paulmeier/kasas/issues/70)) ([a50c0f9](https://github.com/paulmeier/kasas/commit/a50c0f972bbf2b917d7c76f3f93584557d28dcbd))
+
 ## [2.14.1](https://github.com/paulmeier/kasas/compare/v2.14.0...v2.14.1) (2026-06-07)
 
 
