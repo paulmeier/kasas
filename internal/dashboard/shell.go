@@ -72,6 +72,43 @@ func (c *chrome) loadChrome(ctx app.Context) {
 	c.loadAuth(ctx)
 }
 
+// appUpdateReady records that a newer build's service worker has activated. It is
+// package-level rather than a chrome field so the prompt survives client-side
+// navigation: OnAppUpdate fires once, on whichever view is mounted at activation,
+// but each route mounts a fresh view — per-view state would be lost on the next
+// nav. One running WASM instance per tab makes a package var the right scope, and
+// it naturally resets to false on the reload that applies the update.
+var appUpdateReady bool
+
+// OnAppUpdate is go-app's update hook (the app.AppUpdater interface). It is
+// promoted onto every page view because they all embed chrome, so each mounted
+// route satisfies AppUpdater. go-app fires it once a newer build's service
+// worker has been fetched and activated: the new WASM is cached and ready, but
+// the open tab keeps running the OLD WASM until it is fully closed. Without this
+// hook the dashboard never applies an update (the symptom: "I upgraded the
+// container but the UI is unchanged"). We surface a refresh prompt — reloading
+// swaps in the freshly cached build — rather than reloading automatically, so an
+// open editor or modal is not yanked away mid-edit.
+func (c *chrome) OnAppUpdate(ctx app.Context) {
+	appUpdateReady = ctx.AppUpdateAvailable()
+	ctx.Update()
+}
+
+// Every route view embeds chrome, so OnAppUpdate is promoted onto each. Asserting
+// it here makes removing the hook (or the chrome embed) a compile error rather
+// than a silently stale dashboard.
+var (
+	_ app.AppUpdater = (*transactionsView)(nil)
+	_ app.AppUpdater = (*accountsView)(nil)
+	_ app.AppUpdater = (*searchView)(nil)
+	_ app.AppUpdater = (*labelsView)(nil)
+	_ app.AppUpdater = (*rulesView)(nil)
+	_ app.AppUpdater = (*eventsView)(nil)
+	_ app.AppUpdater = (*webhooksView)(nil)
+	_ app.AppUpdater = (*pluginsView)(nil)
+	_ app.AppUpdater = (*settingsView)(nil)
+)
+
 // loadAuth probes whether a token is required and whether ours is accepted. On a
 // request error it assumes auth is off so the app still loads — the server is the
 // real gate; this only decides whether to show the login screen.
@@ -195,7 +232,10 @@ func (c *chrome) renderShell(active navItem, content ...app.UI) app.UI {
 		return c.renderLogin()
 	}
 
-	column := make([]app.UI, 0, len(content)+1)
+	column := make([]app.UI, 0, len(content)+2)
+	if appUpdateReady {
+		column = append(column, c.renderReloadBanner())
+	}
 	if c.authChecked && !c.authRequired {
 		column = append(column, renderUnsecuredBanner())
 	}
@@ -206,6 +246,19 @@ func (c *chrome) renderShell(active navItem, content ...app.UI) app.UI {
 		app.Main().Class("content").Body(
 			app.Div().Class("page").Body(column...),
 		),
+	)
+}
+
+// renderReloadBanner prompts the user to reload once OnAppUpdate reports a newer
+// build is cached and ready. It is distinct from transactionsView's
+// renderUpdateBanner, which offers to self-update the server *binary*; this is
+// purely about swapping the browser's cached UI for the one already downloaded.
+func (c *chrome) renderReloadBanner() app.UI {
+	return app.Div().Class("reload-banner").Body(
+		app.Span().Class("reload-text").Text("A new version of kasas is ready."),
+		app.Button().Type("button").Class("btn reload-refresh").
+			Text("Refresh").
+			OnClick(func(ctx app.Context, _ app.Event) { ctx.Reload() }),
 	)
 }
 

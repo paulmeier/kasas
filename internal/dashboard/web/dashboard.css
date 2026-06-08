@@ -414,6 +414,30 @@ html, body {
 }
 .btn-update:hover { border-color: transparent; opacity: 0.9; }
 
+/* Service-worker "new build ready, reload" prompt. Green (--pos) to distinguish
+   it from the blue self-update banner: this swaps the cached UI, it does not
+   upgrade the server binary. Shown on every page via renderShell. */
+.reload-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid rgba(63, 185, 80, 0.40);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.reload-banner .reload-text { flex: 1; }
+.reload-refresh {
+  background: var(--pos);
+  color: #0f1115;
+  border: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.reload-refresh:hover { border-color: transparent; opacity: 0.9; }
+
 /* Lives in the sidebar footer (hidden when collapsed). */
 .version-badge {
   color: var(--muted);
