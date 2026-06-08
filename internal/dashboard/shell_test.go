@@ -58,3 +58,28 @@ func TestSidebarCollapsedClass(t *testing.T) {
 		t.Fatalf("collapsed sidebar must carry the collapsed class\nHTML:\n%s", html)
 	}
 }
+
+// TestReloadBannerOnUpdate checks the service-worker refresh prompt: when
+// OnAppUpdate has flagged a newer cached build (appUpdateReady), the shell shows
+// a reload banner with a Refresh action; otherwise it stays hidden. This is the
+// user-visible half of the cache-staleness fix — go-app caches the new build but
+// the open tab keeps the old WASM until the page reloads.
+func TestReloadBannerOnUpdate(t *testing.T) {
+	render := func() string {
+		var buf bytes.Buffer
+		app.PrintHTML(&buf, (&chrome{}).renderShell(navTransactions))
+		return buf.String()
+	}
+
+	appUpdateReady = true
+	t.Cleanup(func() { appUpdateReady = false })
+	on := render()
+	if !strings.Contains(on, "reload-banner") || !strings.Contains(on, "Refresh") {
+		t.Fatalf("update-ready shell must show a reload banner with a Refresh action\nHTML:\n%s", on)
+	}
+
+	appUpdateReady = false
+	if off := render(); strings.Contains(off, "reload-banner") {
+		t.Fatalf("reload banner must not show without a pending update\nHTML:\n%s", off)
+	}
+}

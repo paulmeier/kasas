@@ -89,7 +89,7 @@ func Handler(opts Options) http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write([]byte(version))
 	})
-	mux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.FS(static))))
+	mux.Handle("/web/", http.StripPrefix("/web/", noCache(http.FileServer(http.FS(static)))))
 	mux.Handle("/", goapp)
 	return mux
 }
@@ -134,6 +134,22 @@ func wasmHash(fsys fs.FS) string {
 		return ""
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+// noCache marks a handler's responses no-cache so the browser revalidates them
+// on every load. The dashboard's static assets under /web/ (dashboard.css,
+// logo.png) are listed in go-app's service-worker precache; the worker
+// repopulates that cache with cache.addAll(), which honours the HTTP cache, so
+// without revalidation an intermediary (a reverse proxy or CDN) could feed the
+// new version's cache stale bytes. http.FileServer over the embedded FS sets no
+// cache headers of its own (embed mod-times are zero, so not even a validator),
+// which would otherwise leave these the only precached assets that can go stale
+// across a release. (app.wasm is handled separately, with a content ETag.)
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, r)
+	})
 }
 
 // serveWasm serves the embedded, pre-gzipped WASM. Browsers always accept gzip;

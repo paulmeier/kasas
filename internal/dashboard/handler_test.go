@@ -121,6 +121,27 @@ func TestHandlerServesClientRoutes(t *testing.T) {
 	}
 }
 
+// TestWebStaticAssetsRevalidate guards the precache hole: dashboard.css and
+// logo.png are listed in go-app's service-worker cache, which is repopulated via
+// cache.addAll() (honouring the HTTP cache). Served without no-cache they would
+// be the only precached assets that can survive a release stale (app.wasm and the
+// go-app resources already revalidate), so the static /web/ handler must mark
+// them no-cache too.
+func TestWebStaticAssetsRevalidate(t *testing.T) {
+	h := Handler(Options{Version: "test"})
+	for _, path := range []string{"/web/dashboard.css", "/web/logo.png"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", path, rec.Code)
+		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+			t.Fatalf("GET %s Cache-Control = %q, want %q (precached asset must revalidate across releases)", path, cc, "no-cache")
+		}
+	}
+}
+
 // TestDashboardVersionFallbacks covers the empty base and the not-yet-built wasm.
 func TestDashboardVersionFallbacks(t *testing.T) {
 	// Empty base defaults to "dev" (still hashed when the wasm is present).
