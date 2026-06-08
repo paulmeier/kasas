@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.0](https://github.com/paulmeier/kasas/compare/v2.14.2...v2.15.0) (2026-06-08)
+
+
+### Features
+
+* let rules apply schema extensions, not just labels ([#72](https://github.com/paulmeier/kasas/issues/72)) ([deeb288](https://github.com/paulmeier/kasas/commit/deeb288f68fdae9a15fd6738a9807342451712df))
+
 ## [2.14.2](https://github.com/paulmeier/kasas/compare/v2.14.1...v2.14.2) (2026-06-08)
 
 
