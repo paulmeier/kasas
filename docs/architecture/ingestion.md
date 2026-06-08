@@ -20,7 +20,7 @@ flowchart LR
     subgraph srcs["Sources — talk to one provider, normalize its data"]
         direction TB
         SF[SimpleFIN<br/>Puller]:::live
-        CSV[CSV · file<br/>planned]:::soon
+        CSV[CSV files<br/>local · Google Drive]:::live
         WHK[inbound webhook<br/>planned]:::soon
         ENR[enrichment<br/>planned]:::soon
     end
@@ -35,7 +35,7 @@ flowchart LR
     end
 
     SF --> BATCH
-    CSV -.-> BATCH
+    CSV --> BATCH
     WHK -.-> BATCH
     ENR -.-> BATCH
     BATCH --> eng
@@ -69,7 +69,7 @@ in that archetype is a thin adapter. **O(archetypes), not O(providers).**
 | Archetype | How data arrives | Engine trigger | Examples |
 | --- | --- | --- | --- |
 | **`pull`** | The engine fetches on a schedule. | `gocron` interval + on-demand | SimpleFIN, Teller, on-chain |
-| **`file`** | A file is parsed on upload/arrival. | upload / watched dir | CSV, OFX, QIF exports |
+| **`file`** | Files in a folder are parsed. | scheduled folder scan | **CSV (local + Google Drive)**, OFX, QIF |
 | **`webhook`** | An inbound request pushes data. | HTTP endpoint | Plaid, Stripe |
 | **`manual`** | A human or agent writes directly. | API / MCP call | hand-entered cash |
 | **`enrichment`** | Annotates transactions that already exist. | post-change hook | categorizers, geocoders |
@@ -92,13 +92,21 @@ type Credentialed interface { // optional: a runtime-settable credential
     CredentialConfigured(ctx context.Context) (bool, error)
     SetCredential(ctx context.Context, input string) error
 }
+
+type OAuthCredentialed interface { // optional: a browser OAuth 2.0 connect flow
+    OAuthConfigured() bool
+    AuthCodeURL(state string) string
+    ExchangeCode(ctx context.Context, code string) error
+}
 ```
 
-`Puller` and `Credentialed` exist today; `pull` is the only archetype with a
-shipping implementation. The `file`, `webhook`, `manual`, and `enrichment`
-archetypes are reserved in the taxonomy — their capability interfaces land here as
-each is built, and because every capability is independent, adding one never
-disturbs existing sources.
+`Puller`, `Credentialed`, and `OAuthCredentialed` exist today, and **two
+archetypes ship**: `pull` (SimpleFIN) and `file` (CSV import). The `file` source
+reuses the `pull` trigger — scanning its configured folders on the sync schedule —
+rather than needing a separate file-upload interface, so adding it required **no
+engine change**. The `webhook` and `enrichment` archetypes remain reserved in the
+taxonomy; their capability interfaces land here as each is built, and because every
+capability is independent, adding one never disturbs existing sources.
 
 ## The `ImportBatch`
 
@@ -187,13 +195,18 @@ To be precise about the line between *designed* and *shipping*:
 - ✅ **The contract and the engine are source-agnostic.** The SDK, the registry,
   the `ImportBatch`, and the generic persist/dedup/events/rules/history pipeline
   are all in place.
-- ✅ **SimpleFIN flows through the seam** as the one built-in source and the
+- ✅ **SimpleFIN flows through the seam** as a built-in `pull` source and the
   reference `Puller`. Provenance is already stamped per row.
-- 🚧 **More archetypes** (`file`, `webhook`, `manual`, `enrichment`) are reserved
-  in the taxonomy; their capability interfaces land as they're built.
-- 🚧 **Surfacing sources** — exposing descriptors across REST/MCP/dashboard,
-  namespacing transaction ids by source, and per-source credential scoping — is
-  the next layer.
+- ✅ **CSV file import** is the second built-in source — a `file` source with
+  **local-folder and Google Drive** backends, running alongside SimpleFIN. See
+  [CSV File Import](../features/csv-import.md).
+- ✅ **Sources are surfaced** across REST (`/api/v1/sources`), MCP (`list_sources`,
+  `sync_source`), and the dashboard **Sources** page — each with its descriptor,
+  connection status, per-source sync, and credential/OAuth management.
+- 🚧 **More archetypes** (`webhook`, `enrichment`) remain reserved in the taxonomy;
+  their capability interfaces land as they're built. CSV ids are namespaced
+  (`csv:…`); full source-wide id namespacing and per-source credential scoping are
+  still to come.
 - 🚧 **Plugin-provided sources** ride the *same* contract in the future: a
   [plugin](../features/plugins.md) becomes a *producer* that returns an
   `ImportBatch`, never a direct writer.
@@ -208,6 +221,8 @@ build/test commands — is in
 
 ## Where to go next
 
+- [CSV File Import](../features/csv-import.md) — the second built-in source, with
+  local-folder and Google Drive backends.
 - [Sync Pipeline](../features/sync.md) — the `pull` engine, one run at a time.
 - [Transaction Provenance](../features/transaction-provenance.md) — what the
   `source` stamp powers.

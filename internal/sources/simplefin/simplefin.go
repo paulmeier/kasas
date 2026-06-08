@@ -140,14 +140,19 @@ func toImportBatch(set *AccountSet) *source.ImportBatch {
 	return batch
 }
 
-// CredentialConfigured implements source.Credentialed: it reports whether an
-// access URL is currently stored (i.e. a sync can run).
+// CredentialConfigured implements source.Credentialed: it reports whether a
+// credential is available so a sync can run — either an access URL already stored,
+// or one supplied via config (an access URL or a setup token) that Fetch will
+// resolve and persist on first use.
 func (s *Source) CredentialConfigured(ctx context.Context) (bool, error) {
 	stored, err := s.secrets.AccessURL(ctx)
 	if err != nil {
 		return false, fmt.Errorf("read stored access URL: %w", err)
 	}
-	return stored != "", nil
+	if stored != "" {
+		return true, nil
+	}
+	return s.configURL != "" || s.setupToken != "", nil
 }
 
 // SetCredential implements source.Credentialed: it stores a SimpleFIN credential

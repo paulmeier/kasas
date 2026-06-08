@@ -154,6 +154,17 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// A source with a runtime credential that isn't configured yet is skipped (a
+	// clean no-op, not a logged failure): in a multi-source setup the other sources
+	// still sync, and a credential can be added at runtime without a restart.
+	if p.cred != nil {
+		configured, cerr := p.cred.CredentialConfigured(ctx)
+		if cerr == nil && !configured {
+			p.logger.Debug("skipping sync: source not connected", "source", p.source.Descriptor().Type)
+			return SyncResult{}, nil
+		}
+	}
+
 	start := time.Now()
 	entry, logErr := p.store.CreateSyncLog(ctx, db.CreateSyncLogParams{
 		StartedAt: start.Unix(),

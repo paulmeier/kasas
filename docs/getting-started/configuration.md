@@ -52,13 +52,32 @@ and [Deployment → Postgres](deployment.md#postgres).
 
 Credentials for the built-in **[SimpleFIN](../architecture/ingestion.md) source**
 — the first source kasas ships with. Provide **one** of these on first run (or set
-the credential later from the dashboard / API — no restart needed). A future source
-would carry its own config section. See the [sync pipeline](../features/sync.md).
+the credential later from the dashboard / API — no restart needed). Each source
+carries its own config section. See the [sync pipeline](../features/sync.md).
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `setup_token` | — | One-time base64 setup token; claimed for an access URL on first sync, then consumed. |
 | `access_url` | — | A previously claimed access URL with embedded credentials. |
+
+## `[csv]`
+
+The **[CSV file-import](../features/csv-import.md) source**: import transactions
+from CSV files in local folders or Google Drive. Configure one `[[csv.folders]]`
+entry per account; the source is started only when at least one folder is set. The
+Google Drive keys are needed only for `gdrive` folders. Full details — column
+mapping and the Google OAuth setup — are on the
+[CSV File Import](../features/csv-import.md) page.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `gdrive_client_id` | — | OAuth client id for the Google Drive backend (also `KASAS_CSV_GDRIVE_CLIENT_ID`). |
+| `gdrive_client_secret` | — | OAuth client secret (also `KASAS_CSV_GDRIVE_CLIENT_SECRET`). |
+| `gdrive_redirect_url` | — | The registered OAuth callback, `https://<host>/api/v1/sources/csv/oauth/callback`. |
+
+Each `[[csv.folders]]` entry: `name`, `backend` (`local` \| `gdrive`), `path`
+(local) or `folder_id` (Drive), `account`, optional `org`/`currency`, and an
+optional `[csv.folders.mapping]` (column mapping; omitted columns are auto-detected).
 
 ## `[sync]`
 

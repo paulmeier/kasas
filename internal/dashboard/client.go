@@ -1144,6 +1144,97 @@ func (c *apiClient) revokeToken(ctx context.Context) error {
 	return nil
 }
 
+// sourceStatus mirrors poller.SourceStatus: one ingestion source with its
+// readiness and credential shape, for the Sources page.
+type sourceStatus struct {
+	Type         string            `json:"type"`
+	Archetype    string            `json:"archetype"`
+	Title        string            `json:"title"`
+	Connected    bool              `json:"connected"`
+	Credentialed bool              `json:"credentialed"`
+	OAuth        bool              `json:"oauth"`
+	Credentials  []credentialField `json:"credentials"`
+}
+
+// credentialField mirrors source.CredentialField: one secret a source needs.
+type credentialField struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	Help  string `json:"help"`
+}
+
+// listSources fetches the configured ingestion sources and whether source
+// management is enabled (false leaves the list empty without being an error).
+func (c *apiClient) listSources(ctx context.Context) ([]sourceStatus, bool, error) {
+	var out struct {
+		Enabled bool           `json:"enabled"`
+		Sources []sourceStatus `json:"sources"`
+	}
+	if err := c.get(ctx, "/api/v1/sources", nil, &out); err != nil {
+		return nil, false, err
+	}
+	return out.Sources, out.Enabled, nil
+}
+
+// syncSource triggers a sync of a single source by type. The server runs it
+// asynchronously (202); progress is observable via latestSync.
+func (c *apiClient) syncSource(ctx context.Context, typ string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/sources/"+url.PathEscape(typ)+"/sync", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "sync source")
+	}
+	return nil
+}
+
+// setSourceCredential stores a pasted credential for a source and returns the
+// resulting connection state.
+func (c *apiClient) setSourceCredential(ctx context.Context, typ, token string) (bool, error) {
+	body, err := json.Marshal(map[string]string{"token": token})
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.base+"/api/v1/sources/"+url.PathEscape(typ)+"/credential", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false, decodeAPIError(resp, "set credential")
+	}
+	var out struct {
+		Connected bool `json:"connected"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, err
+	}
+	return out.Connected, nil
+}
+
+// sourceOAuthStartURL begins a source's browser OAuth flow, returning the consent
+// URL the dashboard navigates the browser to.
+func (c *apiClient) sourceOAuthStartURL(ctx context.Context, typ string) (string, error) {
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := c.get(ctx, "/api/v1/sources/"+url.PathEscape(typ)+"/oauth/start", nil, &out); err != nil {
+		return "", err
+	}
+	return out.URL, nil
+}
+
 // latestSync fetches the most recent sync run, or nil when no sync has run yet.
 func (c *apiClient) latestSync(ctx context.Context) (*syncRun, error) {
 	var out struct {

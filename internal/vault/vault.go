@@ -24,6 +24,14 @@ type SecretStore interface {
 	DashboardToken(ctx context.Context) (string, error)
 	// SetDashboardToken persists the dashboard token; "" clears it.
 	SetDashboardToken(ctx context.Context, token string) error
+	// SecretValue returns an arbitrary stored secret by key, or "" if unset. It lets
+	// sources beyond SimpleFIN persist their own credentials (e.g. a Google Drive
+	// refresh token) in the shared store; per-source credential scoping is a planned
+	// follow-up.
+	SecretValue(ctx context.Context, key string) (string, error)
+	// SetSecretValue persists an arbitrary secret by key; "" clears it. Writes are
+	// read-modify-write so sibling secrets are preserved.
+	SetSecretValue(ctx context.Context, key, value string) error
 }
 
 // dashboardTokenKey is the key under which the dashboard token is stored, both in
@@ -98,6 +106,14 @@ func (s *vaultStore) DashboardToken(ctx context.Context) (string, error) {
 
 func (s *vaultStore) SetDashboardToken(ctx context.Context, token string) error {
 	return s.putMerged(ctx, s.tokenKey, token)
+}
+
+func (s *vaultStore) SecretValue(ctx context.Context, key string) (string, error) {
+	return s.get(ctx, key)
+}
+
+func (s *vaultStore) SetSecretValue(ctx context.Context, key, value string) error {
+	return s.putMerged(ctx, key, value)
 }
 
 // get reads a single string value from the kasas secret, returning "" when the

@@ -192,8 +192,8 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connected := false
-	if s.connector != nil {
-		if ok, err := s.connector.CredentialConfigured(r.Context()); err != nil {
+	if s.sources != nil {
+		if ok, err := s.sources.CredentialConfigured(r.Context(), "simplefin"); err != nil {
 			s.logger.Error("config: read credential status", "error", err)
 		} else {
 			connected = ok
@@ -219,7 +219,7 @@ type setCredentialRequest struct {
 // it (no restart). A failure (e.g. an invalid/expired setup token, or the bridge
 // rejecting the claim) is surfaced to the caller so the UI can show why.
 func (s *Server) handleSetSimpleFINCredential(w http.ResponseWriter, r *http.Request) {
-	if s.connector == nil {
+	if s.sources == nil {
 		s.writeError(w, http.StatusServiceUnavailable, "credential management is not available")
 		return
 	}
@@ -235,7 +235,7 @@ func (s *Server) handleSetSimpleFINCredential(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := s.connector.SetCredential(r.Context(), req.Token); err != nil {
+	if err := s.sources.SetCredential(r.Context(), "simplefin", req.Token); err != nil {
 		s.logger.Warn("set simplefin credential failed", "error", err)
 		s.writeError(w, http.StatusBadRequest, "could not set SimpleFIN credential: "+err.Error())
 		return

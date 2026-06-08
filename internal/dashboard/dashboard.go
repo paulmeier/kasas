@@ -52,6 +52,7 @@ func Routes() {
 	app.Route("/events", func() app.Composer { return &eventsView{} })
 	app.Route("/webhooks", func() app.Composer { return &webhooksView{} })
 	app.Route("/plugins", func() app.Composer { return &pluginsView{} })
+	app.Route("/sources", func() app.Composer { return &sourcesView{} })
 	app.Route("/settings", func() app.Composer { return &settingsView{} })
 }
 

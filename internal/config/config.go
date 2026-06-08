@@ -18,6 +18,7 @@ type Config struct {
 	Log       Log
 	Database  Database
 	SimpleFIN SimpleFIN
+	CSV       CSV
 	Sync      Sync
 	Vault     Vault
 	Secrets   Secrets
@@ -55,6 +56,48 @@ type Database struct {
 type SimpleFIN struct {
 	SetupToken string
 	AccessURL  string
+}
+
+// CSV configures the CSV file-import source: a set of folder profiles (each one
+// account) plus the Google Drive OAuth app credentials shared by all Drive
+// folders. When no folders are configured the source is not started. Folders are
+// loaded from the config file (an array of tables); the Drive credentials may also
+// come from the environment (KASAS_CSV_GDRIVE_CLIENT_ID, ...).
+type CSV struct {
+	Folders            []CSVFolder `mapstructure:"folders" json:"folders"`
+	GDriveClientID     string      `mapstructure:"gdrive_client_id" json:"gdrive_client_id"`
+	GDriveClientSecret string      `mapstructure:"gdrive_client_secret" json:"gdrive_client_secret"`
+	GDriveRedirectURL  string      `mapstructure:"gdrive_redirect_url" json:"gdrive_redirect_url"`
+}
+
+// CSVFolder is one import profile: a backend location (a local directory or a
+// Google Drive folder) plus how to map its columns. Each folder maps to one
+// account. The mapstructure tags load it from TOML; the json tags carry it to the
+// source through the registry env.
+type CSVFolder struct {
+	Name     string     `mapstructure:"name" json:"name"`
+	Backend  string     `mapstructure:"backend" json:"backend"`
+	Path     string     `mapstructure:"path" json:"path"`
+	FolderID string     `mapstructure:"folder_id" json:"folder_id"`
+	Account  string     `mapstructure:"account" json:"account"`
+	Org      string     `mapstructure:"org" json:"org"`
+	Currency string     `mapstructure:"currency" json:"currency"`
+	Mapping  CSVMapping `mapstructure:"mapping" json:"mapping"`
+}
+
+// CSVMapping declares how a folder's CSV columns map to transaction fields. Every
+// field is optional; omitted columns are auto-detected from common header names.
+type CSVMapping struct {
+	HasHeader         *bool  `mapstructure:"has_header" json:"has_header,omitempty"`
+	Delimiter         string `mapstructure:"delimiter" json:"delimiter,omitempty"`
+	DateColumn        string `mapstructure:"date_column" json:"date_column,omitempty"`
+	DateFormat        string `mapstructure:"date_format" json:"date_format,omitempty"`
+	AmountColumn      string `mapstructure:"amount_column" json:"amount_column,omitempty"`
+	DebitColumn       string `mapstructure:"debit_column" json:"debit_column,omitempty"`
+	CreditColumn      string `mapstructure:"credit_column" json:"credit_column,omitempty"`
+	DescriptionColumn string `mapstructure:"description_column" json:"description_column,omitempty"`
+	PayeeColumn       string `mapstructure:"payee_column" json:"payee_column,omitempty"`
+	MemoColumn        string `mapstructure:"memo_column" json:"memo_column,omitempty"`
 }
 
 // Sync controls the background polling schedule.
@@ -166,6 +209,9 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("database.dsn", "")
 	v.SetDefault("simplefin.setup_token", "")
 	v.SetDefault("simplefin.access_url", "")
+	v.SetDefault("csv.gdrive_client_id", "")
+	v.SetDefault("csv.gdrive_client_secret", "")
+	v.SetDefault("csv.gdrive_redirect_url", "")
 	v.SetDefault("sync.enabled", true)
 	v.SetDefault("sync.interval", "6h")
 	v.SetDefault("sync.lookback_days", 90)
@@ -232,6 +278,11 @@ func Load(path string) (*Config, error) {
 			SetupToken: v.GetString("simplefin.setup_token"),
 			AccessURL:  v.GetString("simplefin.access_url"),
 		},
+		CSV: CSV{
+			GDriveClientID:     v.GetString("csv.gdrive_client_id"),
+			GDriveClientSecret: v.GetString("csv.gdrive_client_secret"),
+			GDriveRedirectURL:  v.GetString("csv.gdrive_redirect_url"),
+		},
 		Sync: Sync{
 			Enabled:      v.GetBool("sync.enabled"),
 			Interval:     interval,
@@ -273,6 +324,12 @@ func Load(path string) (*Config, error) {
 			HookTimeout: pluginHookTimeout,
 			QueueSize:   v.GetInt("plugins.queue_size"),
 		},
+	}
+
+	// CSV folder profiles are an array of tables, loaded structurally rather than
+	// key-by-key. Drive credentials above may also come from the environment.
+	if err := v.UnmarshalKey("csv.folders", &cfg.CSV.Folders); err != nil {
+		return nil, fmt.Errorf("invalid csv.folders config: %w", err)
 	}
 
 	if err := cfg.validate(); err != nil {
