@@ -39,10 +39,21 @@ func TestPluginsErrorState(t *testing.T) {
 }
 
 func TestPluginsEmptyState(t *testing.T) {
-	v := &pluginsView{} // no plugins, not loading
+	v := &pluginsView{enabled: true} // enabled, no plugins, not loading
 	var buf bytes.Buffer
 	app.PrintHTML(&buf, v.renderList())
 	if html := buf.String(); !strings.Contains(html, "No plugins installed") {
 		t.Fatalf("expected the empty state, got:\n%s", html)
+	}
+}
+
+// TestPluginsDisabledState checks that when the plugin system is disabled the page
+// says so (rather than showing an error or the "no plugins installed" hint).
+func TestPluginsDisabledState(t *testing.T) {
+	v := &pluginsView{} // enabled defaults to false: system disabled
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderList())
+	if html := buf.String(); !strings.Contains(html, "plugin system is disabled") {
+		t.Fatalf("expected the disabled state, got:\n%s", html)
 	}
 }

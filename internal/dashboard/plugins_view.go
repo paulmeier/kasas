@@ -18,6 +18,7 @@ type pluginsView struct {
 	chrome // shared sidebar + API client + version badge
 
 	plugins []plugin
+	enabled bool // whether the plugin system is enabled (server-reported)
 	loading bool
 	errMsg  string
 	busyID  int64 // plugin with an action in flight (disables its controls)
@@ -31,7 +32,7 @@ func (v *pluginsView) OnMount(ctx app.Context) {
 func (v *pluginsView) fetchPlugins(ctx app.Context) {
 	v.loading = true
 	ctx.Async(func() {
-		ps, err := v.client.listPlugins(context.Background())
+		ps, enabled, err := v.client.listPlugins(context.Background())
 		ctx.Dispatch(func(ctx app.Context) {
 			v.loading = false
 			if err != nil {
@@ -41,6 +42,7 @@ func (v *pluginsView) fetchPlugins(ctx app.Context) {
 			}
 			v.errMsg = ""
 			v.plugins = ps
+			v.enabled = enabled
 			ctx.Update()
 		})
 	})
@@ -153,13 +155,30 @@ func (v *pluginsView) renderList() app.UI {
 	if v.loading && len(v.plugins) == 0 {
 		return app.Div().Class("status").Text("Loading…")
 	}
-	if len(v.plugins) == 0 {
+	if len(v.plugins) > 0 {
+		return v.renderTable()
+	}
+	// No plugins to show: a fetch error is already in the banner above (don't render
+	// a misleading empty state under it); otherwise distinguish a disabled system
+	// from an enabled-but-empty one.
+	if v.errMsg != "" {
+		return app.Text("")
+	}
+	if !v.enabled {
 		return app.Div().Class("empty-state").Body(
-			app.P().Class("empty-title").Text("No plugins installed."),
+			app.P().Class("empty-title").Text("The plugin system is disabled."),
 			app.P().Class("empty-hint").Text(
-				"Drop a plugin directory (a plugin.toml plus its source) into the plugins folder, then click Refresh. Enable a plugin to start running its hooks."),
+				"Set plugins.enabled = true (and events.enabled = true, which plugins consume) in your kasas config, then restart to load and run plugins."),
 		)
 	}
+	return app.Div().Class("empty-state").Body(
+		app.P().Class("empty-title").Text("No plugins installed."),
+		app.P().Class("empty-hint").Text(
+			"Drop a plugin directory (a plugin.toml plus its source) into the plugins folder, then click Refresh. Enable a plugin to start running its hooks."),
+	)
+}
+
+func (v *pluginsView) renderTable() app.UI {
 	return app.Table().Class("txns rules-table").Body(
 		app.THead().Body(
 			app.Tr().Body(

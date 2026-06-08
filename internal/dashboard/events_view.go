@@ -32,6 +32,9 @@ type eventsView struct {
 	loading bool
 	errMsg  string
 
+	detailOpen  bool  // the per-event detail modal is showing
+	detailEvent event // the event whose payload the modal shows (a snapshot)
+
 	stop    chan struct{} // closed on dismount to end the poll loop
 	stopped bool
 }
@@ -117,6 +120,7 @@ func (v *eventsView) Render() app.UI {
 		),
 		v.renderError(),
 		v.renderBody(),
+		v.renderDetailModal(),
 	)
 }
 
@@ -164,11 +168,61 @@ func (v *eventsView) renderEventRow(e event) app.UI {
 		app.Td().Body(app.Span().Class("badge evt-type "+eventTypeClass(e.Type)).Text(e.Type)),
 		app.Td().Class("evt-entity").Text(entity),
 		app.Td().Class("evt-data").Body(
-			app.Details().Body(
-				app.Summary().Text("view"),
-				app.Pre().Class("evt-json").Text(prettyJSON(e.Data)),
-			),
+			app.Button().Type("button").Class("evt-view-btn").Text("view").
+				OnClick(func(ctx app.Context, _ app.Event) { v.openDetail(ctx, e) }),
 		),
+	)
+}
+
+// openDetail shows the detail modal for a single event. The event is copied so the
+// modal keeps a stable snapshot even as the live feed polls in new rows behind it.
+func (v *eventsView) openDetail(ctx app.Context, e event) {
+	v.detailOpen = true
+	v.detailEvent = e
+	ctx.Update()
+}
+
+func (v *eventsView) closeDetail(ctx app.Context) {
+	v.detailOpen = false
+	ctx.Update()
+}
+
+// renderDetailModal renders the overlay + modal for the selected event, or nothing
+// when closed. It reuses the shared modal chrome (same classes as the history
+// modal): the backdrop closes it; clicks inside are stopped so they don't bubble.
+func (v *eventsView) renderDetailModal() app.UI {
+	if !v.detailOpen {
+		return app.Text("")
+	}
+	e := v.detailEvent
+	onClose := func(ctx app.Context, _ app.Event) { v.closeDetail(ctx) }
+	entity := e.EntityType
+	if e.EntityID != "" {
+		entity += " " + e.EntityID
+	}
+	if entity == "" {
+		entity = "—"
+	}
+	return app.Div().Class("modal-overlay").OnClick(onClose).Body(
+		app.Div().Class("modal event-modal").
+			OnClick(func(_ app.Context, me app.Event) { me.Call("stopPropagation") }).
+			Body(
+				app.Div().Class("modal-header").Body(
+					app.H2().Class("modal-title").Text("Event #"+strconv.FormatInt(e.Sequence, 10)),
+					app.Button().Type("button").Class("modal-close").Title("Close").Text("×").OnClick(onClose),
+				),
+				app.Div().Class("modal-body").Body(
+					app.Div().Class("event-meta").Body(
+						app.Span().Class("event-meta-label").Text("Type"),
+						app.Span().Body(app.Span().Class("badge evt-type "+eventTypeClass(e.Type)).Text(e.Type)),
+						app.Span().Class("event-meta-label").Text("Time"),
+						app.Span().Text(e.OccurredAt.Local().Format("2006-01-02 15:04:05")),
+						app.Span().Class("event-meta-label").Text("Entity"),
+						app.Span().Text(entity),
+					),
+					app.Pre().Class("evt-json").Text(prettyJSON(e.Data)),
+				),
+			),
 	)
 }
 

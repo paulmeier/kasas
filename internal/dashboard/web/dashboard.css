@@ -861,12 +861,16 @@ html, body {
 .badge.evt-type.evt-label { color: #d29922; border-color: rgba(210, 153, 34, 0.35); }
 .badge.evt-type.evt-rule  { color: #bc8cff; border-color: rgba(188, 140, 255, 0.35); }
 .badge.evt-type.evt-sync  { color: var(--muted); }
-.evt-data details > summary {
-  cursor: pointer;
-  color: var(--accent);
+.evt-view-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
   font-size: 12px;
-  user-select: none;
+  color: var(--accent);
+  cursor: pointer;
 }
+.evt-view-btn:hover { text-decoration: underline; }
 .evt-json {
   margin: 8px 0 2px;
   padding: 10px 12px;
@@ -879,6 +883,25 @@ html, body {
   word-break: break-word;
   max-width: 520px;
   overflow-x: auto;
+}
+
+/* Event detail modal: the payload fills the modal width (overriding the table's
+   narrow cap), with a small label/value grid of the event's metadata above it. */
+.modal.event-modal { max-width: 680px; }
+.modal.event-modal .evt-json { max-width: none; margin: 0; }
+.event-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  align-items: baseline;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.event-meta-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
 }
 
 /* --- Transaction history (per-row clock + modal timeline) --- */

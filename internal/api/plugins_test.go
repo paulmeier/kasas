@@ -55,9 +55,11 @@ func TestPluginsListAndLifecycle(t *testing.T) {
 
 	// Listing registers the on-disk plugin (disabled).
 	var list struct {
+		Enabled bool            `json:"enabled"`
 		Plugins []api.PluginDTO `json:"plugins"`
 	}
 	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/plugins", &list))
+	assert.True(t, list.Enabled)
 	require.Len(t, list.Plugins, 1)
 	demo := list.Plugins[0]
 	assert.Equal(t, "demo", demo.Name)
@@ -101,4 +103,29 @@ func TestPluginGetNotFound(t *testing.T) {
 func TestPluginEnableNonexistent(t *testing.T) {
 	srv := newPluginTestServer(t)
 	require.Equal(t, http.StatusNotFound, postJSON(t, srv, "/api/v1/plugins/9999/enable", nil, nil))
+}
+
+// TestPluginsListWhenDisabled checks that with no plugin manager wired (the plugin
+// system disabled — the default), the list endpoint still responds 200 with an
+// empty, disabled list rather than a routing 404, so the dashboard can show a clean
+// "disabled" state.
+func TestPluginsListWhenDisabled(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	testutil.Seed(t, store)
+	s := api.New(api.Options{
+		Store:   store,
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Version: "test",
+		// No PluginManager: the plugin system is disabled.
+	})
+	srv := httptest.NewServer(s.Router())
+	t.Cleanup(srv.Close)
+
+	var list struct {
+		Enabled bool            `json:"enabled"`
+		Plugins []api.PluginDTO `json:"plugins"`
+	}
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/plugins", &list))
+	assert.False(t, list.Enabled)
+	assert.Empty(t, list.Plugins)
 }
