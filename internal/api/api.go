@@ -189,11 +189,12 @@ func (s *Server) Router() http.Handler {
 				r.Get("/rules/{id}", s.handleGetRule)
 
 				// Plugin metadata/health is a read; enabling/reloading (which executes
-				// code) is admin-only, registered in the admin tier below.
-				if s.pluginMgr != nil {
-					r.Get("/plugins", s.handleListPlugins)
-					r.Get("/plugins/{id}", s.handleGetPlugin)
-				}
+				// code) is admin-only, registered in the admin tier below. These reads
+				// are registered even when the plugin system is disabled (pluginMgr is
+				// nil) so the dashboard's Plugins page gets a clean "disabled" response
+				// instead of a routing 404.
+				r.Get("/plugins", s.handleListPlugins)
+				r.Get("/plugins/{id}", s.handleGetPlugin)
 
 				// Canonical event stream (poll/cursor). The live SSE tail is the
 				// separate /events/stream route above; chi prefers the static

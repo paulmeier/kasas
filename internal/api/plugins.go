@@ -111,16 +111,19 @@ func (s *Server) writePluginMutationError(w http.ResponseWriter, op string, err 
 // --- REST handlers ---
 
 func (s *Server) handleListPlugins(w http.ResponseWriter, r *http.Request) {
+	// A nil manager (plugin system disabled) is a no-op that returns ErrDisabled;
+	// report it as an empty, disabled list rather than an error so the dashboard's
+	// always-present Plugins page can show a clean "disabled" state.
 	statuses, err := s.pluginMgr.List(r.Context())
 	if errors.Is(err, plugins.ErrDisabled) {
-		s.writeError(w, http.StatusServiceUnavailable, "plugin system is disabled")
+		s.writeJSON(w, http.StatusOK, listPluginsOutput{Enabled: false, Plugins: []PluginDTO{}})
 		return
 	}
 	if err != nil {
 		s.serverError(w, "list plugins", err)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"plugins": toPluginDTOs(statuses)})
+	s.writeJSON(w, http.StatusOK, listPluginsOutput{Enabled: true, Plugins: toPluginDTOs(statuses)})
 }
 
 func (s *Server) handleGetPlugin(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +187,7 @@ func (s *Server) handleReloadPlugin(w http.ResponseWriter, r *http.Request) {
 // --- MCP tool input/output types + handlers (registered in mcp.go) ---
 
 type listPluginsOutput struct {
+	Enabled bool        `json:"enabled"` // false when the plugin system is disabled
 	Plugins []PluginDTO `json:"plugins"`
 }
 
@@ -193,10 +197,13 @@ type pluginIDInput struct {
 
 func (s *Server) mcpListPlugins(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listPluginsOutput, error) {
 	statuses, err := s.pluginMgr.List(ctx)
+	if errors.Is(err, plugins.ErrDisabled) {
+		return &mcp.CallToolResult{}, listPluginsOutput{Enabled: false, Plugins: []PluginDTO{}}, nil
+	}
 	if err != nil {
 		return nil, listPluginsOutput{}, err
 	}
-	return &mcp.CallToolResult{}, listPluginsOutput{Plugins: toPluginDTOs(statuses)}, nil
+	return &mcp.CallToolResult{}, listPluginsOutput{Enabled: true, Plugins: toPluginDTOs(statuses)}, nil
 }
 
 func (s *Server) mcpGetPlugin(ctx context.Context, _ *mcp.CallToolRequest, in pluginIDInput) (*mcp.CallToolResult, PluginDTO, error) {

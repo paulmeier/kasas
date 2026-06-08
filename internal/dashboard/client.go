@@ -754,14 +754,18 @@ func (c *apiClient) getWebhook(ctx context.Context, id int64) (webhook, error) {
 	return out, nil
 }
 
-func (c *apiClient) listPlugins(ctx context.Context) ([]plugin, error) {
+// listPlugins returns the installed plugins and whether the plugin system is
+// enabled. When disabled the list is empty and enabled is false (the endpoint
+// still responds 200 so the page can distinguish disabled from a real error).
+func (c *apiClient) listPlugins(ctx context.Context) ([]plugin, bool, error) {
 	var out struct {
+		Enabled bool     `json:"enabled"`
 		Plugins []plugin `json:"plugins"`
 	}
 	if err := c.get(ctx, "/api/v1/plugins", nil, &out); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return out.Plugins, nil
+	return out.Plugins, out.Enabled, nil
 }
 
 func (c *apiClient) enablePlugin(ctx context.Context, id int64) (plugin, error) {
