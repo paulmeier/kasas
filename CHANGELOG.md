@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.0](https://github.com/paulmeier/kasas/compare/v2.15.1...v2.16.0) (2026-06-08)
+
+
+### Features
+
+* add CSV file import source (local folder + Google Drive) ([#76](https://github.com/paulmeier/kasas/issues/76)) ([9092d0c](https://github.com/paulmeier/kasas/commit/9092d0c3615c6e4e21dbba34abcdf137b70a6196))
+
 ## [2.15.1](https://github.com/paulmeier/kasas/compare/v2.15.0...v2.15.1) (2026-06-08)
 
 
