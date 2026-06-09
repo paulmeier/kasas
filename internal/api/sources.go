@@ -88,6 +88,28 @@ func (s *Server) handleSetSourceCredential(w http.ResponseWriter, r *http.Reques
 	s.writeJSON(w, http.StatusOK, map[string]any{"connected": connected})
 }
 
+// handleRemoveSourceCredential removes one credential (by id) from a
+// multi-credential source — e.g. disconnecting a single Teller bank enrollment —
+// and reports the resulting connection state.
+func (s *Server) handleRemoveSourceCredential(w http.ResponseWriter, r *http.Request) {
+	if s.sources == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "source management is not available")
+		return
+	}
+	typ := chi.URLParam(r, "type")
+	id := chi.URLParam(r, "id")
+	if err := s.sources.RemoveSourceCredential(r.Context(), typ, id); err != nil {
+		s.logger.Warn("remove source credential failed", "source", typ, "id", id, "error", err)
+		s.writeError(w, http.StatusBadRequest, "could not remove credential: "+err.Error())
+		return
+	}
+	connected, err := s.sources.CredentialConfigured(r.Context(), typ)
+	if err != nil {
+		s.logger.Warn("read source credential status", "source", typ, "error", err)
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"connected": connected})
+}
+
 // handleSourceOAuthStart begins a source's browser OAuth flow: it mints an
 // anti-CSRF state, builds the provider consent URL, and returns it as JSON so the
 // dashboard can navigate the browser there (a full-page navigation cannot carry

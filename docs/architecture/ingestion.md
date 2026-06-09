@@ -3,8 +3,10 @@
 kasas is a **source-agnostic ledger**. Data arrives through a *source* — a small
 adapter that knows how to talk to one provider and shape its data into a neutral
 batch — and a generic *ingestion engine* persists it. [SimpleFIN](https://www.simplefin.org/)
-is the **first** source, and today the only built-in one, but it is not special:
-it plugs into the engine through the same contract any future source will.
+is the **first** source and the reference one, but it is not special — it plugs
+into the engine through the same contract every other source does.
+[CSV import](../features/csv-import.md) and [Teller](../features/teller.md) ship
+alongside it today, and more sources are a thin adapter each.
 
 Source: [`internal/source`](https://github.com/paulmeier/kasas/tree/main/internal/source)
 (the SDK) · [`internal/sources/simplefin`](https://github.com/paulmeier/kasas/tree/main/internal/sources/simplefin)
@@ -20,6 +22,7 @@ flowchart LR
     subgraph srcs["Sources — talk to one provider, normalize its data"]
         direction TB
         SF[SimpleFIN<br/>Puller]:::live
+        TL[Teller<br/>Puller]:::live
         CSV[CSV files<br/>local · Google Drive]:::live
         WHK[inbound webhook<br/>planned]:::soon
         ENR[enrichment<br/>planned]:::soon
@@ -35,6 +38,7 @@ flowchart LR
     end
 
     SF --> BATCH
+    TL --> BATCH
     CSV --> BATCH
     WHK -.-> BATCH
     ENR -.-> BATCH
@@ -197,16 +201,19 @@ To be precise about the line between *designed* and *shipping*:
   are all in place.
 - ✅ **SimpleFIN flows through the seam** as a built-in `pull` source and the
   reference `Puller`. Provenance is already stamped per row.
-- ✅ **CSV file import** is the second built-in source — a `file` source with
-  **local-folder and Google Drive** backends, running alongside SimpleFIN. See
+- ✅ **CSV file import** is a built-in `file` source with **local-folder and Google
+  Drive** backends, running alongside SimpleFIN. See
   [CSV File Import](../features/csv-import.md).
+- ✅ **Teller** is a second built-in `pull` source (token + mutual-TLS), proving the
+  archetype generalizes beyond SimpleFIN with just an adapter. See
+  [Teller](../features/teller.md).
 - ✅ **Sources are surfaced** across REST (`/api/v1/sources`), MCP (`list_sources`,
   `sync_source`), and the dashboard **Sources** page — each with its descriptor,
   connection status, per-source sync, and credential/OAuth management.
 - 🚧 **More archetypes** (`webhook`, `enrichment`) remain reserved in the taxonomy;
-  their capability interfaces land as they're built. CSV ids are namespaced
-  (`csv:…`); full source-wide id namespacing and per-source credential scoping are
-  still to come.
+  their capability interfaces land as they're built. CSV and Teller ids are
+  namespaced (`csv:…`, `teller:…`); folding that into uniform source-wide id
+  namespacing and per-source credential scoping is still to come.
 - 🚧 **Plugin-provided sources** ride the *same* contract in the future: a
   [plugin](../features/plugins.md) becomes a *producer* that returns an
   `ImportBatch`, never a direct writer.

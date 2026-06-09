@@ -1147,13 +1147,15 @@ func (c *apiClient) revokeToken(ctx context.Context) error {
 // sourceStatus mirrors poller.SourceStatus: one ingestion source with its
 // readiness and credential shape, for the Sources page.
 type sourceStatus struct {
-	Type         string            `json:"type"`
-	Archetype    string            `json:"archetype"`
-	Title        string            `json:"title"`
-	Connected    bool              `json:"connected"`
-	Credentialed bool              `json:"credentialed"`
-	OAuth        bool              `json:"oauth"`
-	Credentials  []credentialField `json:"credentials"`
+	Type              string            `json:"type"`
+	Archetype         string            `json:"archetype"`
+	Title             string            `json:"title"`
+	Connected         bool              `json:"connected"`
+	Credentialed      bool              `json:"credentialed"`
+	MultiCredential   bool              `json:"multi_credential"`
+	OAuth             bool              `json:"oauth"`
+	Credentials       []credentialField `json:"credentials"`
+	CredentialEntries []credentialEntry `json:"credential_entries"`
 }
 
 // credentialField mirrors source.CredentialField: one secret a source needs.
@@ -1161,6 +1163,14 @@ type credentialField struct {
 	Key   string `json:"key"`
 	Title string `json:"title"`
 	Help  string `json:"help"`
+}
+
+// credentialEntry mirrors source.CredentialEntry: one masked credential of a
+// multi-credential source (e.g. a Teller bank enrollment).
+type credentialEntry struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Removable bool   `json:"removable"`
 }
 
 // listSources fetches the configured ingestion sources and whether source
@@ -1213,6 +1223,30 @@ func (c *apiClient) setSourceCredential(ctx context.Context, typ, token string) 
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return false, decodeAPIError(resp, "set credential")
+	}
+	var out struct {
+		Connected bool `json:"connected"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false, err
+	}
+	return out.Connected, nil
+}
+
+// removeSourceCredential removes one credential (by id) from a multi-credential
+// source and returns the resulting connection state.
+func (c *apiClient) removeSourceCredential(ctx context.Context, typ, id string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/sources/"+url.PathEscape(typ)+"/credentials/"+url.PathEscape(id), nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false, decodeAPIError(resp, "remove credential")
 	}
 	var out struct {
 		Connected bool `json:"connected"`

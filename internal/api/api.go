@@ -34,8 +34,12 @@ type SourceManager interface {
 	Sources(ctx context.Context) ([]poller.SourceStatus, error)
 	// SyncSource runs a single source by type.
 	SyncSource(ctx context.Context, typ string) (poller.SyncResult, error)
-	// SetCredential stores a pasted credential for a source.
+	// SetCredential stores a pasted credential for a source. For a multi-credential
+	// source (e.g. Teller) it adds one; otherwise it replaces the credential.
 	SetCredential(ctx context.Context, typ, input string) error
+	// RemoveSourceCredential removes one credential (by id) from a multi-credential
+	// source, e.g. disconnecting a single bank enrollment.
+	RemoveSourceCredential(ctx context.Context, typ, id string) error
 	// CredentialConfigured reports whether a source is ready to sync.
 	CredentialConfigured(ctx context.Context, typ string) (bool, error)
 	// OAuthStart returns the provider consent URL for a source's browser OAuth flow.
@@ -289,6 +293,7 @@ func (s *Server) Router() http.Handler {
 				// PUT /simplefin/credential alias is kept for back-compat.
 				if s.sources != nil {
 					r.Put("/sources/{type}/credential", s.handleSetSourceCredential)
+					r.Delete("/sources/{type}/credentials/{id}", s.handleRemoveSourceCredential)
 					r.Get("/sources/{type}/oauth/start", s.handleSourceOAuthStart)
 					r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
 				}

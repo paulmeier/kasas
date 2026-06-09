@@ -12,13 +12,17 @@ import (
 // self-describing metadata plus whether it is ready to sync and how its credential
 // (if any) is set.
 type SourceStatus struct {
-	Type         string                   `json:"type"`
-	Archetype    string                   `json:"archetype"`
-	Title        string                   `json:"title"`
-	Connected    bool                     `json:"connected"`    // ready to sync (no credential needed, or one is stored)
-	Credentialed bool                     `json:"credentialed"` // accepts a pasted credential
-	OAuth        bool                     `json:"oauth"`        // supports the browser OAuth connect flow
-	Credentials  []source.CredentialField `json:"credentials,omitempty"`
+	Type            string                   `json:"type"`
+	Archetype       string                   `json:"archetype"`
+	Title           string                   `json:"title"`
+	Connected       bool                     `json:"connected"`        // ready to sync (no credential needed, or one is stored)
+	Credentialed    bool                     `json:"credentialed"`     // accepts a pasted credential
+	MultiCredential bool                     `json:"multi_credential"` // holds several credentials (add/remove individually)
+	OAuth           bool                     `json:"oauth"`            // supports the browser OAuth connect flow
+	Credentials     []source.CredentialField `json:"credentials,omitempty"`
+	// CredentialEntries lists the masked, individually-removable credentials of a
+	// multi-credential source (e.g. each Teller bank enrollment). Empty otherwise.
+	CredentialEntries []source.CredentialEntry `json:"credential_entries,omitempty"`
 }
 
 // Engine coordinates one Poller per configured ingestion source. It is the seam
@@ -122,14 +126,27 @@ func (e *Engine) Sources(ctx context.Context) ([]SourceStatus, error) {
 		if oc, ok := p.source.(source.OAuthCredentialed); ok {
 			oauth = oc.OAuthConfigured()
 		}
+		multi := false
+		var entries []source.CredentialEntry
+		if mc, ok := p.source.(source.MultiCredentialed); ok {
+			multi = true
+			es, err := mc.ListCredentials(ctx)
+			if err != nil {
+				p.logger.Warn("list source credentials", "source", typ, "error", err)
+			} else {
+				entries = es
+			}
+		}
 		out = append(out, SourceStatus{
-			Type:         desc.Type,
-			Archetype:    string(desc.Archetype),
-			Title:        desc.Title,
-			Connected:    connected,
-			Credentialed: len(desc.Credentials) > 0,
-			OAuth:        oauth,
-			Credentials:  desc.Credentials,
+			Type:              desc.Type,
+			Archetype:         string(desc.Archetype),
+			Title:             desc.Title,
+			Connected:         connected,
+			Credentialed:      len(desc.Credentials) > 0,
+			MultiCredential:   multi,
+			OAuth:             oauth,
+			Credentials:       desc.Credentials,
+			CredentialEntries: entries,
 		})
 	}
 	return out, nil
@@ -158,6 +175,20 @@ func (e *Engine) SetCredential(ctx context.Context, typ, input string) error {
 		return fmt.Errorf("source %q does not support runtime credentials", typ)
 	}
 	return p.cred.SetCredential(ctx, input)
+}
+
+// RemoveSourceCredential removes one credential (by id) from a multi-credential
+// source — e.g. disconnecting a single Teller bank enrollment.
+func (e *Engine) RemoveSourceCredential(ctx context.Context, typ, id string) error {
+	p, ok := e.pollers[typ]
+	if !ok {
+		return fmt.Errorf("unknown source %q", typ)
+	}
+	mc, ok := p.source.(source.MultiCredentialed)
+	if !ok {
+		return fmt.Errorf("source %q does not support removing individual credentials", typ)
+	}
+	return mc.RemoveCredential(ctx, id)
 }
 
 // OAuthStart returns the provider consent URL for a source that supports the

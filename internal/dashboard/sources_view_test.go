@@ -40,6 +40,40 @@ func TestSourcesViewRendersCards(t *testing.T) {
 	}
 }
 
+// TestSourcesViewRendersMultiCredential checks a multi-credential source (Teller)
+// lists each connected credential — masked, with a Remove button for removable ones
+// and a "from config" note otherwise — plus an "add another" input.
+func TestSourcesViewRendersMultiCredential(t *testing.T) {
+	v := &sourcesView{
+		loaded:  true,
+		enabled: true,
+		sources: []sourceStatus{{
+			Type: "teller", Archetype: "pull", Title: "Teller",
+			Connected: true, Credentialed: true, MultiCredential: true,
+			Credentials: []credentialField{{Key: "access_token", Title: "Access token", Help: "One per bank."}},
+			CredentialEntries: []credentialEntry{
+				{ID: "id_runtime", Label: "••••aabb", Removable: true},
+				{ID: "id_config", Label: "••••ccdd", Removable: false},
+			},
+		}},
+	}
+	html := printUI(t, v.Render())
+
+	for _, want := range []string{
+		"Teller",
+		"••••aabb",                // a connected credential, masked
+		"••••ccdd",                // the config one, masked
+		"Remove",                  // removable entry gets a remove button
+		"from config",             // non-removable entry is labelled
+		`id="source-cred-teller"`, // the add-another input
+		"Add",                     // the add button
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("multi-credential render missing %q\nHTML:\n%s", want, html)
+		}
+	}
+}
+
 func TestSourcesViewDisabled(t *testing.T) {
 	v := &sourcesView{loaded: true, enabled: false}
 	html := printUI(t, v.Render())

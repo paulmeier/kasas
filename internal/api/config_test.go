@@ -29,6 +29,8 @@ type fakeSources struct {
 	connected bool
 	lastToken string
 	setErr    error
+	removedID string // the last id passed to RemoveSourceCredential
+	removeErr error
 	oauthURL  string // when set, OAuthStart returns it with the state appended
 	exchanged string // the last code passed to OAuthExchange
 }
@@ -54,6 +56,16 @@ func (f *fakeSources) SetCredential(_ context.Context, _, input string) error {
 	}
 	f.lastToken = input
 	f.connected = true
+	return nil
+}
+
+func (f *fakeSources) RemoveSourceCredential(_ context.Context, _, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.removedID = id
 	return nil
 }
 
@@ -90,6 +102,12 @@ func (f *fakeSources) exchangedCode() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.exchanged
+}
+
+func (f *fakeSources) removedCredID() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.removedID
 }
 
 func newConfigServer(t *testing.T, cfg *config.Config, sources api.SourceManager) *httptest.Server {

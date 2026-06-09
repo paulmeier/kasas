@@ -108,6 +108,25 @@ lookback_days = 30
 	assert.Equal(t, 30, cfg.Sync.LookbackDays)
 }
 
+func TestLoadTellerTokens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+[teller]
+access_token = "tok_single"
+access_tokens = ["tok_a", "tok_b"]
+certificate = "/data/teller/cert.pem"
+private_key = "/data/teller/key.pem"
+`
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "tok_single", cfg.Teller.AccessToken, "the singular env-friendly token")
+	assert.Equal(t, []string{"tok_a", "tok_b"}, cfg.Teller.AccessTokens, "the config-file token array")
+	assert.Equal(t, "/data/teller/cert.pem", cfg.Teller.Certificate)
+	assert.Equal(t, "/data/teller/key.pem", cfg.Teller.PrivateKey)
+}
+
 func TestLoadEnvWinsOverFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(path, []byte("[server]\naddr = \":7777\"\n"), 0o600))

@@ -23,6 +23,7 @@ type sourcesView struct {
 
 	savingType  string // type whose credential save is in flight
 	saveMsg     string
+	removingID  string // credential entry id whose removal is in flight
 	syncingType string // type whose sync is in flight
 	syncMsg     string
 
@@ -125,6 +126,7 @@ func (v *sourcesView) onSaveCredential(ctx app.Context, typ string) {
 			v.saveMsg = "Credential saved for " + typ + "."
 			clearDomInput(credInputID(typ))
 			v.setConnected(typ, connected)
+			v.loadSources(ctx) // refresh connection + (for multi-credential) the entry list
 			ctx.Update()
 		})
 	})
@@ -223,8 +225,13 @@ func (v *sourcesView) renderSource(s sourceStatus) app.UI {
 		app.P().Class("settings-help").Text(sourceArchetypeHelp(s.Archetype)),
 	}
 
-	// Credential entry for sources that take a pasted secret.
-	if s.Credentialed {
+	// Credential entry. A multi-credential source (e.g. Teller) shows its connected
+	// credentials with per-entry remove plus an "add another" form; a single-credential
+	// source shows one replace input.
+	switch {
+	case s.MultiCredential:
+		body = append(body, v.renderMultiCredential(s))
+	case s.Credentialed:
 		body = append(body, v.renderCredentialForm(s))
 	}
 	// Browser OAuth connect for sources that support it.
@@ -277,6 +284,86 @@ func (v *sourcesView) renderCredentialForm(s sourceStatus) app.UI {
 	return app.Div().Body(rows...)
 }
 
+// renderMultiCredential shows a multi-credential source's connected credentials
+// (each masked, with a Remove button when removable) plus a form to add another —
+// e.g. one Teller access token per linked bank.
+func (v *sourcesView) renderMultiCredential(s sourceStatus) app.UI {
+	rows := []app.UI{}
+
+	if len(s.CredentialEntries) > 0 {
+		items := make([]app.UI, 0, len(s.CredentialEntries))
+		for _, e := range s.CredentialEntries {
+			e := e
+			cells := []app.UI{app.Span().Class("cred-label").Text(e.Label)}
+			if e.Removable {
+				cells = append(cells, app.Button().
+					Class("btn btn-sm").
+					Text(removeLabel(v.removingID == e.ID)).
+					Disabled(v.removingID == e.ID).
+					OnClick(func(ctx app.Context, _ app.Event) { v.onRemoveCredential(ctx, s.Type, e.ID) }))
+			} else {
+				cells = append(cells, app.Span().Class("settings-help").Text("from config"))
+			}
+			items = append(items, app.Li().Class("cred-item").Body(cells...))
+		}
+		rows = append(rows, app.Ul().Class("cred-list").Body(items...))
+	} else {
+		rows = append(rows, app.P().Class("settings-help").Text("No banks connected yet."))
+	}
+
+	// "Add another bank" form — reuses the credential input; the server appends.
+	label, help := "Access token", ""
+	if len(s.Credentials) > 0 {
+		label = s.Credentials[0].Title
+		help = s.Credentials[0].Help
+	}
+	if help != "" {
+		rows = append(rows, app.P().Class("settings-help").Text(help))
+	}
+	rows = append(rows, app.Div().Class("form-row").Body(
+		app.Input().
+			ID(credInputID(s.Type)).
+			Class("settings-input").
+			Type("password").
+			Placeholder(label).
+			AutoComplete(false),
+		app.Button().
+			Class("btn").
+			Text(addBankLabel(v.savingType == s.Type)).
+			Disabled(v.savingType == s.Type).
+			OnClick(func(ctx app.Context, _ app.Event) { v.onSaveCredential(ctx, s.Type) }),
+	))
+	if v.saveMsg != "" && v.savingType == "" {
+		rows = append(rows, app.Div().Class("settings-ok").Text(v.saveMsg))
+	}
+	return app.Div().Body(rows...)
+}
+
+// onRemoveCredential disconnects one credential of a multi-credential source, then
+// reloads the source list so the entry disappears.
+func (v *sourcesView) onRemoveCredential(ctx app.Context, typ, id string) {
+	if v.removingID != "" {
+		return
+	}
+	v.removingID = id
+	v.errMsg = ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		_, err := v.client.removeSourceCredential(context.Background(), typ, id)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.removingID = ""
+			if err != nil {
+				v.errMsg = "Could not remove credential: " + err.Error()
+				ctx.Update()
+				return
+			}
+			v.loadSources(ctx)
+			ctx.Update()
+		})
+	})
+}
+
 func (v *sourcesView) renderConnectButton(s sourceStatus) app.UI {
 	return app.Div().Class("form-row").Body(
 		app.Button().
@@ -309,6 +396,22 @@ func sourceSyncLabel(syncing bool) string {
 		return "Syncing…"
 	}
 	return "Sync now"
+}
+
+// addBankLabel is the add button's text for a multi-credential source.
+func addBankLabel(busy bool) string {
+	if busy {
+		return "Adding…"
+	}
+	return "Add"
+}
+
+// removeLabel is a credential entry's remove button text.
+func removeLabel(busy bool) string {
+	if busy {
+		return "Removing…"
+	}
+	return "Remove"
 }
 
 // sourceArchetypeHelp is a one-line description of how a source delivers data.

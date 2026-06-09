@@ -64,6 +64,18 @@ func TestSetSourceCredential(t *testing.T) {
 	assert.Equal(t, "tok-123", f.LastToken())
 }
 
+func TestRemoveSourceCredential(t *testing.T) {
+	f := &fakeSources{connected: true}
+	srv := newConfigServer(t, secretLadenConfig(), f)
+
+	var out struct {
+		Connected bool `json:"connected"`
+	}
+	status := deleteJSON(t, srv, "/api/v1/sources/teller/credentials/abc123", &out)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, "abc123", f.removedCredID(), "the entry id is passed through to the source manager")
+}
+
 // TestSourceOAuthFlow drives the OAuth start + callback: start returns the consent
 // URL (carrying the issued state), and the callback verifies that state, exchanges
 // the code, and redirects back to the Sources page.
