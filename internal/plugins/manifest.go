@@ -7,14 +7,16 @@
 // mutate ledger data — so enforcement is identical regardless of the language a
 // plugin is written in.
 //
-// v1 ships one runtime (Lua, via gopher-lua) behind the Runtime/Instance adapter
-// seam; JS/TS (goja) and Go (wazero/WASM) slot in later as new Runtime
-// implementations without touching the manager.
+// Two runtimes ship today behind the Runtime/Instance adapter seam: Lua (via
+// gopher-lua) and JavaScript/TypeScript (via goja, with esbuild stripping TypeScript
+// types at load). Go (wazero/WASM) can slot in later as another Runtime
+// implementation without touching the manager.
 package plugins
 
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -44,12 +46,39 @@ const (
 	CapExtensionsWrite  Capability = "extensions:write"  // set/remove schema extensions
 )
 
-// RuntimeLua is the manifest `runtime` value for Lua plugins (the only runtime in
-// v1). JS and WASM add their own constants when they land.
-const RuntimeLua = "lua"
+// Runtime values for the manifest `runtime` field. Each maps to a registered
+// Runtime implementation (NewLuaRuntime / NewJSRuntime); WASM adds its own when it
+// lands.
+const (
+	RuntimeLua = "lua"
+	RuntimeJS  = "js"
+)
 
-// defaultEntrypoint is the source file a manifest's `entrypoint` defaults to.
-const defaultEntrypoint = "main.lua"
+// knownRuntimes is the set of accepted `runtime` values. An unknown runtime is a
+// hard manifest error so a typo can't silently fail to load.
+var knownRuntimes = map[string]bool{
+	RuntimeLua: true,
+	RuntimeJS:  true,
+}
+
+// defaultEntrypoints is the per-runtime fallback source file when a manifest omits
+// `entrypoint`. A JS plugin written in TypeScript sets `entrypoint = "main.ts"`
+// explicitly; the JS runtime picks the esbuild loader by file extension.
+var defaultEntrypoints = map[string]string{
+	RuntimeLua: "main.lua",
+	RuntimeJS:  "main.js",
+}
+
+// supportedRuntimes is the sorted, human-readable list of accepted runtimes, used in
+// the "unsupported runtime" error.
+func supportedRuntimes() string {
+	rs := make([]string, 0, len(knownRuntimes))
+	for r := range knownRuntimes {
+		rs = append(rs, r)
+	}
+	sort.Strings(rs)
+	return strings.Join(rs, ", ")
+}
 
 // hookTrigger maps each hook to the bus event type that fires it. It is the
 // plugin analogue of webhooks.Matches: the manager routes an event to a plugin
@@ -111,9 +140,6 @@ func (m *Manifest) normalizeAndValidate() error {
 	m.Name = strings.TrimSpace(m.Name)
 	m.Runtime = strings.TrimSpace(m.Runtime)
 	m.Entrypoint = strings.TrimSpace(m.Entrypoint)
-	if m.Entrypoint == "" {
-		m.Entrypoint = defaultEntrypoint
-	}
 	if m.Config == nil {
 		m.Config = map[string]any{}
 	}
@@ -121,8 +147,13 @@ func (m *Manifest) normalizeAndValidate() error {
 	if !nameRE.MatchString(m.Name) {
 		return fmt.Errorf("invalid plugin name %q (must match %s)", m.Name, nameRE.String())
 	}
-	if m.Runtime != RuntimeLua {
-		return fmt.Errorf("unsupported runtime %q (v1 supports %q)", m.Runtime, RuntimeLua)
+	if !knownRuntimes[m.Runtime] {
+		return fmt.Errorf("unsupported runtime %q (supported: %s)", m.Runtime, supportedRuntimes())
+	}
+	// Default the entrypoint per runtime (main.lua / main.js) now that the runtime is
+	// known to be valid.
+	if m.Entrypoint == "" {
+		m.Entrypoint = defaultEntrypoints[m.Runtime]
 	}
 	if len(m.Hooks) == 0 {
 		return fmt.Errorf("plugin must declare at least one hook")

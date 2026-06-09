@@ -1,0 +1,6 @@
+name        = "js-slow"
+version     = "0.0.1"
+runtime     = "js"
+entrypoint  = "main.js"
+hooks        = ["OnTransactionCreate"]
+capabilities = []
