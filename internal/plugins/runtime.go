@@ -36,6 +36,11 @@ type Instance interface {
 	// per-hook timeout and must not panic out (it recovers internally and returns an
 	// error). It returns ErrHookNotImpl if the plugin has no handler for hook.
 	Invoke(ctx context.Context, hook Hook, ev HookEvent) error
+	// Render runs a value-returning page hook (HookPageRender / HookPageAction)
+	// with req and returns the page document the handler produced, as raw JSON.
+	// The result is UNTRUSTED until ValidatePageDoc accepts it. Same contract as
+	// Invoke otherwise: honor ctx, never panic out, ErrHookNotImpl when absent.
+	Render(ctx context.Context, hook Hook, req PageRequest) (json.RawMessage, error)
 	// Close releases the VM and any resources. It is called once.
 	Close() error
 }

@@ -48,6 +48,7 @@ Base path: `/api/v1`. Source:
 | `GET /api/v1/relationships` | [Relationship](../features/transaction-relationships.md) kind vocabulary with per-kind edge counts. |
 | `GET /api/v1/rules` · `GET /api/v1/rules/{id}` | List / get [rules](../features/rules.md). |
 | `GET /api/v1/plugins` · `GET /api/v1/plugins/{id}` | List / get [plugins](../features/plugins.md) (when enabled). |
+| `GET /api/v1/plugins/pages` · `GET /api/v1/plugins/pages/{name}` | List plugin [dashboard pages](../features/plugins.md#dashboard-pages) / render one (runs the plugin's `OnPageRender` hook). |
 | `GET /api/v1/events` | Read the [event stream](../features/event-stream.md) from a cursor (`?after=`, `?type=`, `?entity_type=`, `?entity_id=`, `?limit=`, `?newest`). Returns `{events, next}`. |
 | `GET /api/v1/events/{sequence}` | Get one event by sequence. |
 | `GET /api/v1/events/stream` | Live SSE tail (`?after=` to replay then follow). |
@@ -75,6 +76,7 @@ Base path: `/api/v1`. Source:
 | `POST /api/v1/rules/{id}/run` | Apply one rule to existing transactions; returns `{matched, updated}`. |
 | `POST /api/v1/rules/run` | Apply all enabled rules to existing transactions. |
 | `POST /api/v1/sync` | Trigger a [sync](../features/sync.md) (async, returns `202`). |
+| `POST /api/v1/plugins/pages/{name}/action` | Press a button on a plugin's [dashboard page](../features/plugins.md#dashboard-pages) (`{"id":"<action>","params":{…}}`; runs `OnPageAction`). |
 
 ## Admin tier (dashboard token only)
 

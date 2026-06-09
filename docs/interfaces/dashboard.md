@@ -26,6 +26,12 @@ A collapsible left sidebar (the choice is remembered) navigates eight pages:
 | **Marketplace** | Browse and install [community plugins](../features/plugins.md#the-community-marketplace) with a capability-tier warning; integrity-verified and installed disabled. |
 | **Settings** | Connect a source (SimpleFIN today), manage the [dashboard token](authentication.md), force a sync, and review the effective config (read-only, secrets redacted). |
 
+Plugins with a `[ui]` manifest block contribute **their own sidebar entries**
+below the built-ins (at `/ext/<plugin>`): the server renders the plugin's
+declarative [page document](../features/plugins.md#dashboard-pages) and the
+dashboard draws it with its own components — plugin output is text-only, never
+markup. Entries appear only while the plugin is enabled and loaded.
+
 Synced data is read-only except for **labels** (editable inline);
 [extensions](../features/schema-extensions.md) are shown read-only. Accounts and
 transactions you create yourself are fully editable — see

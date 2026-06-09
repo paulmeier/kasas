@@ -1216,3 +1216,33 @@ tr:hover .row-delete-btn,
   gap: 10px;
   margin-top: 4px;
 }
+
+/* --- Plugin pages (/ext/<plugin>): the declarative block renderer --- */
+.ext-heading { font-size: 18px; font-weight: 600; margin: 18px 0 10px; }
+.ext-text { color: var(--text); font-size: 14px; line-height: 1.6; margin: 0 0 14px; max-width: 70ch; }
+.ext-stat {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px;
+  margin: 0 12px 14px 0;
+  min-width: 140px;
+}
+.ext-stat-label { color: var(--muted); font-size: 13px; }
+.ext-stat-value { font-size: 24px; font-weight: 600; }
+.ext-stat-hint { color: var(--muted); font-size: 12px; }
+.ext-kv { padding: 6px 16px; margin: 0 0 14px; }
+.ext-kv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.ext-kv-row:last-child { border-bottom: none; }
+.ext-kv-key { color: var(--muted); }
+.ext-kv-value { margin: 0; text-align: right; word-break: break-word; }
+.ext-table { margin-bottom: 14px; }
+.ext-actions { display: flex; gap: 10px; margin: 4px 0 14px; flex-wrap: wrap; }
+.ext-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }

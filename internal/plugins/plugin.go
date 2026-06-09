@@ -1,5 +1,7 @@
 package plugins
 
+import "encoding/json"
+
 // Run-status codes stored in the plugins.last_status column (the lean alternative
 // to a per-invocation table, mirroring the webhooks delivery-status pattern).
 const (
@@ -20,6 +22,7 @@ type plugin struct {
 	id       int64
 	name     string
 	manifest Manifest
+	caps     capSet // effective grants (manifest ∩ DB), for gating the page endpoints
 	inst     Instance
 	triggers map[string]Hook // event type -> the hook to invoke
 	jobs     chan job
@@ -30,10 +33,26 @@ type plugin struct {
 	lastSuccessAt int64
 }
 
-// job is one hook invocation queued for a plugin's worker.
+// job is one unit of work queued for a plugin's worker: an event-hook invocation
+// (reply == nil) or a synchronous page render/action (req + reply set). Page jobs
+// share the queue so the non-reentrant VM is still only ever touched by the one
+// worker goroutine, serialized with event hooks.
 type job struct {
 	hook Hook
 	ev   HookEvent
+
+	// Render request: the page hook's input and the channel the worker answers on.
+	// reply is buffered (cap 1) so the worker never blocks if the requester has
+	// already given up waiting.
+	req   *PageRequest
+	reply chan renderReply
+}
+
+// renderReply is the worker's answer to a page job: the VALIDATED, normalized
+// page document, or the error (from the hook or from validation).
+type renderReply struct {
+	doc json.RawMessage
+	err error
 }
 
 func truncate(s string, n int) string {

@@ -130,6 +130,48 @@ func (li *luaInstance) Invoke(ctx context.Context, hook Hook, ev HookEvent) (err
 	return li.L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}, hookArg(li.L, hook, ev))
 }
 
+// Render runs a value-returning page hook: it calls the Lua function with the
+// request table, expects a page-document table back, and encodes it to JSON for
+// ValidatePageDoc. Same safety envelope as Invoke (context on the VM, Protect,
+// recover).
+func (li *luaInstance) Render(ctx context.Context, hook Hook, req PageRequest) (out json.RawMessage, err error) {
+	fn, ok := li.hooks[hook]
+	if !ok {
+		return nil, ErrHookNotImpl
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin panic: %v", r)
+		}
+	}()
+	li.ctx = ctx
+	defer func() { li.ctx = nil }()
+	li.L.SetContext(ctx)
+	defer li.L.RemoveContext()
+
+	if err := li.L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, pageRequestToLua(li.L, req)); err != nil {
+		return nil, err
+	}
+	ret := li.L.Get(-1)
+	li.L.Pop(1)
+	if ret == lua.LNil {
+		return nil, fmt.Errorf("%s returned nil (expected a page table)", hook)
+	}
+	raw, err := luaValueToJSON(ret)
+	if err != nil {
+		return nil, fmt.Errorf("%s result: %w", hook, err)
+	}
+	return raw, nil
+}
+
+func pageRequestToLua(L *lua.LState, req PageRequest) *lua.LTable {
+	t := L.NewTable()
+	L.SetField(t, "plugin", lua.LString(req.Plugin))
+	L.SetField(t, "action", lua.LString(req.Action))
+	L.SetField(t, "params", goToLua(L, req.Params))
+	return t
+}
+
 // Close releases the VM.
 func (li *luaInstance) Close() error {
 	li.L.Close()

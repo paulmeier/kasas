@@ -223,6 +223,10 @@ func (m *Manager) startWorker(p *plugin) {
 		defer close(p.done)
 		ctx := m.workerCtx()
 		for j := range p.jobs {
+			if j.reply != nil {
+				m.render(ctx, p, j)
+				continue
+			}
 			m.invoke(ctx, p, j)
 		}
 	}()
@@ -261,6 +265,34 @@ func (m *Manager) invoke(ctx context.Context, p *plugin, j job) {
 		m.logger.Warn("plugin hook failed", "plugin", p.name, "hook", j.hook, "error", err)
 	}
 	m.recordStatus(ctx, p, err)
+}
+
+// render runs one page job on the worker: it invokes the value-returning hook
+// under the per-hook timeout, validates/normalizes the returned document, and
+// answers on the job's reply channel. Health and metrics are recorded exactly
+// like an event hook, so a page that errors shows up on the Plugins page.
+func (m *Manager) render(ctx context.Context, p *plugin, j job) {
+	cctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	raw, err := p.inst.Render(cctx, j.hook, *j.req)
+	pluginInvocations.WithLabelValues(p.name, string(j.hook)).Inc()
+	if err == nil {
+		raw, err = ValidatePageDoc(raw)
+	}
+	// Mirror invoke's bookkeeping: an unimplemented hook is rejected at load (so
+	// this is defensive) and a shutdown-cancelled run is not a plugin failure;
+	// neither should flip the plugin's health.
+	if err != nil && (errors.Is(err, ErrHookNotImpl) || ctx.Err() != nil) {
+		j.reply <- renderReply{err: err}
+		return
+	}
+	if err != nil {
+		pluginErrors.WithLabelValues(p.name).Inc()
+		m.logger.Warn("plugin page hook failed", "plugin", p.name, "hook", j.hook, "error", err)
+	}
+	m.recordStatus(ctx, p, err)
+	j.reply <- renderReply{doc: raw, err: err} // buffered: never blocks the worker
 }
 
 // recordStatus persists the outcome of the latest run on the plugin row. It uses a
@@ -473,6 +505,7 @@ func (m *Manager) load(ctx context.Context, row db.Plugin, d Discovered) error {
 		id:            row.ID,
 		name:          row.Name,
 		manifest:      d.Manifest,
+		caps:          caps,
 		inst:          inst,
 		triggers:      triggers,
 		jobs:          make(chan job, m.queueSize),

@@ -23,6 +23,9 @@ const (
 	navMarketplace
 	navSources
 	navSettings
+	// navExtension marks a plugin-contributed page as active; WHICH page is
+	// identified by chrome.activeExt (the plugin name), since the set is dynamic.
+	navExtension
 )
 
 // collapsedStorageKey is where the sidebar's collapsed/expanded choice is
@@ -49,6 +52,11 @@ type chrome struct {
 	collapsed bool   // sidebar collapsed to the icon rail
 	version   string // build version for the corner badge
 
+	// Plugin-contributed sidebar entries (loaded plugins with a [ui] block) and,
+	// on a plugin page, the name of the active one (paired with navExtension).
+	extPages  []pluginPage
+	activeExt string
+
 	// Auth gate state, populated by loadAuth.
 	token        string // dashboard token from local storage
 	authChecked  bool   // the /api/v1/auth probe has returned
@@ -72,6 +80,22 @@ func (c *chrome) loadChrome(ctx app.Context) {
 	_ = ctx.LocalStorage().Get(collapsedStorageKey, &c.collapsed)
 	c.loadVersion(ctx)
 	c.loadAuth(ctx)
+	c.loadPluginPages(ctx)
+}
+
+// loadPluginPages fetches the sidebar entries contributed by loaded plugins.
+// Best-effort: on error the sidebar simply shows the built-in entries.
+func (c *chrome) loadPluginPages(ctx app.Context) {
+	ctx.Async(func() {
+		pages, err := c.client.pluginPages(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			if err != nil {
+				return
+			}
+			c.extPages = pages
+			ctx.Update()
+		})
+	})
 }
 
 // appUpdateReady records that a newer build's service worker has activated. It is
@@ -110,6 +134,7 @@ var (
 	_ app.AppUpdater = (*pluginsView)(nil)
 	_ app.AppUpdater = (*sourcesView)(nil)
 	_ app.AppUpdater = (*settingsView)(nil)
+	_ app.AppUpdater = (*pluginPageView)(nil)
 )
 
 // loadAuth probes whether a token is required and whether ours is accepted. On a
@@ -358,24 +383,33 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 	if c.collapsed {
 		collapseTitle = "Expand sidebar"
 	}
+	items := []app.UI{
+		navLink("/", "Transactions", iconTransactions(), active == navTransactions),
+		navLink("/accounts", "Accounts", iconAccounts(), active == navAccounts),
+		navLink("/search", "Search", iconSearch(), active == navSearch),
+		navLink("/labels", "Labels", iconLabels(), active == navLabels),
+		navLink("/rules", "Rules", iconRules(), active == navRules),
+		navLink("/events", "Events", iconEvents(), active == navEvents),
+		navLink("/webhooks", "Webhooks", iconWebhooks(), active == navWebhooks),
+		navLink("/plugins", "Plugins", iconPlugins(), active == navPlugins),
+		navLink("/marketplace", "Marketplace", iconMarketplace(), active == navMarketplace),
+		navLink("/sources", "Sources", iconSources(), active == navSources),
+		navLink("/settings", "Settings", iconSettings(), active == navSettings),
+	}
+	// Plugin-contributed pages render below the built-ins, in the API's stable
+	// (name-sorted) order. Title and icon name come from the plugin's manifest;
+	// the icon is resolved against the dashboard's own curated SVG set, so a
+	// plugin can never inject markup here.
+	for _, p := range c.extPages {
+		items = append(items, navLink("/ext/"+p.Name, p.Title, extIcon(p.Icon),
+			active == navExtension && c.activeExt == p.Name))
+	}
 	return app.Nav().Class(cls).Body(
 		app.A().Class("sidebar-head").Href("/").Body(
 			app.Img().Class("logo").Src("/web/logo.png").Alt("kasas logo"),
 			app.Span().Class("brand").Text("kasas"),
 		),
-		app.Div().Class("nav").Body(
-			navLink("/", "Transactions", iconTransactions(), active == navTransactions),
-			navLink("/accounts", "Accounts", iconAccounts(), active == navAccounts),
-			navLink("/search", "Search", iconSearch(), active == navSearch),
-			navLink("/labels", "Labels", iconLabels(), active == navLabels),
-			navLink("/rules", "Rules", iconRules(), active == navRules),
-			navLink("/events", "Events", iconEvents(), active == navEvents),
-			navLink("/webhooks", "Webhooks", iconWebhooks(), active == navWebhooks),
-			navLink("/plugins", "Plugins", iconPlugins(), active == navPlugins),
-			navLink("/marketplace", "Marketplace", iconMarketplace(), active == navMarketplace),
-			navLink("/sources", "Sources", iconSources(), active == navSources),
-			navLink("/settings", "Settings", iconSettings(), active == navSettings),
-		),
+		app.Div().Class("nav").Body(items...),
 		app.Div().Class("sidebar-foot").Body(
 			app.Button().Type("button").Class("collapse-btn").Title(collapseTitle).
 				OnClick(func(ctx app.Context, _ app.Event) { c.toggleCollapsed(ctx) }).

@@ -41,6 +41,15 @@ const (
 	// is never dispatched as part of normal operation. A plugin owns its own cleanup;
 	// kasas just runs this hook.
 	HookUninstall Hook = "OnUninstall"
+	// HookPageRender and HookPageAction back a plugin's dashboard page (the [ui]
+	// manifest block). Like HookUninstall they are request-driven, not event-driven
+	// (absent from hookTrigger): the dashboard asks the API to render the page, the
+	// manager invokes the hook on the plugin's worker, and the hook RETURNS a
+	// declarative page document (see pagedoc.go) instead of mutating anything.
+	// OnPageRender produces the page; OnPageAction handles a button press declared
+	// by a previous render and returns the refreshed page.
+	HookPageRender Hook = "OnPageRender"
+	HookPageAction Hook = "OnPageAction"
 )
 
 // Capability is a permission a plugin must declare and be granted before the host
@@ -52,6 +61,11 @@ const (
 	CapTransactionsRead Capability = "transactions:read" // read the triggering txn + run searches
 	CapLabelsWrite      Capability = "labels:write"      // apply/remove labels
 	CapExtensionsWrite  Capability = "extensions:write"  // set/remove schema extensions
+	// CapUIPage lets a plugin expose a dashboard page (a sidebar entry plus a
+	// declaratively rendered page). It gates the render/action endpoints rather than
+	// a host method: revoking it makes the page disappear without touching the
+	// plugin's event hooks.
+	CapUIPage Capability = "ui:page"
 )
 
 // Runtime values for the manifest `runtime` field. Each maps to a registered
@@ -105,12 +119,33 @@ var knownHooks = map[Hook]bool{
 	HookTransactionUpdate: true,
 	HookSyncComplete:      true,
 	HookUninstall:         true, // accepted and resolved, but never event-dispatched
+	HookPageRender:        true, // request-driven (dashboard page), never event-dispatched
+	HookPageAction:        true, // request-driven (dashboard page), never event-dispatched
 }
 
 var knownCapabilities = map[Capability]bool{
 	CapTransactionsRead: true,
 	CapLabelsWrite:      true,
 	CapExtensionsWrite:  true,
+	CapUIPage:           true,
+}
+
+// knownUIIcons is the curated set of sidebar icon names a plugin page may pick
+// from. Icons are chosen by NAME so a plugin can never inject markup through the
+// sidebar; the dashboard owns the actual SVGs (see dashboard/plugin_page.go) and
+// falls back to "puzzle" for anything it doesn't recognize. The kasas-plugins
+// registry validates against the same list.
+var knownUIIcons = map[string]bool{
+	"bell":     true,
+	"calendar": true,
+	"chart":    true,
+	"coin":     true,
+	"flag":     true,
+	"gauge":    true,
+	"heart":    true,
+	"list":     true,
+	"puzzle":   true,
+	"star":     true,
 }
 
 // nameRE constrains a plugin name to a filesystem- and identity-safe slug; the
@@ -130,7 +165,23 @@ type Manifest struct {
 	Hooks        []Hook         `toml:"hooks"`
 	Capabilities []Capability   `toml:"capabilities"`
 	Config       map[string]any `toml:"config"`
+	// UI, when present, declares the plugin's dashboard page: a sidebar entry
+	// (title + curated icon) routing to /ext/<name>, rendered by the OnPageRender
+	// hook. Requires the ui:page capability so the operator can revoke the page.
+	UI *UIManifest `toml:"ui"`
 }
+
+// UIManifest is the manifest's optional [ui] block.
+type UIManifest struct {
+	// Title is the sidebar label and default page heading.
+	Title string `toml:"title"`
+	// Icon names a sidebar glyph from the curated set (knownUIIcons); empty
+	// defaults to "puzzle".
+	Icon string `toml:"icon"`
+}
+
+// maxUITitleLen bounds the sidebar label so a plugin can't bloat the nav.
+const maxUITitleLen = 40
 
 // ParseManifest decodes and validates a plugin.toml. It normalizes a few fields
 // (defaulting the entrypoint), so the returned manifest is ready to use.
@@ -182,5 +233,67 @@ func (m *Manifest) normalizeAndValidate() error {
 	if strings.ContainsAny(m.Entrypoint, `/\`) || m.Entrypoint == ".." {
 		return fmt.Errorf("entrypoint %q must be a file name inside the plugin directory", m.Entrypoint)
 	}
+	return m.validateUI()
+}
+
+// validateUI enforces the dashboard-page contract: the [ui] block, the
+// OnPageRender hook, and the ui:page capability come as a unit, so a plugin can
+// never end up with a sidebar entry that has no renderer (or a render hook the
+// operator can't revoke).
+func (m *Manifest) validateUI() error {
+	declares := func(h Hook) bool {
+		for _, x := range m.Hooks {
+			if x == h {
+				return true
+			}
+		}
+		return false
+	}
+	requests := func(c Capability) bool {
+		for _, x := range m.Capabilities {
+			if x == c {
+				return true
+			}
+		}
+		return false
+	}
+
+	if m.UI == nil {
+		if declares(HookPageRender) || declares(HookPageAction) {
+			return fmt.Errorf("hooks %s/%s require a [ui] block", HookPageRender, HookPageAction)
+		}
+		if requests(CapUIPage) {
+			return fmt.Errorf("capability %q requires a [ui] block", CapUIPage)
+		}
+		return nil
+	}
+
+	m.UI.Title = strings.TrimSpace(m.UI.Title)
+	m.UI.Icon = strings.TrimSpace(m.UI.Icon)
+	if m.UI.Title == "" || len(m.UI.Title) > maxUITitleLen {
+		return fmt.Errorf("ui.title is required and must be at most %d characters", maxUITitleLen)
+	}
+	if m.UI.Icon == "" {
+		m.UI.Icon = "puzzle"
+	}
+	if !knownUIIcons[m.UI.Icon] {
+		return fmt.Errorf("unknown ui.icon %q (supported: %s)", m.UI.Icon, supportedUIIcons())
+	}
+	if !declares(HookPageRender) {
+		return fmt.Errorf("a [ui] block requires the %s hook", HookPageRender)
+	}
+	if !requests(CapUIPage) {
+		return fmt.Errorf("a [ui] block requires the %q capability", CapUIPage)
+	}
 	return nil
+}
+
+// supportedUIIcons is the sorted, human-readable icon list for the validation error.
+func supportedUIIcons() string {
+	ns := make([]string, 0, len(knownUIIcons))
+	for n := range knownUIIcons {
+		ns = append(ns, n)
+	}
+	sort.Strings(ns)
+	return strings.Join(ns, ", ")
 }

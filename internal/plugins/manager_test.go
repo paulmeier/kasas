@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -29,6 +30,9 @@ func (s *stubInstance) Invoke(_ context.Context, hook Hook, _ HookEvent) error {
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, hook)
 	return nil
+}
+func (s *stubInstance) Render(_ context.Context, _ Hook, _ PageRequest) (json.RawMessage, error) {
+	return nil, ErrHookNotImpl
 }
 func (s *stubInstance) Close() error { return nil }
 func (s *stubInstance) seen() []Hook {
