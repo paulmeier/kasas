@@ -156,6 +156,61 @@ func TestPlaidEnvironmentDefaultsToSandbox(t *testing.T) {
 	assert.Equal(t, "sandbox", cfg.Plaid.Environment)
 }
 
+func TestLoadBitcoinConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+[bitcoin]
+address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+addresses = ["bc1qaddr1", "bc1qaddr2"]
+api_url = "https://mempool.example.com/api"
+`
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", cfg.Bitcoin.Address, "the singular env-friendly address")
+	assert.Equal(t, []string{"bc1qaddr1", "bc1qaddr2"}, cfg.Bitcoin.Addresses, "the config-file address array")
+	assert.Equal(t, "https://mempool.example.com/api", cfg.Bitcoin.APIURL)
+}
+
+func TestLoadEthereumConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+[ethereum]
+api_key = "etherscan_key"
+api_url = "https://api.example.com/v2/api"
+chain_id = 8453
+address = "0x1111111111111111111111111111111111111111"
+addresses = ["0x2222222222222222222222222222222222222222"]
+`
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "etherscan_key", cfg.Ethereum.APIKey)
+	assert.Equal(t, "https://api.example.com/v2/api", cfg.Ethereum.APIURL)
+	assert.Equal(t, 8453, cfg.Ethereum.ChainID)
+	assert.Equal(t, "0x1111111111111111111111111111111111111111", cfg.Ethereum.Address)
+	assert.Equal(t, []string{"0x2222222222222222222222222222222222222222"}, cfg.Ethereum.Addresses)
+}
+
+func TestCryptoDefaults(t *testing.T) {
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Bitcoin.Address)
+	assert.Empty(t, cfg.Bitcoin.Addresses)
+	assert.Empty(t, cfg.Bitcoin.APIURL)
+	assert.Empty(t, cfg.Ethereum.APIKey)
+	assert.Equal(t, 1, cfg.Ethereum.ChainID, "Ethereum defaults to mainnet")
+}
+
+func TestNegativeChainIDRejected(t *testing.T) {
+	t.Setenv("KASAS_ETHEREUM_CHAIN_ID", "0")
+	_, err := Load("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ethereum.chain_id")
+}
+
 func TestLoadEnvWinsOverFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(path, []byte("[server]\naddr = \":7777\"\n"), 0o600))
@@ -194,6 +249,7 @@ func TestValidate(t *testing.T) {
 			Database: Database{Driver: "sqlite", Path: "/data/kasas.db"},
 			Sync:     Sync{Interval: time.Hour},
 			Log:      Log{Format: "json"},
+			Ethereum: Ethereum{ChainID: 1},
 		}
 	}
 	require.NoError(t, valid().validate())
@@ -211,6 +267,8 @@ func TestValidate(t *testing.T) {
 		"zero interval":        func(c *Config) { c.Sync.Interval = 0 },
 		"negative interval":    func(c *Config) { c.Sync.Interval = -time.Second },
 		"bad log format":       func(c *Config) { c.Log.Format = "yaml" },
+		"zero chain id":        func(c *Config) { c.Ethereum.ChainID = 0 },
+		"negative chain id":    func(c *Config) { c.Ethereum.ChainID = -1 },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

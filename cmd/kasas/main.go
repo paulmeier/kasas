@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -46,7 +47,9 @@ import (
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/source"
+	"github.com/paulmeier/kasas/internal/sources/bitcoin"
 	"github.com/paulmeier/kasas/internal/sources/csv"
+	"github.com/paulmeier/kasas/internal/sources/ethereum"
 	"github.com/paulmeier/kasas/internal/sources/plaid"
 	"github.com/paulmeier/kasas/internal/sources/simplefin"
 	"github.com/paulmeier/kasas/internal/sources/teller"
@@ -523,8 +526,9 @@ func openPostgres(dsn string) (*sql.DB, error) {
 // SimpleFIN is always built (it reports "not connected" and is skipped on sync
 // until a credential is set, so a setup that uses only another source is quiet); the
 // CSV file-import source is built only when folders are configured, Teller when an
-// access token or certificate is set, and Plaid when its app credentials are set.
-// Each source is constructed by type through the registry, resolving its
+// access token or certificate is set, Plaid when its app credentials are set, Bitcoin
+// when an address or custom api_url is set, and Ethereum when its Etherscan API key is
+// set. Each source is constructed by type through the registry, resolving its
 // credentials/config from the secret store and config via the env.
 func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, emitter *events.Emitter, logger *slog.Logger) (*poller.Engine, error) {
 	newPoller := func(typ string, opts map[string]string) (*poller.Poller, error) {
@@ -611,6 +615,49 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 		}
 		pollers = append(pollers, plaidPoller)
 		logger.Info("plaid source enabled", "environment", cfg.Plaid.Environment, "items", len(plaidTokens))
+	}
+
+	// Bitcoin watches public addresses with no API key (mempool.space). Each address is
+	// one watched account, so it fans out over a list. Build it when any address or a
+	// custom api_url is set (the api_url override is the "manage addresses from the
+	// dashboard only" enable path); more addresses can be added at runtime. Like the
+	// others, it is skipped until at least one address exists.
+	btcAddrs := cfg.Bitcoin.Addresses
+	if cfg.Bitcoin.Address != "" {
+		btcAddrs = append([]string{cfg.Bitcoin.Address}, btcAddrs...)
+	}
+	if len(btcAddrs) > 0 || cfg.Bitcoin.APIURL != "" {
+		btcPoller, err := newPoller(bitcoin.SourceType, map[string]string{
+			"addresses": strings.Join(btcAddrs, "\n"),
+			"api_url":   cfg.Bitcoin.APIURL,
+		})
+		if err != nil {
+			return nil, err
+		}
+		pollers = append(pollers, btcPoller)
+		logger.Info("bitcoin source enabled", "addresses", len(btcAddrs))
+	}
+
+	// Ethereum watches addresses via Etherscan, which requires a (free) API key shared
+	// across addresses; build it only when the key is present (without it the source can
+	// do nothing). Addresses come from config and/or the dashboard, and it fans out over
+	// them; like the others it is then skipped until at least one address exists.
+	if cfg.Ethereum.APIKey != "" {
+		ethAddrs := cfg.Ethereum.Addresses
+		if cfg.Ethereum.Address != "" {
+			ethAddrs = append([]string{cfg.Ethereum.Address}, ethAddrs...)
+		}
+		ethPoller, err := newPoller(ethereum.SourceType, map[string]string{
+			"api_key":   cfg.Ethereum.APIKey,
+			"api_url":   cfg.Ethereum.APIURL,
+			"chain_id":  strconv.Itoa(cfg.Ethereum.ChainID),
+			"addresses": strings.Join(ethAddrs, "\n"),
+		})
+		if err != nil {
+			return nil, err
+		}
+		pollers = append(pollers, ethPoller)
+		logger.Info("ethereum source enabled", "chain_id", cfg.Ethereum.ChainID, "addresses", len(ethAddrs))
 	}
 
 	return poller.NewEngine(pollers...), nil

@@ -5,8 +5,9 @@ adapter that knows how to talk to one provider and shape its data into a neutral
 batch — and a generic *ingestion engine* persists it. [SimpleFIN](https://www.simplefin.org/)
 is the **first** source and the reference one, but it is not special — it plugs
 into the engine through the same contract every other source does.
-[CSV import](../features/csv-import.md), [Teller](../features/teller.md), and
-[Plaid](../features/plaid.md) ship alongside it today, and more sources are a thin
+[CSV import](../features/csv-import.md), [Teller](../features/teller.md),
+[Plaid](../features/plaid.md), [Bitcoin](../features/bitcoin.md), and
+[Ethereum](../features/ethereum.md) ship alongside it today, and more sources are a thin
 adapter each.
 
 Source: [`internal/source`](https://github.com/paulmeier/kasas/tree/main/internal/source)
@@ -25,6 +26,8 @@ flowchart LR
         SF[SimpleFIN<br/>Puller]:::live
         TL[Teller<br/>Puller]:::live
         PL[Plaid<br/>Puller]:::live
+        BTC[Bitcoin<br/>Puller · on-chain]:::live
+        ETH[Ethereum<br/>Puller · on-chain]:::live
         CSV[CSV files<br/>local · Google Drive]:::live
         WHK[inbound webhook<br/>planned]:::soon
         ENR[enrichment<br/>planned]:::soon
@@ -42,6 +45,8 @@ flowchart LR
     SF --> BATCH
     TL --> BATCH
     PL --> BATCH
+    BTC --> BATCH
+    ETH --> BATCH
     CSV --> BATCH
     WHK -.-> BATCH
     ENR -.-> BATCH
@@ -75,7 +80,7 @@ in that archetype is a thin adapter. **O(archetypes), not O(providers).**
 
 | Archetype | How data arrives | Engine trigger | Examples |
 | --- | --- | --- | --- |
-| **`pull`** | The engine fetches on a schedule. | `gocron` interval + on-demand | SimpleFIN, Teller, Plaid, on-chain |
+| **`pull`** | The engine fetches on a schedule. | `gocron` interval + on-demand | SimpleFIN, Teller, Plaid, Bitcoin, Ethereum |
 | **`file`** | Files in a folder are parsed. | scheduled folder scan | **CSV (local + Google Drive)**, OFX, QIF |
 | **`webhook`** | An inbound request pushes data. | HTTP endpoint | Stripe, payment processors |
 | **`manual`** | A human or agent writes directly. | API / MCP call | hand-entered cash |
@@ -108,8 +113,9 @@ type OAuthCredentialed interface { // optional: a browser OAuth 2.0 connect flow
 ```
 
 `Puller`, `Credentialed`, `MultiCredentialed`, and `OAuthCredentialed` exist today,
-and **two archetypes ship**: `pull` (SimpleFIN, Teller, Plaid) and `file` (CSV
-import). The `file` source
+and **two archetypes ship**: `pull` (SimpleFIN, Teller, Plaid, and the on-chain
+[Bitcoin](../features/bitcoin.md) / [Ethereum](../features/ethereum.md) sources) and
+`file` (CSV import). The `file` source
 reuses the `pull` trigger — scanning its configured folders on the sync schedule —
 rather than needing a separate file-upload interface, so adding it required **no
 engine change**. The `webhook` and `enrichment` archetypes remain reserved in the
@@ -211,6 +217,11 @@ To be precise about the line between *designed* and *shipping*:
 - ✅ **Teller** is a second built-in `pull` source (token + mutual-TLS), proving the
   archetype generalizes beyond SimpleFIN with just an adapter. See
   [Teller](../features/teller.md).
+- ✅ **Plaid, Bitcoin, and Ethereum** are further built-in `pull` sources. Plaid adds a
+  bank-token fan-out; [Bitcoin](../features/bitcoin.md) and
+  [Ethereum](../features/ethereum.md) watch on-chain addresses (each address is one
+  multi-credential entry), confirming the archetype spans banks *and* blockchains with
+  just an adapter and a shared `internal/sources/onchain` helper.
 - ✅ **Sources are surfaced** across REST (`/api/v1/sources`), MCP (`list_sources`,
   `sync_source`), and the dashboard **Sources** page — each with its descriptor,
   connection status, per-source sync, and credential/OAuth management.

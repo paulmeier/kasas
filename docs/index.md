@@ -23,7 +23,8 @@ hide:
 kasas is a **self-hosted, single-binary** Go service that ingests your financial
 data through **pluggable [sources](architecture/ingestion.md)** —
 [SimpleFIN](https://www.simplefin.org/), [Teller](features/teller.md),
-[Plaid](features/plaid.md), and [CSV file import](features/csv-import.md) today —
+[Plaid](features/plaid.md), [Bitcoin](features/bitcoin.md),
+[Ethereum](features/ethereum.md), and [CSV file import](features/csv-import.md) today —
 into a local **SQLite** (or **Postgres**) database and turns it into a programmable
 substrate: a **REST
 API**, a built-in **[MCP](https://modelcontextprotocol.io/) server**, a canonical
@@ -39,7 +40,7 @@ queryable, event-driven data.
 
 ```mermaid
 flowchart LR
-    SRC([Sources · SimpleFIN · Teller · Plaid · CSV]):::ext
+    SRC([Sources · SimpleFIN · Teller · Plaid · Bitcoin · Ethereum · CSV]):::ext
 
     subgraph K["kasas — the ledger"]
         direction TB
@@ -79,8 +80,8 @@ flowchart LR
     ---
 
     A source SDK normalizes any provider into one neutral shape; a generic engine
-    persists it. **SimpleFIN**, **Teller**, **Plaid**, and **CSV file import** ship
-    today.
+    persists it. **SimpleFIN**, **Teller**, **Plaid**, **Bitcoin**, **Ethereum**, and
+    **CSV file import** ship today.
 
     [:octicons-arrow-right-24: Ingestion & sources](architecture/ingestion.md)
 

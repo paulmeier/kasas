@@ -20,8 +20,8 @@
 
 kasas is a self-hosted, single-binary Go service that ingests your financial data
 through **pluggable sources** — [SimpleFIN](https://www.simplefin.org/),
-[Teller](https://teller.io), [Plaid](https://plaid.com), and **CSV file import**
-(local folders or Google Drive) today — into a local
+[Teller](https://teller.io), [Plaid](https://plaid.com), **Bitcoin**, **Ethereum**, and
+**CSV file import** (local folders or Google Drive) today — into a local
 **SQLite** (or **Postgres**) database and turns it into a programmable
 substrate: a **REST API**, a built-in **[MCP](https://modelcontextprotocol.io/)
 server**, a canonical **event stream**, outbound **webhooks**, and sandboxed
@@ -49,7 +49,9 @@ from clean, queryable, event-driven data.
 - **Source-agnostic by design.** Data arrives through pluggable
   [sources](https://paulmeier.github.io/kasas/architecture/ingestion/) — SimpleFIN,
   [Teller](https://paulmeier.github.io/kasas/features/teller/),
-  [Plaid](https://paulmeier.github.io/kasas/features/plaid/), and
+  [Plaid](https://paulmeier.github.io/kasas/features/plaid/),
+  [Bitcoin](https://paulmeier.github.io/kasas/features/bitcoin/),
+  [Ethereum](https://paulmeier.github.io/kasas/features/ethereum/), and
   [CSV file import](https://paulmeier.github.io/kasas/features/csv-import/)
   today — that normalize a provider into one neutral shape; a generic ingestion
   engine owns the rest. New sources plug into the *same* contract.
@@ -68,7 +70,7 @@ from clean, queryable, event-driven data.
 
 | | |
 | --- | --- |
-| 🔌 **[Pluggable sources](https://paulmeier.github.io/kasas/architecture/ingestion/)** | A source SDK normalizes any provider into one neutral shape; a generic engine persists it. SimpleFIN, [Teller](https://paulmeier.github.io/kasas/features/teller/), [Plaid](https://paulmeier.github.io/kasas/features/plaid/), and [CSV file import](https://paulmeier.github.io/kasas/features/csv-import/) (local folders or Google Drive) ship today. |
+| 🔌 **[Pluggable sources](https://paulmeier.github.io/kasas/architecture/ingestion/)** | A source SDK normalizes any provider into one neutral shape; a generic engine persists it. SimpleFIN, [Teller](https://paulmeier.github.io/kasas/features/teller/), [Plaid](https://paulmeier.github.io/kasas/features/plaid/), [Bitcoin](https://paulmeier.github.io/kasas/features/bitcoin/), [Ethereum](https://paulmeier.github.io/kasas/features/ethereum/), and [CSV file import](https://paulmeier.github.io/kasas/features/csv-import/) (local folders or Google Drive) ship today. |
 | 🔄 **[Automatic sync](https://paulmeier.github.io/kasas/features/sync/)** | Scheduled polling of the configured source; inserts new transactions, refreshes source-owned fields, preserves your labels. |
 | ✍️ **[Manual entry](https://paulmeier.github.io/kasas/features/manual-entry/)** | Create, edit, and delete accounts and transactions by hand — alongside synced data, or as a standalone ledger — from the dashboard, REST, or MCP. |
 | 🗄️ **[SQLite or Postgres](https://paulmeier.github.io/kasas/architecture/data-model/)** | Zero-dependency embedded SQLite by default, or Postgres with one config change. Same binary, no CGO. |
