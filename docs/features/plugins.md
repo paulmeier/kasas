@@ -4,15 +4,16 @@ Plugins are the **in-process** counterpart to [webhooks](webhooks.md): instead o
 pushing events to an external service, a plugin runs *inside* kasas, in a sandboxed
 language VM, and reacts to the same committed events. They let developers extend
 kasas — tax, budgeting, forecasting, notifications — without bloating the core
-ledger. Two runtimes ship today, both pure Go (no cgo, so the single-static-binary,
+ledger. Three runtimes ship today, all pure Go (no cgo, so the single-static-binary,
 multi-arch build is preserved):
 
 - **Lua** ([gopher-lua](https://github.com/yuin/gopher-lua))
 - **JavaScript / TypeScript** ([goja](https://github.com/dop251/goja), with
   [esbuild](https://github.com/evanw/esbuild) stripping TypeScript types and
   downleveling modern syntax at load)
-
-Go (via WASM) can slot in later behind the same adapter seam.
+- **WASM** ([wazero](https://github.com/tetratelabs/wazero)) — the home for
+  plugins written in **Go** (via the [plugin SDK](#go-wasm)), or any other
+  language that compiles to `wasip1`
 
 Source: [`internal/plugins`](https://github.com/paulmeier/kasas/tree/main/internal/plugins).
 Requires `events.enabled` and `plugins.enabled`.
@@ -125,7 +126,9 @@ runtime (Lua today, JS/WASM later) inherits the same enforcement:
 A call to a host function the plugin wasn't granted returns an error. The table shows
 the **Lua** names; the JavaScript/TypeScript runtime exposes the same methods in
 idiomatic **camelCase** (`kasas.getTransaction`, `kasas.applyLabels`, …) — see
-[JavaScript & TypeScript](#javascript--typescript) below.
+[JavaScript & TypeScript](#javascript-typescript) below — and the Go SDK in
+exported **PascalCase** (`kasas.GetTransaction`, `kasas.ApplyLabels`, …) — see
+[Go (WASM)](#go-wasm).
 
 ## Configuring a plugin
 
@@ -268,6 +271,96 @@ Annotate your hook parameters with `KasasTransaction` / `KasasSyncSummary` (don'
 re-`declare` the hook functions — you define them). `console.log/info/warn/error/debug`
 also work and route to kasas's structured logging.
 
+## Go (WASM) {#go-wasm}
+
+Set `runtime = "wasm"` in the manifest. The entrypoint defaults to `main.wasm` — a
+compiled WebAssembly module, executed by [wazero](https://github.com/tetratelabs/wazero)
+(pure Go, like the other runtimes). For Go authors there is a first-party **plugin
+SDK**; a plugin is an ordinary Go program:
+
+```toml
+name        = "budgeting"
+runtime     = "wasm"
+hooks        = ["OnTransactionCreate", "OnTransactionUpdate"]
+capabilities = ["transactions:read", "labels:write", "extensions:write"]
+
+[config]
+keyword = "coffee"
+```
+
+```go
+package main
+
+import (
+	"strings"
+
+	kasas "github.com/paulmeier/kasas/pluginsdk/kasas"
+)
+
+func init() {
+	kasas.OnTransactionCreate(classify)
+	kasas.OnTransactionUpdate(classify)
+}
+
+func classify(t *kasas.Transaction) error {
+	if strings.Contains(strings.ToLower(t.Description), kasas.ConfigString("keyword")) {
+		if err := kasas.ApplyLabels(t.ID, map[string]string{"category": "food"}); err != nil {
+			return err
+		}
+		return kasas.SetExtension(t.ID, "budgeting.flagged", true) // routes through the
+	}                                                            // normal emitter
+	return nil
+}
+
+func main() {} // required by the build mode, never runs
+```
+
+Build it with the standard Go toolchain (Go 1.24+), no extra tools:
+
+```sh
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o main.wasm .
+```
+
+The module is a **WASI reactor**: kasas runs your `init` functions once at load
+(that is where hooks are registered — `main` never runs), then invokes exported
+hooks per event. The SDK mirrors the Lua/JS host API one-to-one —
+`GetTransaction`, `Search`, `ApplyLabels`, `RemoveLabels`, `SetExtension`,
+`RemoveExtension`, `Log`, `Config`/`ConfigString`/`SetConfig` — with the same
+capability gates, and ships typed [page builders](#dashboard-pages)
+(`kasas.Page`, `kasas.Stat(...)`, `kasas.Form(...)`, …) for dashboard pages.
+`fmt.Println` output lands in the plugin log at info level (stderr at error
+level).
+
+Failure semantics match the other runtimes, with one twist worth knowing:
+
+- A **handler panic** is recovered by the SDK inside the module and surfaces as a
+  recorded hook error — the instance keeps running.
+- A **timeout** (`plugins.hook_timeout`) or an `os.Exit` kills the module
+  *instance*; kasas transparently **re-instantiates it from the compiled module on
+  the next invocation**. In-memory guest state is reset (treat globals as a cache,
+  not a store — durable state belongs in labels, extensions, or config).
+
+### Other languages & the ABI
+
+The WASM runtime is not Go-specific — the ABI (v1) is four host functions and a
+handshake, all JSON over linear memory, implementable from Rust, Zig, TinyGo, or
+anything else that targets `wasip1`:
+
+| Import (`kasas` module) | Meaning |
+| --- | --- |
+| `input(ptr, cap) -> n` | copy the invocation payload (length arrived as the hook argument) |
+| `output(ptr, len)` | set the result envelope: `{"ok":true}`, `{"ok":true,"page":{…}}`, or `{"ok":false,"error":…}` |
+| `host_call(ptr, len) -> n` | run a host op `{"op":"apply_labels", …}`; returns response length |
+| `read_response(ptr, cap) -> n` | copy (and consume) that response: `{"ok":true,"data":…}` or `{"ok":false,"error":…}` |
+
+The guest exports `_initialize` (the reactor initializer), `kasas_describe()` —
+which must `output` `{"ok":true,"abi":1,"hooks":["OnTransactionCreate",…]}` so
+kasas can verify at load that every declared hook is really implemented — and one
+export per hook, named exactly like the hook, with signature
+`(payload_len: u32)`. Host ops mirror the host API: `get_transaction`, `search`,
+`apply_labels`, `remove_labels`, `set_extension`, `remove_extension`, `log`,
+`get_config`, `set_config`.
+
 ## Dashboard pages
 
 A plugin can extend the dashboard with its **own sidebar entry and page**, without
@@ -386,12 +479,12 @@ curl -s -X POST localhost:8080/api/v1/plugins/pages/coffee-budget/action \
 ## The runtime seam
 
 The manager, host facade, and capability model are **language-agnostic**. A
-language plugs in by implementing two small interfaces, so adding JS or Go-via-WASM
-later touches no core logic:
+language plugs in by implementing two small interfaces — that is exactly how JS
+and then WASM landed, with no core logic touched:
 
 ```go
 type Runtime interface {
-    Name() string                                          // "lua", later "js" / "wasm"
+    Name() string                                          // "lua" / "js" / "wasm"
     Load(ctx, Manifest, dir string, Host) (Instance, error)
 }
 type Instance interface {
@@ -411,6 +504,14 @@ goja VM — which exposes no `require`, filesystem, or network by default — in
 camelCase `kasas` object plus a `console` shim, and resolves the declared hooks as
 global functions. A watcher goroutine calls the VM's `Interrupt` at the deadline, so
 a runaway `while (true) {}` is stopped just like a Lua loop.
+
+The WASM runtime compiles the module once with wazero and instantiates it as a
+WASI reactor with **no preopened directories** (so the entire WASI
+filesystem/network surface is dead on arrival), binds the four ABI host
+functions, and verifies the `kasas_describe` handshake against the manifest's
+hook list. Deadlines interrupt even a tight compiled loop (wazero closes the
+module instance); the instance is then re-instantiated from the compiled module
+on the next invocation.
 
 ## Enabling is opt-in & admin-only
 
@@ -523,12 +624,18 @@ hand-dropped plugin without it is still removable, just without self-cleanup.
 
 ## Sandbox & limits (v1)
 
-Both runtimes run with **no filesystem, process, or network access** and a single,
-self-contained source file (no `import`/`require`, no `node_modules`) — the Lua VM
-opens only safe libraries, and the goja VM exposes none of those globals by default
-(`eval` and the `Function` constructor binding are removed too). Each hook is bounded
-by `plugins.hook_timeout`. Neither is a hard **memory** sandbox (a buggy plugin can
-still allocate without bound), so the v1 trust model is *operator-installed, opt-in*
-plugins — now sourced either by hand or, with the same disabled-by-default posture,
-from the gated [community marketplace](#the-community-marketplace) above. A stronger
-WASM sandbox with hard resource caps is the planned next step.
+All three runtimes run with **no filesystem, process, or network access** and a
+single, self-contained file (no `import`/`require`, no `node_modules`) — the Lua VM
+opens only safe libraries, the goja VM exposes none of those globals by default
+(`eval` and the `Function` constructor binding are removed too), and the WASM
+module gets a WASI with no preopens, so every path and socket operation fails by
+construction. Each hook is bounded by `plugins.hook_timeout`.
+
+WASM is the strongest of the three: isolation is enforced by the WebAssembly
+memory model rather than by withholding APIs, and guest linear memory is **hard
+capped at 1 GiB** per plugin. The Lua and JS VMs are not hard memory sandboxes (a
+buggy plugin can still allocate without bound), so the v1 trust model remains
+*operator-installed, opt-in* plugins — sourced by hand or, with the same
+disabled-by-default posture, from the gated
+[community marketplace](#the-community-marketplace) above. Pick the WASM runtime
+when you want the strongest isolation for third-party code.

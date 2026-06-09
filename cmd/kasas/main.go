@@ -181,8 +181,9 @@ func run(command, configPath string) error {
 			Bus:     eventBus,
 			Dir:     cfg.Plugins.Dir,
 			Runtimes: map[string]plugins.Runtime{
-				plugins.RuntimeLua: plugins.NewLuaRuntime(),
-				plugins.RuntimeJS:  plugins.NewJSRuntime(),
+				plugins.RuntimeLua:  plugins.NewLuaRuntime(),
+				plugins.RuntimeJS:   plugins.NewJSRuntime(),
+				plugins.RuntimeWasm: plugins.NewWasmRuntime(),
 			},
 			HookTimeout: cfg.Plugins.HookTimeout,
 			QueueSize:   cfg.Plugins.QueueSize,

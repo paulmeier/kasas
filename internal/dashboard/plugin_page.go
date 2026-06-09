@@ -40,7 +40,15 @@ func (v *pluginPageView) OnMount(ctx app.Context) {
 // OnNav handles client-side navigation BETWEEN two plugin pages: both paths
 // match the one /ext/ regexp route, so go-app may reuse this mounted component
 // instead of creating a fresh one — re-read the URL and reload when it changed.
+//
+// Unlike OnMount (browser-only), OnNav ALSO fires during server-side prerender
+// of a full-page load, where no API client exists — loading there would panic a
+// background goroutine and take the whole server down (any GET /ext/<x> did,
+// pre-auth). Prerender renders the loading skeleton; the browser mount loads.
 func (v *pluginPageView) OnNav(ctx app.Context) {
+	if app.IsServer {
+		return
+	}
 	if extPageName(ctx) != v.name {
 		v.adoptRoute(ctx)
 	}
@@ -64,6 +72,9 @@ func extPageName(ctx app.Context) string {
 }
 
 func (v *pluginPageView) loadPage(ctx app.Context) {
+	if v.client == nil {
+		return // not initialized (prerender): never reach for the API
+	}
 	v.loading = true
 	name := v.name
 	ctx.Async(func() {

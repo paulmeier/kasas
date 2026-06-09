@@ -1,0 +1,16 @@
+name        = "wasm-budgeting"
+version     = "0.1.0"
+description = "Tag transactions matching a keyword (Go compiled to WASM)"
+author      = "kasas tests"
+runtime     = "wasm"
+# entrypoint defaults to main.wasm
+
+hooks        = ["OnTransactionCreate", "OnTransactionUpdate", "OnSyncComplete", "OnUninstall", "OnPageRender", "OnPageAction"]
+capabilities = ["transactions:read", "labels:write", "extensions:write", "ui:page"]
+
+[ui]
+title = "WASM Budgeting"
+icon  = "coin"
+
+[config]
+keyword = "coffee"
