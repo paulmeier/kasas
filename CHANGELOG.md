@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.0](https://github.com/paulmeier/kasas/compare/v2.23.0...v2.24.0) (2026-06-09)
+
+
+### Features
+
+* **plugins:** user-configurable plugin settings via config TOML and dashboard forms ([#93](https://github.com/paulmeier/kasas/issues/93)) ([d95d58e](https://github.com/paulmeier/kasas/commit/d95d58e84d1675f39f9c17324a4f12b0cb28ecd3))
+
 ## [2.23.0](https://github.com/paulmeier/kasas/compare/v2.22.0...v2.23.0) (2026-06-09)
 
 
