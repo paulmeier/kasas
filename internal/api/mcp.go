@@ -242,6 +242,11 @@ func (s *Server) MCPServer() *mcp.Server {
 			Description: "Reload a plugin by id from disk, picking up code and manifest changes without a restart (reloads only if the plugin is enabled). Returns the updated status.",
 		}, s.mcpReloadPlugin)
 
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "uninstall_plugin",
+			Description: "Uninstall a plugin by id: run its OnUninstall cleanup hook (best-effort), then remove its files and registration entirely. Reports whether the cleanup hook ran and any error it produced (a hook failure does not prevent removal).",
+		}, s.mcpUninstallPlugin)
+
 		// Community marketplace tools, registered only when a registry is configured.
 		if s.pluginMgr.RegistryEnabled() {
 			mcp.AddTool(srv, &mcp.Tool{

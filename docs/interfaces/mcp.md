@@ -84,7 +84,7 @@ as the corresponding REST route, so responses are identical.
     | --- | --- |
     | `list_api_keys` · `create_api_key` · `revoke_api_key` | [API key](authentication.md#api-keys) management. |
     | `list_webhooks` · `create_webhook` · `update_webhook` · `delete_webhook` · `test_webhook` | [Webhook](../features/webhooks.md) management. |
-    | `list_plugins` · `get_plugin` · `enable_plugin` · `disable_plugin` · `reload_plugin` | [Plugin](../features/plugins.md) lifecycle (when enabled). |
+    | `list_plugins` · `get_plugin` · `enable_plugin` · `disable_plugin` · `reload_plugin` · `uninstall_plugin` | [Plugin](../features/plugins.md) lifecycle (when enabled; uninstall runs the cleanup hook). |
     | `browse_plugin_registry` · `install_plugin` | [Community marketplace](../features/plugins.md#the-community-marketplace) (when a registry is configured). |
 
 ## One core, two surfaces

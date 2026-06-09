@@ -184,6 +184,45 @@ func (s *Server) handleReloadPlugin(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, toPluginDTO(st))
 }
 
+// UninstallResultDTO is the JSON result of uninstalling a plugin: whether the
+// plugin's OnUninstall cleanup hook ran and any error it produced. A hook error
+// does not fail the uninstall (the plugin is still removed); it is reported so the
+// operator knows the plugin's self-cleanup may have been incomplete.
+type UninstallResultDTO struct {
+	Name        string `json:"name"`
+	Uninstalled bool   `json:"uninstalled"`
+	HookRan     bool   `json:"hook_ran"`
+	HookError   string `json:"hook_error,omitempty"`
+}
+
+func toUninstallResultDTO(r plugins.UninstallResult) UninstallResultDTO {
+	return UninstallResultDTO{
+		Name:        r.Name,
+		Uninstalled: true,
+		HookRan:     r.HookRan,
+		HookError:   r.HookError,
+	}
+}
+
+func (s *Server) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
+	id, err := pluginIDParam(r)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+	res, err := s.pluginMgr.Uninstall(r.Context(), id)
+	switch {
+	case errors.Is(err, plugins.ErrDisabled):
+		s.writeError(w, http.StatusServiceUnavailable, "plugin system is disabled")
+	case errors.Is(err, plugins.ErrPluginNotFound):
+		s.writeError(w, http.StatusNotFound, "plugin not found")
+	case err != nil:
+		s.serverError(w, "uninstall plugin", err)
+	default:
+		s.writeJSON(w, http.StatusOK, toUninstallResultDTO(res))
+	}
+}
+
 // --- MCP tool input/output types + handlers (registered in mcp.go) ---
 
 type listPluginsOutput struct {
@@ -245,4 +284,15 @@ func (s *Server) mcpReloadPlugin(ctx context.Context, _ *mcp.CallToolRequest, in
 		return nil, PluginDTO{}, err
 	}
 	return &mcp.CallToolResult{}, toPluginDTO(st), nil
+}
+
+func (s *Server) mcpUninstallPlugin(ctx context.Context, _ *mcp.CallToolRequest, in pluginIDInput) (*mcp.CallToolResult, UninstallResultDTO, error) {
+	res, err := s.pluginMgr.Uninstall(ctx, in.ID)
+	if errors.Is(err, plugins.ErrPluginNotFound) {
+		return nil, UninstallResultDTO{}, fmt.Errorf("plugin %d not found", in.ID)
+	}
+	if err != nil {
+		return nil, UninstallResultDTO{}, err
+	}
+	return &mcp.CallToolResult{}, toUninstallResultDTO(res), nil
 }

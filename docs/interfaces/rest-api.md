@@ -84,7 +84,7 @@ Base path: `/api/v1`. Source:
 | `POST /api/v1/security/token` · `DELETE …` | Generate/set or revoke the [dashboard token](authentication.md). |
 | `POST /api/v1/security/api-keys` · `GET …` · `DELETE …/{id}` | Mint / list / revoke [API keys](authentication.md#api-keys). |
 | `GET/POST/PUT/DELETE /api/v1/webhooks` (+ `/{id}/test`, `/{id}/rotate-secret`) | Manage [webhooks](../features/webhooks.md). |
-| `POST /api/v1/plugins/{id}/enable` · `/disable` · `/reload` | [Plugin](../features/plugins.md) lifecycle. |
+| `POST /api/v1/plugins/{id}/enable` · `/disable` · `/reload` · `DELETE /api/v1/plugins/{id}` | [Plugin](../features/plugins.md) lifecycle (DELETE uninstalls, running the cleanup hook). |
 | `GET /api/v1/plugins/registry` · `POST /api/v1/plugins/registry/{name}/install` | Browse / install from the [community marketplace](../features/plugins.md#the-community-marketplace). |
 | `POST /api/v1/update` | Install the latest release in place (when `update.allow_apply` is on). |
 
