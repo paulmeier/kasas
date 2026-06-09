@@ -1245,6 +1245,28 @@ tr:hover .row-delete-btn,
 .ext-kv-value { margin: 0; text-align: right; word-break: break-word; }
 .ext-table { margin-bottom: 14px; }
 .ext-actions { display: flex; gap: 10px; margin: 4px 0 14px; flex-wrap: wrap; }
+.ext-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  margin: 0 0 14px;
+  max-width: 520px;
+}
+.ext-form-field { display: flex; flex-direction: column; gap: 6px; }
+.ext-form-label { color: var(--muted); font-size: 13px; }
+.ext-form-input {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 14px;
+}
+.ext-form-input:focus { outline: none; border-color: var(--accent); }
+.ext-form-toggle { align-self: flex-start; width: 18px; height: 18px; accent-color: var(--accent); }
+.ext-form-help { color: var(--muted); font-size: 12px; }
+.ext-form-submit { display: flex; justify-content: flex-end; }
 .ext-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 .badge.page-badge {
   margin-left: 8px;

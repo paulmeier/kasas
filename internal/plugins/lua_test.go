@@ -22,6 +22,7 @@ type fakeHost struct {
 	applied    map[string]map[string]string
 	removed    map[string][]string
 	extensions map[string]map[string]string
+	config     map[string]any
 	searchRes  []Transaction
 	getRes     *Transaction
 }
@@ -57,6 +58,15 @@ func (f *fakeHost) SetExtension(_ context.Context, id, key string, v json.RawMes
 }
 func (f *fakeHost) RemoveExtension(_ context.Context, _, _ string) error { return nil }
 func (f *fakeHost) Log(_, _ string, _ map[string]any)                    {}
+func (f *fakeHost) SetConfig(_ context.Context, changes map[string]any) (map[string]any, error) {
+	if f.config == nil {
+		f.config = map[string]any{}
+	}
+	for k, v := range changes {
+		f.config[k] = v
+	}
+	return f.config, nil
+}
 
 func loadFixture(t *testing.T, name string, host Host) Instance {
 	t.Helper()
@@ -140,4 +150,73 @@ func TestLuaSandboxRemovesDangerousGlobals(t *testing.T) {
 	}
 	// the kasas host table is present
 	assert.Equal(t, lua.LTTable, li.L.GetGlobal("kasas").Type())
+}
+
+func TestLuaSetConfigUpdatesLiveConfig(t *testing.T) {
+	dir := t.TempDir()
+	src := `
+function OnTransactionCreate(txn)
+  kasas.set_config({ keyword = "tea" })
+  kasas.apply_labels(txn.id, { k = kasas.config.keyword })
+end`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.lua"), []byte(src), 0o644))
+	m := Manifest{Name: "cfg", Runtime: RuntimeLua, Entrypoint: "main.lua",
+		Hooks: []Hook{HookTransactionCreate}, Config: map[string]any{"keyword": "coffee"}}
+
+	host := newFakeHost()
+	inst, err := NewLuaRuntime().Load(context.Background(), m, dir, host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inst.Close() })
+
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1"}}))
+	assert.Equal(t, map[string]any{"keyword": "tea"}, host.config, "the change reached the host")
+	assert.Equal(t, "tea", host.applied["tx-1"]["k"], "kasas.config reflects the new value immediately")
+}
+
+func TestLuaSetConfigPersistsViaRealHost(t *testing.T) {
+	pluginsDir := t.TempDir()
+	codeDir := t.TempDir()
+	src := `
+function OnTransactionCreate(txn)
+  kasas.set_config({ keyword = "tea", limit = 25 })
+end`
+	require.NoError(t, os.WriteFile(filepath.Join(codeDir, "main.lua"), []byte(src), 0o644))
+	defaults := map[string]any{"keyword": "coffee", "limit": int64(10)}
+	m := Manifest{Name: "cfg", Runtime: RuntimeLua, Entrypoint: "main.lua",
+		Hooks: []Hook{HookTransactionCreate}, Config: defaults}
+	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults))
+
+	inst, err := NewLuaRuntime().Load(context.Background(), m, codeDir, host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inst.Close() })
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1"}}))
+
+	eff, err := effectiveConfig(pluginsDir, "cfg", defaults)
+	require.NoError(t, err)
+	assert.Equal(t, "tea", eff["keyword"])
+	assert.EqualValues(t, 25, eff["limit"])
+}
+
+func TestLuaSetConfigUnknownKeyRaises(t *testing.T) {
+	pluginsDir := t.TempDir()
+	codeDir := t.TempDir()
+	src := `
+function OnTransactionCreate(txn)
+  kasas.set_config({ nope = "x" })
+end`
+	require.NoError(t, os.WriteFile(filepath.Join(codeDir, "main.lua"), []byte(src), 0o644))
+	defaults := map[string]any{"keyword": "coffee"}
+	m := Manifest{Name: "cfg", Runtime: RuntimeLua, Entrypoint: "main.lua",
+		Hooks: []Hook{HookTransactionCreate}, Config: defaults}
+	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults))
+
+	inst, err := NewLuaRuntime().Load(context.Background(), m, codeDir, host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inst.Close() })
+	err = inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown config key")
 }

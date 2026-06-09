@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -60,10 +61,14 @@ func (m *Manager) Uninstall(ctx context.Context, id int64) (UninstallResult, err
 	}
 
 	// Remove the plugin's files. row.Name is a validated slug, so this stays inside
-	// the plugins directory.
+	// the plugins directory. The user config override file lives next to the
+	// plugin's directory and belongs to it, so it goes too.
 	if m.dir != "" {
 		if err := os.RemoveAll(filepath.Join(m.dir, row.Name)); err != nil {
 			return res, fmt.Errorf("remove plugin files: %w", err)
+		}
+		if err := os.Remove(userConfigPath(m.dir, row.Name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return res, fmt.Errorf("remove plugin config file: %w", err)
 		}
 	}
 
@@ -86,9 +91,20 @@ func (m *Manager) runUninstallHook(ctx context.Context, row db.Plugin, d Discove
 		return fmt.Errorf("no runtime registered for %q", d.Manifest.Runtime)
 	}
 	caps := intersectCaps(d.Manifest.Capabilities, decodeCapList(row.GrantedCapabilities))
-	host := newHost(m.store, m.emitter, caps, row.Name, m.searchLimit, m.logger)
+	host := newHost(m.store, m.emitter, caps, row.Name, m.searchLimit, m.logger,
+		newConfigStore(m.dir, row.Name, d.Manifest.Config))
 
-	inst, err := rt.Load(ctx, d.Manifest, d.Dir, host)
+	// Cleanup should see the same effective config the plugin ran with, but a
+	// broken override file must never make a plugin un-removable: fall back to
+	// the manifest defaults instead of failing.
+	man := d.Manifest
+	if eff, cerr := effectiveConfig(m.dir, row.Name, d.Manifest.Config); cerr == nil {
+		man.Config = eff
+	} else {
+		m.logger.Warn("plugin config unreadable for uninstall, using manifest defaults", "plugin", row.Name, "error", cerr)
+	}
+
+	inst, err := rt.Load(ctx, man, d.Dir, host)
 	if err != nil {
 		return fmt.Errorf("load for uninstall: %w", err)
 	}

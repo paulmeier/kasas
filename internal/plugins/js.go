@@ -104,6 +104,9 @@ type jsInstance struct {
 	host  Host
 	name  string
 	hooks map[Hook]goja.Callable
+	// kasas is the injected host object, kept so setConfig can swap the live
+	// kasas.config value after a successful save.
+	kasas *goja.Object
 	// ctx is the current invocation's context, set in Invoke and read by the host
 	// closures. Safe because invocations are serialized by the per-plugin worker.
 	ctx context.Context
@@ -137,8 +140,10 @@ func (ji *jsInstance) inject(m Manifest) {
 	_ = kasas.Set("setExtension", ji.setExtension)
 	_ = kasas.Set("removeExtension", ji.removeExtension)
 	_ = kasas.Set("log", ji.log)
+	_ = kasas.Set("setConfig", ji.setConfig)
 	_ = kasas.Set("config", vm.ToValue(m.Config))
 	_ = vm.Set("kasas", kasas)
+	ji.kasas = kasas
 }
 
 // Invoke runs the plugin's handler for hook. A watcher goroutine interrupts the VM
@@ -294,6 +299,26 @@ func (ji *jsInstance) removeExtension(call goja.FunctionCall) goja.Value {
 		panic(ji.throw("removeExtension: %v", err))
 	}
 	return goja.Undefined()
+}
+
+// setConfig persists config overrides: kasas.setConfig({ key: value, ... }).
+// The host validates each key against the manifest's [config] defaults and
+// overwrites the plugin's user config file; on success the live kasas.config
+// object is replaced with the new effective config, which is also returned.
+func (ji *jsInstance) setConfig(call goja.FunctionCall) goja.Value {
+	changes, ok := call.Argument(0).Export().(map[string]any)
+	if !ok {
+		panic(ji.throw("setConfig: expected an object of key/value pairs"))
+	}
+	merged, err := ji.host.SetConfig(ji.invCtx(), changes)
+	if err != nil {
+		panic(ji.throw("setConfig: %v", err))
+	}
+	cfg := ji.vm.ToValue(merged)
+	if ji.kasas != nil {
+		_ = ji.kasas.Set("config", cfg)
+	}
+	return cfg
 }
 
 func (ji *jsInstance) log(call goja.FunctionCall) goja.Value {

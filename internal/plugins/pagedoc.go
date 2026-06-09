@@ -40,6 +40,7 @@ type PageDoc struct {
 //	keyvalue – Items
 //	table    – Columns, Rows
 //	actions  – Actions (buttons that POST back to OnPageAction)
+//	form     – ID, Fields, SubmitLabel (inputs that POST back to OnPageAction)
 //	divider  – nothing
 type PageBlock struct {
 	Type    string         `json:"type"`
@@ -51,6 +52,27 @@ type PageBlock struct {
 	Columns []string       `json:"columns,omitempty"`
 	Rows    [][]flexString `json:"rows,omitempty"`
 	Actions []PageAction   `json:"actions,omitempty"`
+
+	// Form fields (Type == "form"). Submitting POSTs {ID, params} back to
+	// OnPageAction exactly like a button press, with every field's current value
+	// in params under the field's name — so a plugin can collect settings from
+	// the user and persist them with kasas.set_config.
+	ID          string      `json:"id,omitempty"`
+	Fields      []PageField `json:"fields,omitempty"`
+	SubmitLabel string      `json:"submit_label,omitempty"`
+}
+
+// PageField is one input of a form block. Kind selects the control the
+// dashboard renders; values always travel as strings (a toggle submits
+// "true"/"false"), matching action params.
+type PageField struct {
+	Name        string     `json:"name"`
+	Label       string     `json:"label"`
+	Kind        string     `json:"kind,omitempty"` // "text" (default), "number", "toggle", "select"
+	Value       flexString `json:"value,omitempty"`
+	Placeholder string     `json:"placeholder,omitempty"`
+	Help        string     `json:"help,omitempty"`
+	Options     []string   `json:"options,omitempty"` // select only
 }
 
 // PageKV is one row of a keyvalue block.
@@ -106,7 +128,19 @@ const (
 	maxPageRows     = 1000
 	maxPageActions  = 16
 	maxActionParams = 16
+	// maxFormFields matches maxActionParams: a form's fields become exactly the
+	// params of its OnPageAction submission.
+	maxFormFields   = maxActionParams
+	maxFieldOptions = 50 // options of one select field
 )
+
+// pageFieldKinds enumerates the valid form-field kinds ("" normalizes to "text").
+var pageFieldKinds = map[string]bool{
+	"text":   true,
+	"number": true,
+	"toggle": true,
+	"select": true,
+}
 
 // actionIDRE constrains an action id to a slug, mirroring plugin names: the id
 // round-trips through the dashboard and back into the action endpoint's payload.
@@ -123,6 +157,7 @@ var pageBlockKinds = map[string]bool{
 	"keyvalue": true,
 	"table":    true,
 	"actions":  true,
+	"form":     true,
 	"divider":  true,
 }
 
@@ -214,8 +249,69 @@ func (b *PageBlock) validate() error {
 		if err := b.validateActions(); err != nil {
 			return err
 		}
+	case "form":
+		if err := b.validateForm(); err != nil {
+			return err
+		}
 	}
 	b.clearUnusedFields()
+	return nil
+}
+
+func (b *PageBlock) validateForm() error {
+	if !actionIDRE.MatchString(b.ID) {
+		return fmt.Errorf("invalid form id %q (must match %s)", b.ID, actionIDRE.String())
+	}
+	if len(b.SubmitLabel) > maxPageFieldLen {
+		return fmt.Errorf("submit_label too long (max %d)", maxPageFieldLen)
+	}
+	if len(b.Fields) == 0 {
+		return fmt.Errorf("fields are required")
+	}
+	if len(b.Fields) > maxFormFields {
+		return fmt.Errorf("too many fields (%d, max %d)", len(b.Fields), maxFormFields)
+	}
+	seen := make(map[string]bool, len(b.Fields))
+	for i := range b.Fields {
+		f := &b.Fields[i]
+		if !actionIDRE.MatchString(f.Name) {
+			return fmt.Errorf("invalid field name %q (must match %s)", f.Name, actionIDRE.String())
+		}
+		if seen[f.Name] {
+			return fmt.Errorf("duplicate field name %q", f.Name)
+		}
+		seen[f.Name] = true
+		if f.Label == "" || len(f.Label) > maxPageFieldLen {
+			return fmt.Errorf("field labels are required and at most %d characters", maxPageFieldLen)
+		}
+		if f.Kind == "" {
+			f.Kind = "text"
+		}
+		if !pageFieldKinds[f.Kind] {
+			return fmt.Errorf("unknown field kind %q (text, number, toggle, or select)", f.Kind)
+		}
+		if len(f.Value) > maxPageValueLen {
+			return fmt.Errorf("field value too long (max %d)", maxPageValueLen)
+		}
+		if len(f.Placeholder) > maxPageFieldLen || len(f.Help) > maxPageFieldLen {
+			return fmt.Errorf("field placeholder/help too long (max %d)", maxPageFieldLen)
+		}
+		if f.Kind == "select" {
+			if len(f.Options) == 0 {
+				return fmt.Errorf("select field %q needs options", f.Name)
+			}
+			if len(f.Options) > maxFieldOptions {
+				return fmt.Errorf("too many options on field %q (%d, max %d)", f.Name, len(f.Options), maxFieldOptions)
+			}
+			for _, o := range f.Options {
+				if o == "" || len(o) > maxPageValueLen {
+					return fmt.Errorf("options of field %q must be non-empty and at most %d characters", f.Name, maxPageValueLen)
+				}
+			}
+		} else if len(f.Options) > 0 {
+			return fmt.Errorf("field %q has options but is not a select", f.Name)
+		}
+	}
 	return nil
 }
 
@@ -281,7 +377,7 @@ func (b *PageBlock) validateActions() error {
 // clearUnusedFields zeroes the fields the block's type does not use, so the
 // normalized wire form never carries stray data a plugin happened to set.
 func (b *PageBlock) clearUnusedFields() {
-	keep := struct{ text, stat, items, table, actions bool }{}
+	keep := struct{ text, stat, items, table, actions, form bool }{}
 	switch b.Type {
 	case "heading", "text":
 		keep.text = true
@@ -293,6 +389,8 @@ func (b *PageBlock) clearUnusedFields() {
 		keep.table = true
 	case "actions":
 		keep.actions = true
+	case "form":
+		keep.form = true
 	}
 	if !keep.text {
 		b.Text = ""
@@ -308,5 +406,8 @@ func (b *PageBlock) clearUnusedFields() {
 	}
 	if !keep.actions {
 		b.Actions = nil
+	}
+	if !keep.form {
+		b.ID, b.Fields, b.SubmitLabel = "", nil, ""
 	}
 }

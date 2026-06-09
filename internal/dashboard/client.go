@@ -864,6 +864,22 @@ type pageBlock struct {
 	Columns []string     `json:"columns"`
 	Rows    [][]string   `json:"rows"`
 	Actions []pageAction `json:"actions"`
+
+	// Form blocks: inputs whose values POST back to OnPageAction as the params
+	// of the action named by ID.
+	ID          string      `json:"id"`
+	Fields      []pageField `json:"fields"`
+	SubmitLabel string      `json:"submit_label"`
+}
+
+type pageField struct {
+	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	Kind        string   `json:"kind"` // text | number | toggle | select
+	Value       string   `json:"value"`
+	Placeholder string   `json:"placeholder"`
+	Help        string   `json:"help"`
+	Options     []string `json:"options"`
 }
 
 type pageKV struct {

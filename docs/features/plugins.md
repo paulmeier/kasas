@@ -57,7 +57,7 @@ hooks = ["OnTransactionCreate", "OnTransactionUpdate"]
 # labels:write, extensions:write, ui:page.
 capabilities = ["transactions:read", "labels:write"]
 
-[config]                            # arbitrary config, exposed as kasas.config
+[config]                            # configurable keys + their DEFAULTS, exposed as kasas.config
 keyword = "coffee"
 ```
 
@@ -119,12 +119,66 @@ runtime (Lua today, JS/WASM later) inherits the same enforcement:
 | `kasas.set_extension(id, key, value)` | `extensions:write` |
 | `kasas.remove_extension(id, key)` | `extensions:write` |
 | `kasas.log(level, msg, {k=v,…})` | — (always allowed) |
-| `kasas.config` | — (the manifest `[config]` table) |
+| `kasas.config` | — (the effective config: manifest defaults + user overrides) |
+| `kasas.set_config({k=v,…})` | — (always allowed; a plugin only configures itself) |
 
 A call to a host function the plugin wasn't granted returns an error. The table shows
 the **Lua** names; the JavaScript/TypeScript runtime exposes the same methods in
 idiomatic **camelCase** (`kasas.getTransaction`, `kasas.applyLabels`, …) — see
 [JavaScript & TypeScript](#javascript--typescript) below.
+
+## Configuring a plugin
+
+The manifest's `[config]` block is the **schema** of what an end user may
+configure: it declares every configurable key together with its default. The
+user can then override those defaults through **either** of two equivalent
+surfaces, and both end up in the same place:
+
+1. **A config TOML file**, edited by hand. Each plugin owns one override file
+   that lives *next to* its directory (so a marketplace update — an atomic
+   directory swap — never wipes it):
+
+    ```text
+    /data/plugins/
+      coffee-budget/                 # the plugin's files (replaced on update)
+      coffee-budget.config.toml      # the user's overrides (survives updates)
+    ```
+
+    ```toml
+    # coffee-budget.config.toml — keys must exist in the manifest's [config].
+    keyword  = "espresso"
+    category = "coffee"
+    ```
+
+    The file is read when the plugin loads; after editing it, hit **Reload** on
+    the Plugins page (or `POST /api/v1/plugins/{id}/reload`) to apply.
+
+2. **The plugin's own dashboard page**, if the developer builds one. A page can
+   include a [`form` block](#dashboard-pages) whose submitted values arrive in
+   `OnPageAction`, where the plugin persists them with `kasas.set_config`:
+
+    ```lua
+    function OnPageAction(req)
+      if req.action == "save_settings" then
+        kasas.set_config({ keyword = req.params.keyword })  -- validates, then
+      end                                                   -- OVERWRITES the file
+      return OnPageRender(req)
+    end
+    ```
+
+`kasas.set_config` (JS: `kasas.setConfig`) validates every key against the
+`[config]` defaults — an unknown key is an error, and each value is coerced to
+its default's type (so the string `"25"` from a form lands as a number when the
+default is numeric). On success it **overwrites `<name>.config.toml`**, updates
+the live `kasas.config` value in place, and returns the new effective config.
+The file is therefore always the single source of truth: what the dashboard
+saved is exactly what the user sees (and may re-edit) in the TOML.
+
+Precedence, lowest to highest: manifest `[config]` defaults →
+`<name>.config.toml` overrides. A broken override file (bad TOML, an unknown
+key, a value of the wrong type) fails the plugin's load with a clear error on
+the Plugins page rather than silently running on defaults. Uninstalling a
+plugin deletes its override file along with its directory.
 
 ## JavaScript & TypeScript
 
@@ -200,7 +254,11 @@ interface Kasas {
   removeExtension(id: string, key: string): void;                // extensions:write
   log(level: "debug" | "info" | "warn" | "error", message: string,
       fields?: Record<string, unknown>): void;                   // always allowed
-  config: Record<string, any>;                                   // the [config] table
+  /** Effective config: manifest [config] defaults + the user's overrides. */
+  config: Record<string, any>;
+  /** Persist config overrides (validated against the [config] defaults),
+      overwrite <name>.config.toml, refresh kasas.config, and return it. */
+  setConfig(changes: Record<string, unknown>): Record<string, any>; // always allowed
 }
 
 declare const kasas: Kasas;
@@ -264,10 +322,42 @@ end
 **Block types:** `heading` and `text` (a `text` string), `stat` (`label`, `value`,
 optional `hint`), `keyvalue` (`items` of `{key, value}`), `table` (`columns` plus
 `rows` of cell arrays), `actions` (buttons of `{id, label, style?, params?}` that
-POST back to `OnPageAction`), and `divider`. Scalar values may be strings,
-numbers, or booleans — they are normalized to strings. Documents are
+POST back to `OnPageAction`), `form` (see below), and `divider`. Scalar values may
+be strings, numbers, or booleans — they are normalized to strings. Documents are
 bounds-checked (≤256 KiB, ≤200 blocks, ≤1000 table rows, …) and an unknown block
 type is an error, so a typo surfaces immediately on the page.
+
+**Form blocks** let a page collect input — the building block of an in-dashboard
+settings panel (see [Configuring a plugin](#configuring-a-plugin)). A form is
+`{id, fields, submit_label?}`; each field is `{name, label, kind?, value?,
+placeholder?, help?, options?}` with `kind` one of `text` (default), `number`,
+`toggle`, or `select` (which requires `options`). Submitting POSTs the form's
+`id` as the action with every field's current value (a string; toggles send
+`"true"`/`"false"`) in `req.params` under the field's name — at most 16 fields,
+matching the action-param bound:
+
+```lua
+function OnPageRender(req)
+  return {
+    blocks = {
+      { type = "heading", text = "Settings" },
+      { type = "form", id = "save_settings", submit_label = "Save",
+        fields = {
+          { name = "keyword",  label = "Keyword", value = kasas.config.keyword,
+            help = "transactions whose description contains this are tagged" },
+          { name = "category", label = "Category", value = kasas.config.category },
+        } },
+    },
+  }
+end
+
+function OnPageAction(req)
+  if req.action == "save_settings" then
+    kasas.set_config({ keyword = req.params.keyword, category = req.params.category })
+  end
+  return OnPageRender(req)
+end
+```
 
 **Contract & tiers:** treat `OnPageRender` as **read-only** — it runs whenever
 someone views the page (`GET /api/v1/plugins/pages/{name}`, read tier). Mutations

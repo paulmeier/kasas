@@ -227,3 +227,65 @@ func TestManagerEnableContextCancelStillRuns(t *testing.T) {
 		return labels.Decode(row.Labels)["category"] == "food"
 	}, 3*time.Second, 20*time.Millisecond, "hook must still run after the enable request context is cancelled")
 }
+
+// captureRuntime records the manifest handed to Load, so a test can assert the
+// effective config the instance sees.
+type captureRuntime struct {
+	inst *stubInstance
+	got  *Manifest
+}
+
+func (r *captureRuntime) Name() string { return RuntimeLua }
+func (r *captureRuntime) Load(_ context.Context, m Manifest, _ string, _ Host) (Instance, error) {
+	*r.got = m
+	return r.inst, nil
+}
+
+func TestManagerLoadMergesUserConfigOverrides(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "budgeting",
+		`name="budgeting"`+"\n"+`runtime="lua"`+"\n"+`hooks=["OnTransactionCreate"]`+"\n"+
+			"[config]\nkeyword=\"coffee\"\nlimit=10",
+		`function OnTransactionCreate(txn) end`)
+	require.NoError(t, os.WriteFile(userConfigPath(dir, "budgeting"), []byte("keyword = \"tea\"\n"), 0o644))
+
+	rt := &captureRuntime{inst: &stubInstance{}, got: &Manifest{}}
+	mgr := NewManager(Options{
+		Store: testutil.NewStore(t), Bus: events.NewBus(), Dir: dir,
+		Runtimes: map[string]Runtime{RuntimeLua: rt}, Logger: testLogger(),
+	})
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	bud, ok := findByName(statuses, "budgeting")
+	require.True(t, ok)
+
+	_, err = mgr.SetEnabled(context.Background(), bud.ID, true)
+	require.NoError(t, err)
+	assert.Equal(t, "tea", rt.got.Config["keyword"], "the override file wins over the manifest default")
+	assert.Equal(t, int64(10), rt.got.Config["limit"], "untouched keys keep their manifest defaults")
+}
+
+func TestManagerLoadRejectsBrokenUserConfig(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "budgeting",
+		`name="budgeting"`+"\n"+`runtime="lua"`+"\n"+`hooks=["OnTransactionCreate"]`+"\n"+
+			"[config]\nkeyword=\"coffee\"",
+		`function OnTransactionCreate(txn) end`)
+	require.NoError(t, os.WriteFile(userConfigPath(dir, "budgeting"), []byte("nope = \"x\"\n"), 0o644))
+
+	mgr := NewManager(Options{
+		Store: testutil.NewStore(t), Bus: events.NewBus(), Dir: dir,
+		Runtimes: map[string]Runtime{RuntimeLua: &captureRuntime{inst: &stubInstance{}, got: &Manifest{}}},
+		Logger:   testLogger(),
+	})
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	bud, ok := findByName(statuses, "budgeting")
+	require.True(t, ok)
+
+	_, err = mgr.SetEnabled(context.Background(), bud.ID, true)
+	require.Error(t, err, "a mistyped override key must fail the load so the operator notices")
+	assert.Contains(t, err.Error(), "unknown config key")
+}
