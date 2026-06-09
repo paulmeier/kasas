@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.0](https://github.com/paulmeier/kasas/compare/v2.17.0...v2.18.0) (2026-06-09)
+
+
+### Features
+
+* add Plaid as a data source with multi-bank fan-out ([#80](https://github.com/paulmeier/kasas/issues/80)) ([8d03d3c](https://github.com/paulmeier/kasas/commit/8d03d3c5e0e19623b07c0c314ebba024b14b1020))
+
 ## [2.17.0](https://github.com/paulmeier/kasas/compare/v2.16.0...v2.17.0) (2026-06-09)
 
 
