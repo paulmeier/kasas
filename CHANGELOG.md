@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.0](https://github.com/paulmeier/kasas/compare/v2.20.0...v2.21.0) (2026-06-09)
+
+
+### Features
+
+* add the community plugin marketplace (browse and install community plugins) ([#87](https://github.com/paulmeier/kasas/issues/87)) ([0655148](https://github.com/paulmeier/kasas/commit/06551486b869f4b8dde54b473b17e397e9f2947b))
+
 ## [2.20.0](https://github.com/paulmeier/kasas/compare/v2.19.0...v2.20.0) (2026-06-09)
 
 
