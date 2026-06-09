@@ -35,6 +35,9 @@ go.work.sum
 /internal/dashboard/web/app.wasm
 /internal/dashboard/web/app.wasm.gz
 
+# kasas: wasm plugin test fixtures (compiled from guest/ by the tests)
+/internal/plugins/testdata/*/main.wasm
+
 # kasas: MkDocs documentation build output + local preview venv (the docs branch
 # is published by CI; source lives in /docs and mkdocs.yml)
 /site/

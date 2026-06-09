@@ -148,8 +148,9 @@ flowchart LR
 
     ---
 
-    Push HMAC-signed events to your services, or run sandboxed Lua plugins
-    in-process that react to the same events — the integration surface.
+    Push HMAC-signed events to your services, or run sandboxed plugins
+    in-process (Lua, JS/TS, or Go via WASM) that react to the same events —
+    the integration surface.
 
     [:octicons-arrow-right-24: Webhooks](features/webhooks.md) ·
     [Plugins](features/plugins.md)

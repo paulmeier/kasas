@@ -1,0 +1,7 @@
+name        = "wasm-minimal"
+version     = "0.1.0"
+description = "Smallest possible Go/WASM plugin (one no-op hook)"
+author      = "kasas tests"
+runtime     = "wasm"
+
+hooks = ["OnTransactionCreate"]

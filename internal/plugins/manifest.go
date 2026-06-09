@@ -7,10 +7,11 @@
 // mutate ledger data — so enforcement is identical regardless of the language a
 // plugin is written in.
 //
-// Two runtimes ship today behind the Runtime/Instance adapter seam: Lua (via
-// gopher-lua) and JavaScript/TypeScript (via goja, with esbuild stripping TypeScript
-// types at load). Go (wazero/WASM) can slot in later as another Runtime
-// implementation without touching the manager.
+// Three runtimes ship today behind the Runtime/Instance adapter seam: Lua (via
+// gopher-lua), JavaScript/TypeScript (via goja, with esbuild stripping TypeScript
+// types at load), and WASM (via wazero — the home for plugins written in Go, or
+// any other language that compiles to wasip1). All three are pure Go, preserving
+// the single-static-binary build.
 package plugins
 
 import (
@@ -69,26 +70,28 @@ const (
 )
 
 // Runtime values for the manifest `runtime` field. Each maps to a registered
-// Runtime implementation (NewLuaRuntime / NewJSRuntime); WASM adds its own when it
-// lands.
+// Runtime implementation (NewLuaRuntime / NewJSRuntime / NewWasmRuntime).
 const (
-	RuntimeLua = "lua"
-	RuntimeJS  = "js"
+	RuntimeLua  = "lua"
+	RuntimeJS   = "js"
+	RuntimeWasm = "wasm"
 )
 
 // knownRuntimes is the set of accepted `runtime` values. An unknown runtime is a
 // hard manifest error so a typo can't silently fail to load.
 var knownRuntimes = map[string]bool{
-	RuntimeLua: true,
-	RuntimeJS:  true,
+	RuntimeLua:  true,
+	RuntimeJS:   true,
+	RuntimeWasm: true,
 }
 
 // defaultEntrypoints is the per-runtime fallback source file when a manifest omits
 // `entrypoint`. A JS plugin written in TypeScript sets `entrypoint = "main.ts"`
 // explicitly; the JS runtime picks the esbuild loader by file extension.
 var defaultEntrypoints = map[string]string{
-	RuntimeLua: "main.lua",
-	RuntimeJS:  "main.js",
+	RuntimeLua:  "main.lua",
+	RuntimeJS:   "main.js",
+	RuntimeWasm: "main.wasm",
 }
 
 // supportedRuntimes is the sorted, human-readable list of accepted runtimes, used in
