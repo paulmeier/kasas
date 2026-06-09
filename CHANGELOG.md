@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.20.0](https://github.com/paulmeier/kasas/compare/v2.19.0...v2.20.0) (2026-06-09)
+
+
+### Features
+
+* **plugins:** add JavaScript/TypeScript plugin runtime (goja + esbuild) ([#84](https://github.com/paulmeier/kasas/issues/84)) ([44e069a](https://github.com/paulmeier/kasas/commit/44e069a36ac8e554b946e059286cdc8d84bc3277))
+
 ## [2.19.0](https://github.com/paulmeier/kasas/compare/v2.18.0...v2.19.0) (2026-06-09)
 
 
