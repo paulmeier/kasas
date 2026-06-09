@@ -271,6 +271,11 @@ max_attempts = 5
 # MCP tool) — and enabling one runs its code, so that action is admin-only.
 enabled = false
 # Directory scanned for plugin subdirectories (each a plugin.toml plus its source).
+# Per-plugin configuration overrides live HERE too, as a sibling TOML per plugin
+# (`<dir>/<name>.config.toml`, keys validated against the plugin manifest's
+# [config] defaults). Edit one by hand and reload the plugin to apply, or let the
+# plugin's dashboard page save settings — a dashboard save overwrites the same
+# file, so it is always the single source of truth.
 dir = "/data/plugins"
 # Wall-clock limit for a single hook invocation (a runaway pure-Lua loop is
 # interrupted at this deadline).

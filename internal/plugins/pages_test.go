@@ -360,3 +360,52 @@ function OnPageAction(req) return OnPageRender(req) end`)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown block type")
 }
+
+func TestValidatePageDocFormBlock(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"type": "form", "id": "settings", "submit_label": "Save settings", "fields": [
+				{"name": "keyword", "label": "Keyword", "value": "coffee", "placeholder": "word", "help": "case-insensitive"},
+				{"name": "limit", "label": "Limit", "kind": "number", "value": 25},
+				{"name": "enabled", "label": "Enabled", "kind": "toggle", "value": true},
+				{"name": "style", "label": "Style", "kind": "select", "value": "bold", "options": ["bold", "subtle"]}
+			]},
+			{"type": "text", "text": "x", "id": "stray", "submit_label": "stray",
+				"fields": [{"name": "f", "label": "F"}]}
+		]
+	}`)
+	out, err := ValidatePageDoc(raw)
+	require.NoError(t, err)
+
+	var doc PageDoc
+	require.NoError(t, json.Unmarshal(out, &doc))
+	require.Len(t, doc.Blocks, 2)
+	form := doc.Blocks[0]
+	assert.Equal(t, "settings", form.ID)
+	require.Len(t, form.Fields, 4)
+	assert.Equal(t, "text", form.Fields[0].Kind, "kind defaults to text")
+	assert.Equal(t, flexString("25"), form.Fields[1].Value, "numeric values normalize to strings")
+	assert.Equal(t, flexString("true"), form.Fields[2].Value)
+	assert.Equal(t, []string{"bold", "subtle"}, form.Fields[3].Options)
+	assert.Empty(t, doc.Blocks[1].Fields, "form fields on a non-form block are cleared")
+	assert.Empty(t, doc.Blocks[1].ID)
+}
+
+func TestValidatePageDocFormRejects(t *testing.T) {
+	cases := map[string]string{
+		"bad form id":     `{"blocks": [{"type": "form", "id": "Bad ID!", "fields": [{"name": "a", "label": "A"}]}]}`,
+		"no fields":       `{"blocks": [{"type": "form", "id": "f"}]}`,
+		"bad field name":  `{"blocks": [{"type": "form", "id": "f", "fields": [{"name": "Bad Name", "label": "A"}]}]}`,
+		"duplicate field": `{"blocks": [{"type": "form", "id": "f", "fields": [{"name": "a", "label": "A"}, {"name": "a", "label": "B"}]}]}`,
+		"no label":        `{"blocks": [{"type": "form", "id": "f", "fields": [{"name": "a"}]}]}`,
+		"unknown kind":    `{"blocks": [{"type": "form", "id": "f", "fields": [{"name": "a", "label": "A", "kind": "file"}]}]}`,
+		"select no opts":  `{"blocks": [{"type": "form", "id": "f", "fields": [{"name": "a", "label": "A", "kind": "select"}]}]}`,
+		"opts on text":    `{"blocks": [{"type": "form", "id": "f", "fields": [{"name": "a", "label": "A", "options": ["x"]}]}]}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidatePageDoc(json.RawMessage(raw))
+			assert.Error(t, err)
+		})
+	}
+}

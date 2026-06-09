@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
@@ -23,6 +24,12 @@ type pluginPageView struct {
 	loading bool
 	errMsg  string
 	acting  string // id of the in-flight action ("" when none)
+
+	// formVals holds the user's in-progress form edits, keyed by form id +
+	// field name. A field not present here still shows the value the plugin
+	// rendered. Cleared when a fresh document is adopted, so a successful
+	// action shows the plugin's new values rather than stale edits.
+	formVals map[string]string
 }
 
 func (v *pluginPageView) OnMount(ctx app.Context) {
@@ -47,6 +54,7 @@ func (v *pluginPageView) adoptRoute(ctx app.Context) {
 	v.doc = pageDoc{}
 	v.loaded = false
 	v.errMsg = ""
+	v.formVals = nil
 	v.loadPage(ctx)
 }
 
@@ -96,12 +104,13 @@ func (v *pluginPageView) onAction(ctx app.Context, a pageAction) {
 			}
 			v.acting = ""
 			if err != nil {
-				v.errMsg = err.Error()
+				v.errMsg = err.Error() // keep formVals: the user's edits survive a failed save
 				ctx.Update()
 				return
 			}
 			v.doc = doc
 			v.loaded = true
+			v.formVals = nil // adopt the refreshed document's field values
 			ctx.Update()
 		})
 	})
@@ -184,6 +193,8 @@ func (v *pluginPageView) renderBlock(b pageBlock) app.UI {
 				return v.renderActionButton(b.Actions[i])
 			}),
 		)
+	case "form":
+		return v.renderFormBlock(b)
 	case "divider":
 		return app.Hr().Class("ext-divider")
 	default:
@@ -216,6 +227,114 @@ func (v *pluginPageView) renderTableBlock(b pageBlock) app.UI {
 			}),
 		),
 	)
+}
+
+// renderFormBlock renders a form block: typed inputs whose edited values live
+// in v.formVals until submitted, then POST to OnPageAction as the params of
+// the action named by the form's id — the input counterpart of a button press.
+func (v *pluginPageView) renderFormBlock(b pageBlock) app.UI {
+	body := make([]app.UI, 0, len(b.Fields)+1)
+	for _, f := range b.Fields {
+		body = append(body, v.renderFormField(b.ID, f))
+	}
+	label := b.SubmitLabel
+	if label == "" {
+		label = "Save"
+	}
+	if v.acting == b.ID {
+		label = "Working…"
+	}
+	formID := b.ID
+	fields := b.Fields
+	body = append(body, app.Div().Class("ext-form-submit").Body(
+		app.Button().Type("button").Class("btn btn-primary").
+			Text(label).
+			Disabled(v.acting != "").
+			OnClick(func(ctx app.Context, _ app.Event) { v.onFormSubmit(ctx, formID, fields) }),
+	))
+	return app.Div().Class("ext-form card").Body(body...)
+}
+
+func (v *pluginPageView) renderFormField(formID string, f pageField) app.UI {
+	key := formFieldKey(formID, f.Name)
+	val := v.fieldValue(formID, f)
+	set := func(ctx app.Context, s string) {
+		if v.formVals == nil {
+			v.formVals = map[string]string{}
+		}
+		v.formVals[key] = s
+		ctx.Update()
+	}
+
+	var input app.UI
+	switch f.Kind {
+	case "toggle":
+		input = app.Input().Type("checkbox").Class("ext-form-toggle").
+			Checked(val == "true").
+			OnChange(func(ctx app.Context, _ app.Event) {
+				set(ctx, strconv.FormatBool(ctx.JSSrc().Get("checked").Bool()))
+			})
+	case "select":
+		input = app.Select().Class("ext-form-input").
+			OnChange(func(ctx app.Context, _ app.Event) {
+				set(ctx, ctx.JSSrc().Get("value").String())
+			}).
+			Body(
+				app.Range(f.Options).Slice(func(i int) app.UI {
+					o := f.Options[i]
+					return app.Option().Value(o).Text(o).Selected(o == val)
+				}),
+			)
+	case "number":
+		input = app.Input().Type("number").Class("ext-form-input").
+			Value(val).Placeholder(f.Placeholder).
+			OnInput(func(ctx app.Context, _ app.Event) {
+				set(ctx, ctx.JSSrc().Get("value").String())
+			})
+	default: // "text"
+		input = app.Input().Type("text").Class("ext-form-input").
+			Value(val).Placeholder(f.Placeholder).
+			OnInput(func(ctx app.Context, _ app.Event) {
+				set(ctx, ctx.JSSrc().Get("value").String())
+			})
+	}
+
+	return app.Div().Class("ext-form-field").Body(
+		app.Label().Class("ext-form-label").Text(f.Label),
+		input,
+		app.If(f.Help != "", func() app.UI {
+			return app.Span().Class("ext-form-help").Text(f.Help)
+		}),
+	)
+}
+
+// fieldValue is the value a field currently shows: the user's pending edit if
+// any, otherwise the value the plugin rendered (toggles default to "false" so
+// an untouched checkbox still submits a parseable value).
+func (v *pluginPageView) fieldValue(formID string, f pageField) string {
+	if s, ok := v.formVals[formFieldKey(formID, f.Name)]; ok {
+		return s
+	}
+	if f.Kind == "toggle" && f.Value != "true" {
+		return "false"
+	}
+	return f.Value
+}
+
+// onFormSubmit collects every field's current value and posts them as the
+// params of the form's action, reusing the button-press pipeline.
+func (v *pluginPageView) onFormSubmit(ctx app.Context, formID string, fields []pageField) {
+	params := make(map[string]string, len(fields))
+	for _, f := range fields {
+		params[f.Name] = v.fieldValue(formID, f)
+	}
+	v.onAction(ctx, pageAction{ID: formID, Params: params})
+}
+
+// formFieldKey namespaces a field's pending edit by its form, so two forms on
+// one page can carry a same-named field without clashing.
+func formFieldKey(formID, field string) string {
+	return formID + "\x00" + field
 }
 
 func (v *pluginPageView) renderActionButton(a pageAction) app.UI {

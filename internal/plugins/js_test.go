@@ -123,3 +123,50 @@ func TestJSSandboxRemovesDynamicCodegen(t *testing.T) {
 	// the kasas host object is present
 	assert.False(t, goja.IsUndefined(ji.vm.Get("kasas")), "the kasas host object must be injected")
 }
+
+func TestJSSetConfigUpdatesLiveConfig(t *testing.T) {
+	dir := t.TempDir()
+	src := `
+function OnTransactionCreate(txn) {
+  kasas.setConfig({ keyword: "tea" });
+  kasas.applyLabels(txn.id, { k: kasas.config.keyword });
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.js"), []byte(src), 0o644))
+	m := Manifest{Name: "cfg", Runtime: RuntimeJS, Entrypoint: "main.js",
+		Hooks: []Hook{HookTransactionCreate}, Config: map[string]any{"keyword": "coffee"}}
+
+	host := newFakeHost()
+	inst, err := NewJSRuntime().Load(context.Background(), m, dir, host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inst.Close() })
+
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1"}}))
+	assert.Equal(t, map[string]any{"keyword": "tea"}, host.config, "the change reached the host")
+	assert.Equal(t, "tea", host.applied["tx-1"]["k"], "kasas.config reflects the new value immediately")
+}
+
+func TestJSSetConfigPersistsViaRealHost(t *testing.T) {
+	pluginsDir := t.TempDir()
+	codeDir := t.TempDir()
+	src := `
+function OnTransactionCreate(txn) {
+  kasas.setConfig({ keyword: "tea", limit: 25 });
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(codeDir, "main.js"), []byte(src), 0o644))
+	defaults := map[string]any{"keyword": "coffee", "limit": int64(10)}
+	m := Manifest{Name: "cfg", Runtime: RuntimeJS, Entrypoint: "main.js",
+		Hooks: []Hook{HookTransactionCreate}, Config: defaults}
+	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults))
+
+	inst, err := NewJSRuntime().Load(context.Background(), m, codeDir, host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inst.Close() })
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1"}}))
+
+	eff, err := effectiveConfig(pluginsDir, "cfg", defaults)
+	require.NoError(t, err)
+	assert.Equal(t, "tea", eff["keyword"])
+	assert.EqualValues(t, 25, eff["limit"])
+}

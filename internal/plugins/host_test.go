@@ -3,8 +3,11 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +28,7 @@ func newTestHost(t *testing.T, caps ...Capability) (*hostFacade, db.Store) {
 	store := testutil.NewStore(t)
 	testutil.Seed(t, store)
 	emitter := events.NewEmitter(events.NewBus())
-	return newHost(store, emitter, newCapSet(caps), "tester", 0, testLogger()), store
+	return newHost(store, emitter, newCapSet(caps), "tester", 0, testLogger(), nil), store
 }
 
 func labelsOf(t *testing.T, store db.Store, id string) map[string]string {
@@ -131,4 +134,46 @@ func TestHostSearch(t *testing.T) {
 	denied, _ := newTestHost(t, CapLabelsWrite)
 	_, err = denied.Search(context.Background(), "coffee", 100)
 	assert.ErrorIs(t, err, ErrCapabilityDenied)
+}
+
+func TestHostSetConfigPersistsAndMerges(t *testing.T) {
+	dir := t.TempDir()
+	defaults := map[string]any{"keyword": "coffee", "limit": int64(10), "enabled": false}
+	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(),
+		newConfigStore(dir, "budgeting", defaults))
+
+	merged, err := h.SetConfig(context.Background(), map[string]any{"keyword": "tea", "limit": "25"})
+	require.NoError(t, err)
+	assert.Equal(t, "tea", merged["keyword"])
+	assert.Equal(t, float64(25), merged["limit"])
+	assert.Equal(t, false, merged["enabled"], "untouched keys keep their defaults")
+
+	// The override file was overwritten and is the durable source of truth.
+	overrides, err := loadUserOverrides(dir, "budgeting")
+	require.NoError(t, err)
+	assert.Equal(t, "tea", overrides["keyword"])
+
+	// A second call merges with the existing overrides rather than replacing them.
+	merged, err = h.SetConfig(context.Background(), map[string]any{"enabled": true})
+	require.NoError(t, err)
+	assert.Equal(t, "tea", merged["keyword"])
+	assert.Equal(t, true, merged["enabled"])
+}
+
+func TestHostSetConfigRejectsUnknownKeyWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(),
+		newConfigStore(dir, "budgeting", map[string]any{"keyword": "coffee"}))
+
+	_, err := h.SetConfig(context.Background(), map[string]any{"nope": "x"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown config key")
+	_, statErr := os.Stat(userConfigPath(dir, "budgeting"))
+	assert.True(t, errors.Is(statErr, fs.ErrNotExist), "a rejected change must not write the file")
+}
+
+func TestHostSetConfigUnavailableWithoutPluginsDir(t *testing.T) {
+	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(), nil)
+	_, err := h.SetConfig(context.Background(), map[string]any{"keyword": "tea"})
+	assert.Error(t, err)
 }

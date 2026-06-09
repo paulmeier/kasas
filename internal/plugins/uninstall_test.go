@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -130,4 +131,16 @@ func TestUninstallUnknownPlugin(t *testing.T) {
 	})
 	_, err := mgr.Uninstall(context.Background(), 999)
 	assert.ErrorIs(t, err, ErrPluginNotFound)
+}
+
+func TestUninstallRemovesUserConfigFile(t *testing.T) {
+	stub := &stubInstance{}
+	mgr, dir, id := installedManager(t, stubRuntime{inst: stub}, cleanerManifest,
+		`function OnTransactionCreate(txn) end`+"\n"+`function OnUninstall() end`)
+	require.NoError(t, os.WriteFile(userConfigPath(dir, "cleaner"), []byte("keyword = \"x\"\n"), 0o644))
+
+	_, err := mgr.Uninstall(context.Background(), id)
+	require.NoError(t, err)
+	_, statErr := os.Stat(userConfigPath(dir, "cleaner"))
+	assert.True(t, errors.Is(statErr, fs.ErrNotExist), "the override file belongs to the plugin and is removed with it")
 }

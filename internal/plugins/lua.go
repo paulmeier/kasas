@@ -104,6 +104,7 @@ func (li *luaInstance) inject(m Manifest) {
 	L.SetField(mod, "set_extension", L.NewFunction(li.setExtension))
 	L.SetField(mod, "remove_extension", L.NewFunction(li.removeExtension))
 	L.SetField(mod, "log", L.NewFunction(li.log))
+	L.SetField(mod, "set_config", L.NewFunction(li.setConfig))
 	L.SetField(mod, "config", goToLua(L, m.Config))
 	L.SetGlobal("kasas", mod)
 }
@@ -248,6 +249,34 @@ func (li *luaInstance) removeExtension(L *lua.LState) int {
 		L.RaiseError("remove_extension: %v", err)
 	}
 	return 0
+}
+
+// setConfig persists config overrides: kasas.set_config{ key = value, ... }.
+// The host validates each key against the manifest's [config] defaults and
+// overwrites the plugin's user config file; on success the live kasas.config
+// table is replaced with the new effective config, which is also returned.
+func (li *luaInstance) setConfig(L *lua.LState) int {
+	raw, err := luaTableToJSON(L.CheckTable(1))
+	if err != nil {
+		L.RaiseError("set_config: %v", err)
+		return 0
+	}
+	var changes map[string]any
+	if err := json.Unmarshal(raw, &changes); err != nil {
+		L.RaiseError("set_config: expected a table of key/value pairs")
+		return 0
+	}
+	merged, err := li.host.SetConfig(li.invCtx(), changes)
+	if err != nil {
+		L.RaiseError("set_config: %v", err)
+		return 0
+	}
+	cfg := goToLua(L, merged)
+	if mod, ok := L.GetGlobal("kasas").(*lua.LTable); ok {
+		L.SetField(mod, "config", cfg)
+	}
+	L.Push(cfg)
+	return 1
 }
 
 func (li *luaInstance) log(L *lua.LState) int {

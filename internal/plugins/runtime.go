@@ -111,6 +111,12 @@ type Host interface {
 	SetExtension(ctx context.Context, txnID, key string, value json.RawMessage) error // extensions:write
 	RemoveExtension(ctx context.Context, txnID, key string) error                     // extensions:write
 	Log(level, msg string, kv map[string]any)                                         // always allowed
+	// SetConfig validates changes against the manifest's [config] defaults (the
+	// schema of what is configurable), persists them to the plugin's user config
+	// file (<plugins.dir>/<name>.config.toml), and returns the new effective
+	// config. Always allowed: a plugin can only configure ITSELF, so no
+	// capability gates it (like Log).
+	SetConfig(ctx context.Context, changes map[string]any) (map[string]any, error)
 }
 
 // capSet is a plugin's granted capability set (the intersection of what the

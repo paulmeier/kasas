@@ -488,9 +488,20 @@ func (m *Manager) load(ctx context.Context, row db.Plugin, d Discovered) error {
 		return fmt.Errorf("no runtime registered for %q", d.Manifest.Runtime)
 	}
 	caps := intersectCaps(d.Manifest.Capabilities, decodeCapList(row.GrantedCapabilities))
-	host := newHost(m.store, m.emitter, caps, row.Name, m.searchLimit, m.logger)
+	host := newHost(m.store, m.emitter, caps, row.Name, m.searchLimit, m.logger,
+		newConfigStore(m.dir, row.Name, d.Manifest.Config))
 
-	inst, err := rt.Load(ctx, d.Manifest, d.Dir, host)
+	// The instance sees the EFFECTIVE config: manifest defaults overlaid with the
+	// operator's <name>.config.toml overrides. A broken or mistyped override file
+	// is a load error (surfaced as plugin health), like a broken manifest.
+	man := d.Manifest
+	eff, err := effectiveConfig(m.dir, row.Name, d.Manifest.Config)
+	if err != nil {
+		return fmt.Errorf("plugin config: %w", err)
+	}
+	man.Config = eff
+
+	inst, err := rt.Load(ctx, man, d.Dir, host)
 	if err != nil {
 		return err
 	}
