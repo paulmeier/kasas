@@ -48,6 +48,7 @@ import (
 	"github.com/paulmeier/kasas/internal/source"
 	"github.com/paulmeier/kasas/internal/sources/csv"
 	"github.com/paulmeier/kasas/internal/sources/simplefin"
+	"github.com/paulmeier/kasas/internal/sources/teller"
 	"github.com/paulmeier/kasas/internal/vault"
 	"github.com/paulmeier/kasas/internal/webhooks"
 	"github.com/paulmeier/kasas/migrations"
@@ -561,6 +562,29 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 		}
 		pollers = append(pollers, csvPoller)
 		logger.Info("csv file-import source enabled", "folders", len(cfg.CSV.Folders))
+	}
+
+	// Teller is a pull source like SimpleFIN, but each access token is one bank
+	// enrollment, so it fans out over a list. Merge the singular access_token with
+	// the access_tokens array (the source deduplicates) and pass them newline-joined.
+	// Build it when any token or a client certificate is configured (the certificate
+	// is its development/production mTLS credential); more tokens can then be added at
+	// runtime from the Sources page. Like SimpleFIN, it is skipped until a token exists.
+	tellerTokens := cfg.Teller.AccessTokens
+	if cfg.Teller.AccessToken != "" {
+		tellerTokens = append([]string{cfg.Teller.AccessToken}, tellerTokens...)
+	}
+	if len(tellerTokens) > 0 || cfg.Teller.Certificate != "" {
+		tellerPoller, err := newPoller(teller.SourceType, map[string]string{
+			"access_tokens": strings.Join(tellerTokens, "\n"),
+			"certificate":   cfg.Teller.Certificate,
+			"private_key":   cfg.Teller.PrivateKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		pollers = append(pollers, tellerPoller)
+		logger.Info("teller source enabled", "enrollments", len(tellerTokens))
 	}
 
 	return poller.NewEngine(pollers...), nil

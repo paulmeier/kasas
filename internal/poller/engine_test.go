@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -99,6 +100,70 @@ func TestEngineSourcesAndCredentials(t *testing.T) {
 	_, err = e.CredentialConfigured(ctx, "nope")
 	require.Error(t, err, "unknown source")
 	require.Error(t, e.SetCredential(ctx, "fake", "x"), "a source without runtime credentials rejects SetCredential")
+}
+
+// multiCredSource is a MultiCredentialed source for engine tests: it holds a set
+// of credential ids and supports listing and removing them individually.
+type multiCredSource struct {
+	ids []string
+}
+
+func (m *multiCredSource) Descriptor() source.Descriptor {
+	return source.Descriptor{Type: "multi", Archetype: source.ArchetypePull, Title: "Multi"}
+}
+func (m *multiCredSource) Fetch(context.Context, time.Time, string) (*source.ImportBatch, error) {
+	return &source.ImportBatch{Source: "multi"}, nil
+}
+func (m *multiCredSource) CredentialConfigured(context.Context) (bool, error) {
+	return len(m.ids) > 0, nil
+}
+func (m *multiCredSource) SetCredential(_ context.Context, input string) error {
+	m.ids = append(m.ids, input)
+	return nil
+}
+func (m *multiCredSource) ListCredentials(context.Context) ([]source.CredentialEntry, error) {
+	out := make([]source.CredentialEntry, len(m.ids))
+	for i, id := range m.ids {
+		out[i] = source.CredentialEntry{ID: id, Label: "••••" + id, Removable: true}
+	}
+	return out, nil
+}
+func (m *multiCredSource) RemoveCredential(_ context.Context, id string) error {
+	var kept []string
+	found := false
+	for _, x := range m.ids {
+		if x == id {
+			found = true
+			continue
+		}
+		kept = append(kept, x)
+	}
+	if !found {
+		return fmt.Errorf("no credential %q", id)
+	}
+	m.ids = kept
+	return nil
+}
+
+func TestEngineMultiCredential(t *testing.T) {
+	ctx := context.Background()
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, &multiCredSource{ids: []string{"a", "b"}}))
+
+	statuses, err := e.Sources(ctx)
+	require.NoError(t, err)
+	require.Len(t, statuses, 1)
+	assert.True(t, statuses[0].MultiCredential, "source advertises multi-credential")
+	require.Len(t, statuses[0].CredentialEntries, 2, "both entries are listed (masked)")
+	assert.Equal(t, "a", statuses[0].CredentialEntries[0].ID)
+
+	require.NoError(t, e.RemoveSourceCredential(ctx, "multi", "a"))
+	statuses, _ = e.Sources(ctx)
+	require.Len(t, statuses[0].CredentialEntries, 1)
+	assert.Equal(t, "b", statuses[0].CredentialEntries[0].ID)
+
+	require.Error(t, e.RemoveSourceCredential(ctx, "multi", "nope"), "unknown id")
+	require.Error(t, e.RemoveSourceCredential(ctx, "other", "a"), "unknown source")
 }
 
 // TestEngineSkipsUnconfiguredSource verifies an unconfigured credentialed source is

@@ -114,6 +114,7 @@ nav:
   - Features:
       - Sync Pipeline: features/sync.md
       - CSV File Import: features/csv-import.md
+      - Teller: features/teller.md
       - Manual Entry: features/manual-entry.md
       - Event Stream: features/event-stream.md
       - Transaction History: features/transaction-history.md

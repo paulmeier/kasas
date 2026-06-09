@@ -83,6 +83,30 @@ type OAuthCredentialed interface {
 	ExchangeCode(ctx context.Context, code string) error
 }
 
+// MultiCredentialed is implemented by sources that hold several independent
+// credentials at once — e.g. Teller, where each access token is one bank
+// enrollment and a household links several. It composes with [Credentialed]:
+// SetCredential adds a credential to the set (rather than replacing it), while
+// these methods list the configured credentials (masked) and remove one by id, so
+// the dashboard and API can manage the whole set. The engine detects it by type
+// assertion and surfaces a per-entry list with remove controls.
+type MultiCredentialed interface {
+	// ListCredentials returns the configured credentials, masked — never the secret
+	// itself. Each entry carries a stable id (for removal) and a display label.
+	ListCredentials(ctx context.Context) ([]CredentialEntry, error)
+	// RemoveCredential removes the credential with the given id. Removing one that
+	// is absent (or not removable, e.g. declared in static config) is an error.
+	RemoveCredential(ctx context.Context, id string) error
+}
+
+// CredentialEntry describes one configured credential of a [MultiCredentialed]
+// source without revealing the secret.
+type CredentialEntry struct {
+	ID        string `json:"id"`        // stable identifier, used to remove this entry
+	Label     string `json:"label"`     // masked display label (e.g. "••••cd34")
+	Removable bool   `json:"removable"` // false for credentials declared in static config
+}
+
 // Archetype classifies how a source delivers data, which determines how the
 // engine triggers it. See the package doc for the full set.
 type Archetype string

@@ -163,7 +163,8 @@ re-test persistence, dedup, or events — those are the engine's, covered by
 go test ./internal/sources/<name>/
 ```
 
-> **Two archetypes ship:** `pull` (SimpleFIN) and `file`
+> **Two archetypes ship:** `pull` (SimpleFIN and
+> [Teller](https://paulmeier.github.io/kasas/features/teller/)) and `file`
 > ([CSV import](https://paulmeier.github.io/kasas/features/csv-import/),
 > `internal/sources/csv`). A `file` source doesn't need a separate upload
 > interface — it implements `source.Puller` and **scans its folder on the sync

@@ -19,6 +19,7 @@ type Config struct {
 	Database  Database
 	SimpleFIN SimpleFIN
 	CSV       CSV
+	Teller    Teller
 	Sync      Sync
 	Vault     Vault
 	Secrets   Secrets
@@ -98,6 +99,22 @@ type CSVMapping struct {
 	DescriptionColumn string `mapstructure:"description_column" json:"description_column,omitempty"`
 	PayeeColumn       string `mapstructure:"payee_column" json:"payee_column,omitempty"`
 	MemoColumn        string `mapstructure:"memo_column" json:"memo_column,omitempty"`
+}
+
+// Teller configures the Teller (https://teller.io) ingestion source, a pull
+// source alongside SimpleFIN. Each access token is one bank enrollment from Teller
+// Connect: provide a single one as AccessToken (env-friendly) and/or a list as
+// AccessTokens (config-file array) for several banks; more can also be added at
+// runtime from the dashboard Sources page (stored in the secret store, unioned
+// with these). Certificate and PrivateKey are filesystem paths to the mutual-TLS
+// client certificate Teller requires for its development and production
+// environments (omit both for the sandbox). The source is started when at least
+// one access token or a certificate is set.
+type Teller struct {
+	AccessToken  string   `mapstructure:"access_token"`
+	AccessTokens []string `mapstructure:"access_tokens"`
+	Certificate  string   `mapstructure:"certificate"`
+	PrivateKey   string   `mapstructure:"private_key"`
 }
 
 // Sync controls the background polling schedule.
@@ -212,6 +229,9 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("csv.gdrive_client_id", "")
 	v.SetDefault("csv.gdrive_client_secret", "")
 	v.SetDefault("csv.gdrive_redirect_url", "")
+	v.SetDefault("teller.access_token", "")
+	v.SetDefault("teller.certificate", "")
+	v.SetDefault("teller.private_key", "")
 	v.SetDefault("sync.enabled", true)
 	v.SetDefault("sync.interval", "6h")
 	v.SetDefault("sync.lookback_days", 90)
@@ -283,6 +303,11 @@ func Load(path string) (*Config, error) {
 			GDriveClientSecret: v.GetString("csv.gdrive_client_secret"),
 			GDriveRedirectURL:  v.GetString("csv.gdrive_redirect_url"),
 		},
+		Teller: Teller{
+			AccessToken: v.GetString("teller.access_token"),
+			Certificate: v.GetString("teller.certificate"),
+			PrivateKey:  v.GetString("teller.private_key"),
+		},
 		Sync: Sync{
 			Enabled:      v.GetBool("sync.enabled"),
 			Interval:     interval,
@@ -330,6 +355,12 @@ func Load(path string) (*Config, error) {
 	// key-by-key. Drive credentials above may also come from the environment.
 	if err := v.UnmarshalKey("csv.folders", &cfg.CSV.Folders); err != nil {
 		return nil, fmt.Errorf("invalid csv.folders config: %w", err)
+	}
+
+	// Teller access tokens are an optional string array (one per bank), loaded
+	// structurally; the singular teller.access_token above is the env-friendly form.
+	if err := v.UnmarshalKey("teller.access_tokens", &cfg.Teller.AccessTokens); err != nil {
+		return nil, fmt.Errorf("invalid teller.access_tokens config: %w", err)
 	}
 
 	if err := cfg.validate(); err != nil {
