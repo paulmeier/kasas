@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.0](https://github.com/paulmeier/kasas/compare/v2.21.0...v2.22.0) (2026-06-09)
+
+
+### Features
+
+* uninstall plugins from the dashboard with an OnUninstall cleanup hook ([#89](https://github.com/paulmeier/kasas/issues/89)) ([fc79ef0](https://github.com/paulmeier/kasas/commit/fc79ef03f67398a65fadcf3c57443ee40f53b75c))
+
 ## [2.21.0](https://github.com/paulmeier/kasas/compare/v2.20.0...v2.21.0) (2026-06-09)
 
 
