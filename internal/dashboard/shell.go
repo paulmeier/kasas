@@ -20,6 +20,7 @@ const (
 	navEvents
 	navWebhooks
 	navPlugins
+	navMarketplace
 	navSources
 	navSettings
 )
@@ -371,6 +372,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 			navLink("/events", "Events", iconEvents(), active == navEvents),
 			navLink("/webhooks", "Webhooks", iconWebhooks(), active == navWebhooks),
 			navLink("/plugins", "Plugins", iconPlugins(), active == navPlugins),
+			navLink("/marketplace", "Marketplace", iconMarketplace(), active == navMarketplace),
 			navLink("/sources", "Sources", iconSources(), active == navSources),
 			navLink("/settings", "Settings", iconSettings(), active == navSettings),
 		),
@@ -446,6 +448,12 @@ func iconWebhooks() app.UI {
 
 func iconPlugins() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 19.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0-.474-1.68L1.756 12.7a2.414 2.414 0 0 1 0-3.414L3.44 7.6a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68L9.343 1.7a2.414 2.414 0 0 1 3.414 0z"/></svg>`)
+}
+
+// iconMarketplace is the Marketplace nav glyph: a storefront/shopping bag,
+// distinct from the Plugins puzzle-piece (installed plugins) it complements.
+func iconMarketplace() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`)
 }
 
 // iconSources is the Sources nav glyph: an inbox/download tray (data arriving

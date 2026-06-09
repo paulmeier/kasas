@@ -28,9 +28,10 @@ credential, exactly as for REST.
 
 ## Tools
 
-Thirty-six tools (the last five only when [plugins](../features/plugins.md) are
-enabled). Each maps onto the same handler logic and DTO shapes as the
-corresponding REST route, so responses are identical.
+Tools for every read/write/admin operation (the plugin tools only when
+[plugins](../features/plugins.md) are enabled, and the two marketplace tools only
+when a registry is configured). Each maps onto the same handler logic and DTO shapes
+as the corresponding REST route, so responses are identical.
 
 === "Accounts & transactions"
 
@@ -84,6 +85,7 @@ corresponding REST route, so responses are identical.
     | `list_api_keys` · `create_api_key` · `revoke_api_key` | [API key](authentication.md#api-keys) management. |
     | `list_webhooks` · `create_webhook` · `update_webhook` · `delete_webhook` · `test_webhook` | [Webhook](../features/webhooks.md) management. |
     | `list_plugins` · `get_plugin` · `enable_plugin` · `disable_plugin` · `reload_plugin` | [Plugin](../features/plugins.md) lifecycle (when enabled). |
+    | `browse_plugin_registry` · `install_plugin` | [Community marketplace](../features/plugins.md#the-community-marketplace) (when a registry is configured). |
 
 ## One core, two surfaces
 

@@ -263,6 +263,57 @@ curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
 The `plugins` table stays lean — name, runtime, granted capabilities, config, and
 run health — while the code lives on disk under `plugins.dir`.
 
+## The community marketplace
+
+Installing a plugin by hand means dropping a directory into `plugins.dir`. The
+**marketplace** automates discovery and installation from the
+[kasas-plugins](https://github.com/paulmeier/kasas-plugins) community registry — a
+repository whose submission pipeline gates every plugin (per-language static
+analysis, a single self-contained source file, capability review) before it is
+listed, so a user can install with confidence.
+
+kasas reads the registry's published, machine-readable **index** (`index.json`),
+which lists each plugin with its manifest metadata, capability tier, and a
+**per-file SHA-256** plus an aggregate content hash. Installing fetches those files,
+**verifies every hash before writing a byte**, and writes the plugin into
+`plugins.dir` — so what lands on disk is exactly what was reviewed in the registry,
+independent of the transport.
+
+```sh
+# Browse the catalog (admin/dashboard token).
+curl -s -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  http://localhost:8080/api/v1/plugins/registry
+# -> {"available":true,"plugins":[{"name":"coffee-budget","capability_tier":"write",
+#     "installed":false,"update_available":false,...}]}
+
+# Install (downloads + integrity-verifies, then registers it DISABLED).
+curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  http://localhost:8080/api/v1/plugins/registry/coffee-budget/install
+# -> {"id":2,"name":"coffee-budget","state":"disabled",...}
+```
+
+Installing is **admin-only** and never runs code: a freshly installed plugin is
+registered **disabled**, exactly like one dropped in by hand — enabling it (which
+loads and runs it) stays the separate, deliberate action described above. An install
+over an existing plugin (an update) atomically swaps the files and reloads it only if
+it was already running.
+
+Configure it under `[plugins.registry]` (effective only when `plugins.enabled` is
+true; on by default, pointing at the official registry):
+
+```toml
+[plugins.registry]
+enabled = true
+url     = "https://raw.githubusercontent.com/paulmeier/kasas-plugins/main/registry/index.json"
+ref     = "main"   # used to build raw file-download URLs
+```
+
+| Surface | Operations |
+| --- | --- |
+| REST | admin `GET /api/v1/plugins/registry`, `POST /api/v1/plugins/registry/{name}/install` |
+| MCP | `browse_plugin_registry`, `install_plugin` |
+| Dashboard | The **Marketplace** page: browse, capability-tier warning, one-click install |
+
 ## Sandbox & limits (v1)
 
 Both runtimes run with **no filesystem, process, or network access** and a single,
@@ -271,5 +322,6 @@ opens only safe libraries, and the goja VM exposes none of those globals by defa
 (`eval` and the `Function` constructor binding are removed too). Each hook is bounded
 by `plugins.hook_timeout`. Neither is a hard **memory** sandbox (a buggy plugin can
 still allocate without bound), so the v1 trust model is *operator-installed, opt-in*
-plugins. A stronger WASM sandbox with hard resource caps — and a plugin marketplace —
-is the planned next step.
+plugins — now sourced either by hand or, with the same disabled-by-default posture,
+from the gated [community marketplace](#the-community-marketplace) above. A stronger
+WASM sandbox with hard resource caps is the planned next step.

@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -252,6 +253,20 @@ type Plugins struct {
 	Dir         string
 	HookTimeout time.Duration
 	QueueSize   int
+	Registry    PluginRegistry
+}
+
+// PluginRegistry controls the community-plugin marketplace: browsing a published
+// registry index and installing plugins into Plugins.Dir from the dashboard. It is
+// effective only when Plugins.Enabled is true. Enabled defaults to TRUE (pointing
+// at the official kasas-plugins registry), but installing a plugin is still an
+// explicit, admin-only action, and an installed plugin starts disabled — so turning
+// the marketplace on never runs third-party code by itself. URL is the index.json
+// to fetch; Ref is the git ref used to build raw file-download URLs.
+type PluginRegistry struct {
+	Enabled bool
+	URL     string
+	Ref     string
 }
 
 // Update controls the periodic check for newer releases. It only logs a notice
@@ -320,6 +335,9 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("plugins.dir", "/data/plugins")
 	v.SetDefault("plugins.hook_timeout", "5s")
 	v.SetDefault("plugins.queue_size", 256)
+	v.SetDefault("plugins.registry.enabled", true)
+	v.SetDefault("plugins.registry.url", "https://raw.githubusercontent.com/paulmeier/kasas-plugins/main/registry/index.json")
+	v.SetDefault("plugins.registry.ref", "main")
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -425,6 +443,11 @@ func Load(path string) (*Config, error) {
 			Dir:         v.GetString("plugins.dir"),
 			HookTimeout: pluginHookTimeout,
 			QueueSize:   v.GetInt("plugins.queue_size"),
+			Registry: PluginRegistry{
+				Enabled: v.GetBool("plugins.registry.enabled"),
+				URL:     v.GetString("plugins.registry.url"),
+				Ref:     v.GetString("plugins.registry.ref"),
+			},
 		},
 	}
 
@@ -517,6 +540,15 @@ func (c *Config) validate() error {
 		}
 		if c.Plugins.QueueSize < 1 {
 			return fmt.Errorf("plugins.queue_size must be at least 1, got %d", c.Plugins.QueueSize)
+		}
+		if c.Plugins.Registry.Enabled {
+			u, err := url.Parse(c.Plugins.Registry.URL)
+			if err != nil || u.Scheme == "" || u.Host == "" {
+				return fmt.Errorf("plugins.registry.url must be an absolute URL when the registry is enabled, got %q", c.Plugins.Registry.URL)
+			}
+			if u.Scheme != "https" {
+				return fmt.Errorf("plugins.registry.url must use https, got %q", c.Plugins.Registry.URL)
+			}
 		}
 	}
 	return nil

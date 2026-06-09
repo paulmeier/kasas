@@ -44,6 +44,7 @@ import (
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/plugins"
+	"github.com/paulmeier/kasas/internal/plugins/registry"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/source"
@@ -167,6 +168,13 @@ func run(command, configPath string) error {
 	// expose plugin management across REST/MCP/dashboard.
 	var pluginManager *plugins.Manager
 	if cfg.Plugins.Enabled && eventBus != nil {
+		// Community marketplace: when enabled, the manager can browse a published
+		// registry index and install verified plugins into Plugins.Dir. nil leaves
+		// the marketplace endpoints reporting "unavailable".
+		var pluginRegistry plugins.RegistrySource
+		if cfg.Plugins.Registry.Enabled && cfg.Plugins.Registry.URL != "" {
+			pluginRegistry = registry.New(cfg.Plugins.Registry.URL, cfg.Plugins.Registry.Ref, nil, registry.DefaultLimits())
+		}
 		pluginManager = plugins.NewManager(plugins.Options{
 			Store:   store,
 			Emitter: emitter,
@@ -178,6 +186,7 @@ func run(command, configPath string) error {
 			},
 			HookTimeout: cfg.Plugins.HookTimeout,
 			QueueSize:   cfg.Plugins.QueueSize,
+			Registry:    pluginRegistry,
 			Logger:      logger,
 		})
 	}

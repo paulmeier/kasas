@@ -806,6 +806,61 @@ func (c *apiClient) pluginAction(ctx context.Context, id int64, action string) (
 	return out, nil
 }
 
+// registryPlugin mirrors api.RegistryPluginDTO: one community-registry plugin with
+// the metadata the Marketplace page shows and this host's install state.
+type registryPlugin struct {
+	Name             string   `json:"name"`
+	Version          string   `json:"version"`
+	Description      string   `json:"description"`
+	Author           string   `json:"author"`
+	License          string   `json:"license"`
+	Homepage         string   `json:"homepage"`
+	Runtime          string   `json:"runtime"`
+	Hooks            []string `json:"hooks"`
+	Capabilities     []string `json:"capabilities"`
+	CapabilityTier   string   `json:"capability_tier"`
+	Installed        bool     `json:"installed"`
+	InstalledVersion string   `json:"installed_version"`
+	UpdateAvailable  bool     `json:"update_available"`
+}
+
+// listPluginRegistry returns the community catalog and whether the registry is
+// available. When unavailable the list is empty and available is false (the
+// endpoint still responds 200 so the page can distinguish disabled from an error).
+func (c *apiClient) listPluginRegistry(ctx context.Context) ([]registryPlugin, bool, error) {
+	var out struct {
+		Available bool             `json:"available"`
+		Plugins   []registryPlugin `json:"plugins"`
+	}
+	if err := c.get(ctx, "/api/v1/plugins/registry", nil, &out); err != nil {
+		return nil, false, err
+	}
+	return out.Plugins, out.Available, nil
+}
+
+// installPlugin installs (or updates) a community plugin by name and returns the
+// resulting installed-plugin status.
+func (c *apiClient) installPlugin(ctx context.Context, name string) (plugin, error) {
+	path := "/api/v1/plugins/registry/" + url.PathEscape(name) + "/install"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, nil)
+	if err != nil {
+		return plugin{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return plugin{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return plugin{}, decodeAPIError(resp, "install plugin")
+	}
+	var out plugin
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return plugin{}, err
+	}
+	return out, nil
+}
+
 func (c *apiClient) createWebhook(ctx context.Context, p webhookPayload) (webhook, error) {
 	return c.sendWebhook(ctx, http.MethodPost, "/api/v1/webhooks", p)
 }
