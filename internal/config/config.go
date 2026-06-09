@@ -21,6 +21,8 @@ type Config struct {
 	CSV       CSV
 	Teller    Teller
 	Plaid     Plaid
+	Bitcoin   Bitcoin
+	Ethereum  Ethereum
 	Sync      Sync
 	Vault     Vault
 	Secrets   Secrets
@@ -134,6 +136,36 @@ type Plaid struct {
 	CountryCodes []string `mapstructure:"country_codes"`
 	AccessToken  string   `mapstructure:"access_token"`
 	AccessTokens []string `mapstructure:"access_tokens"`
+}
+
+// Bitcoin configures the Bitcoin address-watching ingestion source, a pull source
+// alongside the bank sources. It needs no API key: provide one or more public
+// addresses to watch, as a single Address (env-friendly) and/or a list of Addresses
+// (config-file array), and kasas records each on-chain transaction touching them. More
+// addresses can be added at runtime from the dashboard Sources page (stored in the
+// secret store, unioned with these). APIURL overrides the mempool.space / Esplora API
+// base URL (default https://mempool.space/api) so a self-hoster can use their own node.
+// The source is started when at least one address or a custom APIURL is set.
+type Bitcoin struct {
+	Address   string   `mapstructure:"address"`
+	Addresses []string `mapstructure:"addresses"`
+	APIURL    string   `mapstructure:"api_url"`
+}
+
+// Ethereum configures the Ethereum address-watching ingestion source, a pull source
+// alongside the bank sources. APIKey is a free Etherscan API key (an app-level secret
+// shared by every watched address); the source is started only when it is set. Provide
+// addresses to watch as a single Address (env-friendly) and/or a list of Addresses
+// (config-file array); more can be added at runtime from the dashboard Sources page.
+// ChainID selects the EVM chain via Etherscan V2 (default 1 = Ethereum mainnet), and
+// APIURL overrides the API base URL (default https://api.etherscan.io/v2/api; a
+// Blockscout instance's /api also works).
+type Ethereum struct {
+	APIKey    string   `mapstructure:"api_key"`
+	APIURL    string   `mapstructure:"api_url"`
+	ChainID   int      `mapstructure:"chain_id"`
+	Address   string   `mapstructure:"address"`
+	Addresses []string `mapstructure:"addresses"`
 }
 
 // Sync controls the background polling schedule.
@@ -255,6 +287,12 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("plaid.secret", "")
 	v.SetDefault("plaid.environment", "sandbox")
 	v.SetDefault("plaid.access_token", "")
+	v.SetDefault("bitcoin.address", "")
+	v.SetDefault("bitcoin.api_url", "")
+	v.SetDefault("ethereum.api_key", "")
+	v.SetDefault("ethereum.api_url", "")
+	v.SetDefault("ethereum.chain_id", 1)
+	v.SetDefault("ethereum.address", "")
 	v.SetDefault("sync.enabled", true)
 	v.SetDefault("sync.interval", "6h")
 	v.SetDefault("sync.lookback_days", 90)
@@ -337,6 +375,16 @@ func Load(path string) (*Config, error) {
 			Environment: v.GetString("plaid.environment"),
 			AccessToken: v.GetString("plaid.access_token"),
 		},
+		Bitcoin: Bitcoin{
+			Address: v.GetString("bitcoin.address"),
+			APIURL:  v.GetString("bitcoin.api_url"),
+		},
+		Ethereum: Ethereum{
+			APIKey:  v.GetString("ethereum.api_key"),
+			APIURL:  v.GetString("ethereum.api_url"),
+			ChainID: v.GetInt("ethereum.chain_id"),
+			Address: v.GetString("ethereum.address"),
+		},
 		Sync: Sync{
 			Enabled:      v.GetBool("sync.enabled"),
 			Interval:     interval,
@@ -401,6 +449,15 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid plaid.country_codes config: %w", err)
 	}
 
+	// Bitcoin and Ethereum watched addresses are optional string arrays loaded
+	// structurally; the singular address keys above are the env-friendly form.
+	if err := v.UnmarshalKey("bitcoin.addresses", &cfg.Bitcoin.Addresses); err != nil {
+		return nil, fmt.Errorf("invalid bitcoin.addresses config: %w", err)
+	}
+	if err := v.UnmarshalKey("ethereum.addresses", &cfg.Ethereum.Addresses); err != nil {
+		return nil, fmt.Errorf("invalid ethereum.addresses config: %w", err)
+	}
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -433,6 +490,9 @@ func (c *Config) validate() error {
 	}
 	if c.Update.Check && !strings.Contains(c.Update.Repository, "/") {
 		return fmt.Errorf("update.repository must be in owner/name form, got %q", c.Update.Repository)
+	}
+	if c.Ethereum.ChainID < 1 {
+		return fmt.Errorf("ethereum.chain_id must be at least 1, got %d", c.Ethereum.ChainID)
 	}
 	if c.Events.RetentionDays < 0 {
 		return fmt.Errorf("events.retention_days must not be negative, got %d", c.Events.RetentionDays)

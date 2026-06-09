@@ -308,7 +308,7 @@ func (v *sourcesView) renderMultiCredential(s sourceStatus) app.UI {
 		}
 		rows = append(rows, app.Ul().Class("cred-list").Body(items...))
 	} else {
-		rows = append(rows, app.P().Class("settings-help").Text("No banks connected yet."))
+		rows = append(rows, app.P().Class("settings-help").Text("Nothing connected yet."))
 	}
 
 	// "Add another bank" form — reuses the credential input; the server appends.

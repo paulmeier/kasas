@@ -128,6 +128,47 @@ access_token = ""
 # runtime from the dashboard's Sources page (no restart) are unioned/deduplicated.
 # access_tokens = ["access-production-…", "access-production-…"]
 
+[bitcoin]
+# Bitcoin address-watching pull source, alongside the bank sources. No API key:
+# record each on-chain transaction touching a watched address as a ledger entry
+# (received +, sent −). It starts when an address or a custom api_url is set; add
+# more addresses at runtime from the dashboard's Sources page.
+# Full guide: docs/features/bitcoin.md
+#
+# address: a single address to watch — legacy (1…), P2SH (3…), or bech32 (bc1…).
+# The env-friendly form (KASAS_BITCOIN_ADDRESS).
+address = ""
+#
+# addresses: several addresses. Config and runtime-added addresses are unioned/deduped.
+# addresses = ["bc1q…", "1A1z…"]
+#
+# api_url: a mempool.space-compatible (Esplora) API base URL. Defaults to
+# https://mempool.space/api; point it at your own node to self-host.
+# api_url = "https://mempool.mynode.lan/api"
+
+[ethereum]
+# Ethereum address-watching pull source via Etherscan, alongside the bank sources.
+# Records each transaction's net ETH change to a watched address (received +, sent −,
+# gas included). It starts only when api_key is set; then idle until an address is added.
+# Full guide: docs/features/ethereum.md
+#
+# api_key: a free Etherscan API key (https://etherscan.io/myapikey), shared across
+# every watched address. Required to enable. Env-friendly: KASAS_ETHEREUM_API_KEY.
+api_key = ""
+#
+# chain_id: the EVM chain via Etherscan V2 (default 1 = Ethereum mainnet; e.g. 8453 =
+# Base, 42161 = Arbitrum — one key serves all).
+chain_id = 1
+#
+# address / addresses: the address(es) to watch (0x…). The singular is env-friendly
+# (KASAS_ETHEREUM_ADDRESS); config and runtime-added addresses are unioned/deduped.
+address = ""
+# addresses = ["0x…", "0x…"]
+#
+# api_url: Etherscan V2 base URL (default https://api.etherscan.io/v2/api). A Blockscout
+# instance's /api endpoint also works for self-hosting.
+# api_url = "https://eth.blockscout.com/api"
+
 [sync]
 enabled       = true
 interval      = "6h"  # any Go duration: "30m", "1h", "12h"
