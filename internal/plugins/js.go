@@ -145,11 +145,49 @@ func (ji *jsInstance) inject(m Manifest) {
 // if the per-hook deadline fires, so a runaway loop (e.g. while(true){}) is stopped —
 // the goja analogue of the Lua runtime attaching ctx to the VM. The deferred recover
 // guards against any panic escaping a host closure.
-func (ji *jsInstance) Invoke(ctx context.Context, hook Hook, ev HookEvent) (err error) {
+func (ji *jsInstance) Invoke(ctx context.Context, hook Hook, ev HookEvent) error {
 	fn, ok := ji.hooks[hook]
 	if !ok {
 		return ErrHookNotImpl
 	}
+	_, err := ji.call(ctx, fn, hookArgJS(ji.vm, hook, ev))
+	return err
+}
+
+// Render runs a value-returning page hook: it calls the JS function with the
+// request object and JSON-encodes whatever it returned for ValidatePageDoc.
+func (ji *jsInstance) Render(ctx context.Context, hook Hook, req PageRequest) (json.RawMessage, error) {
+	fn, ok := ji.hooks[hook]
+	if !ok {
+		return nil, ErrHookNotImpl
+	}
+	params := req.Params
+	if params == nil {
+		params = map[string]string{}
+	}
+	ret, err := ji.call(ctx, fn, ji.vm.ToValue(map[string]any{
+		"plugin": req.Plugin,
+		"action": req.Action,
+		"params": params,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+		return nil, fmt.Errorf("%s returned nothing (expected a page object)", hook)
+	}
+	raw, err := json.Marshal(ret.Export())
+	if err != nil {
+		return nil, fmt.Errorf("%s result: %w", hook, err)
+	}
+	return raw, nil
+}
+
+// call invokes one resolved hook function under the shared safety envelope: the
+// invocation context is published for the host closures, a watcher goroutine
+// interrupts the VM when the deadline fires, and a deferred recover keeps any
+// panic from escaping.
+func (ji *jsInstance) call(ctx context.Context, fn goja.Callable, arg goja.Value) (ret goja.Value, err error) {
 	ji.ctx = ctx
 
 	// vm.Interrupt is explicitly safe to call from another goroutine; it is the only
@@ -175,8 +213,7 @@ func (ji *jsInstance) Invoke(ctx context.Context, hook Hook, ev HookEvent) (err 
 		}
 	}()
 
-	_, callErr := fn(goja.Undefined(), hookArgJS(ji.vm, hook, ev))
-	return callErr
+	return fn(goja.Undefined(), arg)
 }
 
 // Close releases the instance. goja has no explicit teardown; dropping the VM is

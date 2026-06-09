@@ -51,7 +51,8 @@ func fakeRegistryServer(t *testing.T, name string, files map[string]string) *htt
 				Name: name, Version: "1.0.0", Description: "A demo plugin.", Author: "tester",
 				License: "MIT", Homepage: "https://example.com", Runtime: "lua", Entrypoint: "main.lua",
 				Hooks: []string{"OnTransactionCreate"}, Capabilities: []string{"labels:write"},
-				CapabilityTier: "write", Path: pluginPath, Files: refs, ContentHash: aggHash(refs),
+				CapabilityTier: "write", UI: &registry.UIRef{Title: "Demo Page", Icon: "chart"},
+				Path: pluginPath, Files: refs, ContentHash: aggHash(refs),
 			}},
 		}
 		_ = json.NewEncoder(w).Encode(idx)
@@ -121,6 +122,9 @@ func TestMarketplaceBrowseAndInstall(t *testing.T) {
 	assert.Equal(t, "demo", cat.Plugins[0].Name)
 	assert.False(t, cat.Plugins[0].Installed)
 	assert.Equal(t, "write", cat.Plugins[0].CapabilityTier)
+	require.NotNil(t, cat.Plugins[0].UI, "the index's ui metadata reaches the catalog DTO")
+	assert.Equal(t, "Demo Page", cat.Plugins[0].UI.Title)
+	assert.Equal(t, "chart", cat.Plugins[0].UI.Icon)
 
 	// Install it.
 	var installed api.PluginDTO

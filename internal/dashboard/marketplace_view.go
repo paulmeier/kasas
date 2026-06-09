@@ -188,7 +188,10 @@ func (v *marketplaceView) renderTable() app.UI {
 func (v *marketplaceView) renderRow(p registryPlugin) app.UI {
 	return app.Tr().Body(
 		app.Td().Body(
-			app.Div().Class("plugin-name").Text(p.Name),
+			app.Div().Class("plugin-name").Body(
+				app.Text(p.Name),
+				renderPageBadge(p.UI),
+			),
 			app.Div().Class("plugin-meta").Text(registryMetaText(p)),
 		),
 		app.Td().Text(joinOrDash(p.Hooks)),
@@ -245,6 +248,17 @@ func renderCapabilityTier(tier string) app.UI {
 }
 
 func isWriteTier(tier string) bool { return tier == "write" }
+
+// renderPageBadge marks a plugin that adds its own dashboard page (a sidebar
+// entry at /ext/<name> once installed and enabled). nil means no page.
+func renderPageBadge(ui *pluginPage) app.UI {
+	if ui == nil {
+		return app.Text("")
+	}
+	return app.Span().Class("badge page-badge").
+		Title("Adds a \"" + ui.Title + "\" page to the dashboard sidebar (once enabled)").
+		Text("dashboard page")
+}
 
 // ensure deterministic display order even if the server's order ever changes.
 func sortRegistry(ps []registryPlugin) {

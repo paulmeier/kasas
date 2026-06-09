@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -24,6 +25,9 @@ func (e errOnUninstall) Invoke(_ context.Context, hook Hook, _ HookEvent) error 
 		return errors.New("cleanup blew up")
 	}
 	return nil
+}
+func (e errOnUninstall) Render(_ context.Context, _ Hook, _ PageRequest) (json.RawMessage, error) {
+	return nil, ErrHookNotImpl
 }
 func (e errOnUninstall) Close() error { return nil }
 

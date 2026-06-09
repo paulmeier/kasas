@@ -55,6 +55,10 @@ func Routes() {
 	app.Route("/marketplace", func() app.Composer { return &marketplaceView{} })
 	app.Route("/sources", func() app.Composer { return &sourcesView{} })
 	app.Route("/settings", func() app.Composer { return &settingsView{} })
+	// Plugin dashboard pages: one regexp route serves every /ext/<plugin> path
+	// with the generic declarative-page view (the plugin name is read from the
+	// URL on mount). The pattern mirrors the plugin-name slug rule.
+	app.RouteWithRegexp("^/ext/[a-z0-9][a-z0-9_-]*$", func() app.Composer { return &pluginPageView{} })
 }
 
 // transactionsView is the Transactions page (the app root, "/"): a filterable,

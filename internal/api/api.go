@@ -218,6 +218,15 @@ func (s *Server) Router() http.Handler {
 				// nil) so the dashboard's Plugins page gets a clean "disabled" response
 				// instead of a routing 404.
 				r.Get("/plugins", s.handleListPlugins)
+				// Plugin dashboard pages: the sidebar entries plugins contribute and
+				// their declaratively rendered pages. Static /plugins/pages is
+				// registered before /plugins/{id} so it isn't captured as a plugin id
+				// (chi prefers static segments, but keep it explicit). Rendering sits
+				// in the read tier: it's how a page is VIEWED (the spec tells plugins
+				// to treat OnPageRender as read-only), while actions are explicit
+				// mutations and live in the write tier below.
+				r.Get("/plugins/pages", s.handleListPluginPages)
+				r.Get("/plugins/pages/{name}", s.handleRenderPluginPage)
 				r.Get("/plugins/{id}", s.handleGetPlugin)
 
 				// Canonical event stream (poll/cursor). The live SSE tail is the
@@ -275,6 +284,11 @@ func (s *Server) Router() http.Handler {
 				r.Put("/rules/{id}", s.handleUpdateRule)
 				r.Delete("/rules/{id}", s.handleDeleteRule)
 				r.Post("/rules/{id}/run", s.handleRunRule)
+
+				// Plugin page actions: a button press declared by a plugin's page,
+				// handled by its OnPageAction hook. The hook runs with the plugin's
+				// granted write capabilities, so this is write-tier.
+				r.Post("/plugins/pages/{name}/action", s.handlePluginPageAction)
 
 				r.Post("/sync", s.handleTriggerSync)
 

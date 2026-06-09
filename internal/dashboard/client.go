@@ -837,22 +837,138 @@ func (c *apiClient) uninstallPlugin(ctx context.Context, id int64) (uninstallRes
 	return out, nil
 }
 
+// pluginPage mirrors api.PluginPageInfoDTO: one sidebar entry contributed by a
+// loaded plugin with a [ui] manifest block.
+type pluginPage struct {
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	Icon  string `json:"icon"`
+}
+
+// pageDoc / pageBlock / pageKV / pageAction mirror the normalized page document
+// produced by plugins.ValidatePageDoc (all scalars are strings after server-side
+// normalization). The generic plugin page view walks the blocks and renders each
+// through text-safe go-app primitives.
+type pageDoc struct {
+	Title  string      `json:"title"`
+	Blocks []pageBlock `json:"blocks"`
+}
+
+type pageBlock struct {
+	Type    string       `json:"type"`
+	Text    string       `json:"text"`
+	Label   string       `json:"label"`
+	Value   string       `json:"value"`
+	Hint    string       `json:"hint"`
+	Items   []pageKV     `json:"items"`
+	Columns []string     `json:"columns"`
+	Rows    [][]string   `json:"rows"`
+	Actions []pageAction `json:"actions"`
+}
+
+type pageKV struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type pageAction struct {
+	ID     string            `json:"id"`
+	Label  string            `json:"label"`
+	Style  string            `json:"style"`
+	Params map[string]string `json:"params"`
+}
+
+// pluginPages lists the dashboard pages of loaded plugins (the dynamic sidebar
+// entries). An empty list is the common case: no plugin exposes a page.
+func (c *apiClient) pluginPages(ctx context.Context) ([]pluginPage, error) {
+	var out struct {
+		Pages []pluginPage `json:"pages"`
+	}
+	if err := c.get(ctx, "/api/v1/plugins/pages", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Pages, nil
+}
+
+// pluginPageDoc renders a plugin's page (invoking its OnPageRender hook
+// server-side) and returns the normalized page document.
+func (c *apiClient) pluginPageDoc(ctx context.Context, name string) (pageDoc, error) {
+	var out struct {
+		Page pageDoc `json:"page"`
+	}
+	if err := c.getWithError(ctx, "/api/v1/plugins/pages/"+url.PathEscape(name), &out); err != nil {
+		return pageDoc{}, err
+	}
+	return out.Page, nil
+}
+
+// pluginPageAction posts a page button press to the plugin's OnPageAction hook
+// and returns the refreshed page document.
+func (c *apiClient) pluginPageAction(ctx context.Context, name, actionID string, params map[string]string) (pageDoc, error) {
+	body, err := json.Marshal(map[string]any{"id": actionID, "params": params})
+	if err != nil {
+		return pageDoc{}, err
+	}
+	u := c.base + "/api/v1/plugins/pages/" + url.PathEscape(name) + "/action"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	if err != nil {
+		return pageDoc{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return pageDoc{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return pageDoc{}, decodeAPIError(resp, "run page action")
+	}
+	var out struct {
+		Page pageDoc `json:"page"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return pageDoc{}, err
+	}
+	return out.Page, nil
+}
+
+// getWithError is get with the API's {"error": ...} message surfaced (plugin
+// page errors carry the plugin's failure reason, worth showing on the page).
+func (c *apiClient) getWithError(ctx context.Context, path string, dst any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "GET "+path)
+	}
+	return json.NewDecoder(resp.Body).Decode(dst)
+}
+
 // registryPlugin mirrors api.RegistryPluginDTO: one community-registry plugin with
 // the metadata the Marketplace page shows and this host's install state.
 type registryPlugin struct {
-	Name             string   `json:"name"`
-	Version          string   `json:"version"`
-	Description      string   `json:"description"`
-	Author           string   `json:"author"`
-	License          string   `json:"license"`
-	Homepage         string   `json:"homepage"`
-	Runtime          string   `json:"runtime"`
-	Hooks            []string `json:"hooks"`
-	Capabilities     []string `json:"capabilities"`
-	CapabilityTier   string   `json:"capability_tier"`
-	Installed        bool     `json:"installed"`
-	InstalledVersion string   `json:"installed_version"`
-	UpdateAvailable  bool     `json:"update_available"`
+	Name           string   `json:"name"`
+	Version        string   `json:"version"`
+	Description    string   `json:"description"`
+	Author         string   `json:"author"`
+	License        string   `json:"license"`
+	Homepage       string   `json:"homepage"`
+	Runtime        string   `json:"runtime"`
+	Hooks          []string `json:"hooks"`
+	Capabilities   []string `json:"capabilities"`
+	CapabilityTier string   `json:"capability_tier"`
+	// UI is present when the plugin adds a dashboard page (mirrors
+	// api.RegistryUIDTO), shown as a badge in the catalog.
+	UI               *pluginPage `json:"ui"`
+	Installed        bool        `json:"installed"`
+	InstalledVersion string      `json:"installed_version"`
+	UpdateAvailable  bool        `json:"update_available"`
 }
 
 // listPluginRegistry returns the community catalog and whether the registry is

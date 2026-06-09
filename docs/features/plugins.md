@@ -49,11 +49,12 @@ entrypoint  = "main.lua"
 # Event hooks fire on matching events: OnTransactionCreate (transaction.created),
 # OnTransactionUpdate (transaction.updated), OnSyncComplete (sync.completed). The
 # OnUninstall lifecycle hook (no event) runs once at uninstall so the plugin can
-# clean up; see "Uninstalling" below.
+# clean up (see "Uninstalling" below); OnPageRender/OnPageAction back an optional
+# dashboard page (see "Dashboard pages" below).
 hooks = ["OnTransactionCreate", "OnTransactionUpdate"]
 
 # Capabilities the host grants and enforces: transactions:read,
-# labels:write, extensions:write.
+# labels:write, extensions:write, ui:page.
 capabilities = ["transactions:read", "labels:write"]
 
 [config]                            # arbitrary config, exposed as kasas.config
@@ -208,6 +209,87 @@ declare const kasas: Kasas;
 Annotate your hook parameters with `KasasTransaction` / `KasasSyncSummary` (don't
 re-`declare` the hook functions — you define them). `console.log/info/warn/error/debug`
 also work and route to kasas's structured logging.
+
+## Dashboard pages
+
+A plugin can extend the dashboard with its **own sidebar entry and page**, without
+shipping any frontend code. The page is *declarative*: the plugin's `OnPageRender`
+hook returns a JSON-shaped **page document** (a list of typed blocks), kasas
+validates and normalizes it server-side, and the dashboard renders the blocks with
+its own components. Plugin output is always treated as text — a plugin cannot
+inject markup, scripts, or styles.
+
+Declare the page in the manifest. The `[ui]` block, the `OnPageRender` hook, and
+the `ui:page` capability come as a unit (the manifest is rejected if any of the
+three is missing):
+
+```toml
+hooks        = ["OnTransactionCreate", "OnPageRender", "OnPageAction"]
+capabilities = ["transactions:read", "ui:page"]
+
+[ui]
+title = "Coffee Budget"   # sidebar label + default page heading (max 40 chars)
+icon  = "chart"           # curated icon name; bell, calendar, chart, coin, flag,
+                          # gauge, heart, list, puzzle (default), star
+```
+
+The page appears in the sidebar at `/ext/<plugin-name>` while the plugin is
+**enabled and loaded** (disable the plugin — or revoke `ui:page` — and the entry
+disappears). The hook receives a request (`req.plugin`, `req.action`,
+`req.params`) and returns the page:
+
+```lua
+function OnPageRender(req)
+  local matches = kasas.search(kasas.config.keyword, 100)
+  local rows = {}
+  for _, t in ipairs(matches) do
+    rows[#rows + 1] = { t.description, t.amount }
+  end
+  return {
+    title = "Coffee Budget",
+    blocks = {
+      { type = "stat", label = "Matches", value = #matches, hint = "tagged so far" },
+      { type = "table", columns = { "Description", "Amount" }, rows = rows },
+      { type = "actions", actions = { { id = "rescan", label = "Re-scan", style = "primary" } } },
+    },
+  }
+end
+
+function OnPageAction(req)         -- req.action == "rescan", req.params == {…}
+  -- do the work (with the plugin's granted capabilities), then re-render:
+  return OnPageRender(req)
+end
+```
+
+**Block types:** `heading` and `text` (a `text` string), `stat` (`label`, `value`,
+optional `hint`), `keyvalue` (`items` of `{key, value}`), `table` (`columns` plus
+`rows` of cell arrays), `actions` (buttons of `{id, label, style?, params?}` that
+POST back to `OnPageAction`), and `divider`. Scalar values may be strings,
+numbers, or booleans — they are normalized to strings. Documents are
+bounds-checked (≤256 KiB, ≤200 blocks, ≤1000 table rows, …) and an unknown block
+type is an error, so a typo surfaces immediately on the page.
+
+**Contract & tiers:** treat `OnPageRender` as **read-only** — it runs whenever
+someone views the page (`GET /api/v1/plugins/pages/{name}`, read tier). Mutations
+belong in `OnPageAction` (`POST /api/v1/plugins/pages/{name}/action`, write
+tier), and both hooks run on the plugin's single worker under
+`plugins.hook_timeout`, serialized with its event hooks. Render failures are
+recorded as plugin health (visible on the Plugins page) and reported on the page
+itself.
+
+```bash
+# The sidebar entries (read tier).
+curl -s localhost:8080/api/v1/plugins/pages
+# -> {"pages":[{"name":"coffee-budget","title":"Coffee Budget","icon":"chart"}]}
+
+# Render a page (runs OnPageRender).
+curl -s localhost:8080/api/v1/plugins/pages/coffee-budget
+# -> {"name":"coffee-budget","page":{"title":"Coffee Budget","blocks":[…]}}
+
+# Press a button (runs OnPageAction; write tier).
+curl -s -X POST localhost:8080/api/v1/plugins/pages/coffee-budget/action \
+  -H 'Content-Type: application/json' -d '{"id":"rescan"}'
+```
 
 ## The runtime seam
 

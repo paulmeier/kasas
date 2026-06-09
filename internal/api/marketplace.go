@@ -25,13 +25,26 @@ type RegistryPluginDTO struct {
 	Hooks          []string `json:"hooks"`
 	Capabilities   []string `json:"capabilities"`
 	CapabilityTier string   `json:"capability_tier"`
+	// UI is present when the plugin adds a dashboard page, so the Marketplace
+	// page can badge it before install.
+	UI *RegistryUIDTO `json:"ui,omitempty"`
 
 	Installed        bool   `json:"installed"`
 	InstalledVersion string `json:"installed_version,omitempty"`
 	UpdateAvailable  bool   `json:"update_available"`
 }
 
+// RegistryUIDTO is the dashboard-page metadata of a registry plugin.
+type RegistryUIDTO struct {
+	Title string `json:"title"`
+	Icon  string `json:"icon"`
+}
+
 func toRegistryPluginDTO(e plugins.CatalogEntry) RegistryPluginDTO {
+	var ui *RegistryUIDTO
+	if e.UI != nil {
+		ui = &RegistryUIDTO{Title: e.UI.Title, Icon: e.UI.Icon}
+	}
 	return RegistryPluginDTO{
 		Name:             e.Name,
 		Version:          e.Version,
@@ -43,6 +56,7 @@ func toRegistryPluginDTO(e plugins.CatalogEntry) RegistryPluginDTO {
 		Hooks:            e.Hooks,
 		Capabilities:     e.Capabilities,
 		CapabilityTier:   e.CapabilityTier,
+		UI:               ui,
 		Installed:        e.Installed,
 		InstalledVersion: e.InstalledVersion,
 		UpdateAvailable:  e.UpdateAvailable,
