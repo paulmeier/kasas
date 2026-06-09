@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.19.0](https://github.com/paulmeier/kasas/compare/v2.18.0...v2.19.0) (2026-06-09)
+
+
+### Features
+
+* add Bitcoin and Ethereum address-watching sources ([#82](https://github.com/paulmeier/kasas/issues/82)) ([6aeb533](https://github.com/paulmeier/kasas/commit/6aeb5333078f6e6936cf10cc89b174c0317a4fad))
+
 ## [2.18.0](https://github.com/paulmeier/kasas/compare/v2.17.0...v2.18.0) (2026-06-09)
 
 
