@@ -241,6 +241,19 @@ func (s *Server) MCPServer() *mcp.Server {
 			Name:        "reload_plugin",
 			Description: "Reload a plugin by id from disk, picking up code and manifest changes without a restart (reloads only if the plugin is enabled). Returns the updated status.",
 		}, s.mcpReloadPlugin)
+
+		// Community marketplace tools, registered only when a registry is configured.
+		if s.pluginMgr.RegistryEnabled() {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name:        "browse_plugin_registry",
+				Description: "Browse the community plugin registry: each available plugin's metadata (description, author, license, runtime, hooks, capabilities, capability tier) plus whether it is already installed on this host and whether an update is available.",
+			}, s.mcpBrowsePluginRegistry)
+
+			mcp.AddTool(srv, &mcp.Tool{
+				Name:        "install_plugin",
+				Description: "Install (or update) a community plugin by name from the registry. Downloads and integrity-verifies the plugin's files, then registers it DISABLED — enabling it (which runs its code) is a separate action. Returns the installed plugin's status.",
+			}, s.mcpInstallPlugin)
+		}
 	}
 
 	return srv

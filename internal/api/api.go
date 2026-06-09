@@ -327,6 +327,14 @@ func (s *Server) Router() http.Handler {
 					r.Post("/plugins/{id}/enable", s.handleEnablePlugin)
 					r.Post("/plugins/{id}/disable", s.handleDisablePlugin)
 					r.Post("/plugins/{id}/reload", s.handleReloadPlugin)
+
+					// Community marketplace: browse the registry catalog and install
+					// (download + integrity-verify) a plugin into plugins.dir. Installing
+					// third-party code is admin-only; the installed plugin starts disabled.
+					// Static /plugins/registry is registered before /plugins/{id}/* above,
+					// but chi prefers static segments regardless.
+					r.Get("/plugins/registry", s.handleListPluginRegistry)
+					r.Post("/plugins/registry/{name}/install", s.handleInstallPlugin)
 				}
 
 				// Apply a self-update (status is in the read tier above).

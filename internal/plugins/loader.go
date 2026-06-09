@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // manifestFile is the per-plugin manifest filename.
@@ -45,6 +46,12 @@ func Discover(dir string) ([]Discovered, error) {
 			continue
 		}
 		name := e.Name()
+		// Skip hidden directories: a plugin name is a slug that never starts with a
+		// dot, and the marketplace stages downloads in a dot-prefixed temp dir that
+		// must never be mistaken for a plugin mid-install.
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
 		pdir := filepath.Join(dir, name)
 
 		data, rerr := os.ReadFile(filepath.Join(pdir, manifestFile))

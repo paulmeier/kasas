@@ -38,6 +38,10 @@ type Options struct {
 	QueueSize   int                // per-plugin job-queue depth
 	SearchLimit int                // max results a plugin search may return
 	Logger      *slog.Logger
+	// Registry, when non-nil, enables the community-plugin marketplace: browsing a
+	// published catalog and installing plugins into Dir. Nil leaves the marketplace
+	// methods reporting ErrRegistryDisabled.
+	Registry RegistrySource
 }
 
 // Manager loads plugins from disk, subscribes to the event bus, and routes each
@@ -56,6 +60,7 @@ type Manager struct {
 	queueSize   int
 	searchLimit int
 	logger      *slog.Logger
+	registry    RegistrySource // nil when the marketplace is disabled
 
 	mu      sync.RWMutex
 	plugins map[string]*plugin
@@ -93,6 +98,7 @@ func NewManager(opts Options) *Manager {
 		queueSize:   opts.QueueSize,
 		searchLimit: opts.SearchLimit,
 		logger:      opts.Logger,
+		registry:    opts.Registry,
 		plugins:     map[string]*plugin{},
 	}
 }

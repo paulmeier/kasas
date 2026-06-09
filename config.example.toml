@@ -278,3 +278,18 @@ hook_timeout = "5s"
 # Per-plugin job-queue depth. A slow plugin drops jobs rather than stalling the bus;
 # consumers reconcile any gap via the /events cursor.
 queue_size = 256
+
+[plugins.registry]
+# Community plugin marketplace: browse a published registry index and install
+# plugins into `dir` from the dashboard (Marketplace page), the admin REST endpoints
+# (GET /api/v1/plugins/registry, POST /api/v1/plugins/registry/{name}/install), or
+# the browse_plugin_registry / install_plugin MCP tools. Effective only when
+# [plugins].enabled is true. Installing downloads and integrity-verifies (per-file
+# SHA-256) the plugin, then registers it DISABLED — enabling it is still a separate,
+# admin-only action, so turning the marketplace on never runs third-party code by
+# itself.
+enabled = true
+# The registry index.json to fetch. Defaults to the official kasas-plugins registry.
+url = "https://raw.githubusercontent.com/paulmeier/kasas-plugins/main/registry/index.json"
+# Git ref used to build raw file-download URLs from the index's repository field.
+ref = "main"
