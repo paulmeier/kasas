@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.24.1](https://github.com/paulmeier/kasas/compare/v2.24.0...v2.24.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* **plugins:** empty Lua tables in page docs, and real JS Dates for plugins ([#95](https://github.com/paulmeier/kasas/issues/95)) ([b386c44](https://github.com/paulmeier/kasas/commit/b386c44a5fcba376a10e36ed3b1c2e4eac7b42ff))
+
 ## [2.24.0](https://github.com/paulmeier/kasas/compare/v2.23.0...v2.24.0) (2026-06-09)
 
 
