@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.17.0](https://github.com/paulmeier/kasas/compare/v2.16.0...v2.17.0) (2026-06-09)
+
+
+### Features
+
+* add Teller as a data source with multi-bank fan-out ([#78](https://github.com/paulmeier/kasas/issues/78)) ([fe613f2](https://github.com/paulmeier/kasas/commit/fe613f2cf500e4cfd307bd968cfe496bb7e69b1d))
+
 ## [2.16.0](https://github.com/paulmeier/kasas/compare/v2.15.1...v2.16.0) (2026-06-08)
 
 
