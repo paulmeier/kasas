@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -169,4 +170,33 @@ function OnTransactionCreate(txn) {
 	require.NoError(t, err)
 	assert.Equal(t, "tea", eff["keyword"])
 	assert.EqualValues(t, 25, eff["limit"])
+}
+
+// TestJSTransactionDateIsRealJSDate is a regression test: goja does not convert
+// time.Time to a JS Date on its own, so without jsDate a plugin calling
+// txn.date.getTime() threw "Object has no member 'getTime'" — breaking the
+// documented contract that `date` is a JavaScript Date.
+func TestJSTransactionDateIsRealJSDate(t *testing.T) {
+	dir := t.TempDir()
+	src := `
+function OnTransactionCreate(txn) {
+  kasas.applyLabels(txn.id, {
+    iso: txn.date.toISOString(),
+    ms: String(txn.date.getTime()),
+  });
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.js"), []byte(src), 0o644))
+	m := Manifest{Name: "dater", Runtime: RuntimeJS, Entrypoint: "main.js",
+		Hooks: []Hook{HookTransactionCreate}, Config: map[string]any{}}
+
+	host := newFakeHost()
+	inst, err := NewJSRuntime().Load(context.Background(), m, dir, host)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = inst.Close() })
+
+	when := time.Date(2026, 6, 9, 12, 30, 0, 0, time.UTC)
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1", Date: when}}))
+	assert.Equal(t, "2026-06-09T12:30:00.000Z", host.applied["tx-1"]["iso"])
+	assert.Equal(t, strconv.FormatInt(when.UnixMilli(), 10), host.applied["tx-1"]["ms"])
 }

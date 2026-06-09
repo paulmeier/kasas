@@ -386,7 +386,7 @@ func TestValidatePageDocFormBlock(t *testing.T) {
 	assert.Equal(t, "text", form.Fields[0].Kind, "kind defaults to text")
 	assert.Equal(t, flexString("25"), form.Fields[1].Value, "numeric values normalize to strings")
 	assert.Equal(t, flexString("true"), form.Fields[2].Value)
-	assert.Equal(t, []string{"bold", "subtle"}, form.Fields[3].Options)
+	assert.EqualValues(t, []string{"bold", "subtle"}, form.Fields[3].Options)
 	assert.Empty(t, doc.Blocks[1].Fields, "form fields on a non-form block are cleared")
 	assert.Empty(t, doc.Blocks[1].ID)
 }
@@ -408,4 +408,63 @@ func TestValidatePageDocFormRejects(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+// TestValidatePageDocAcceptsEmptyLuaTables is a regression test: a Lua table
+// cannot distinguish an empty array from an empty object, so zero rows (or
+// options) arrive as {} — which must validate, not 500 the page.
+func TestValidatePageDocAcceptsEmptyLuaTables(t *testing.T) {
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"type": "table", "columns": ["A", "B"], "rows": {}},
+			{"type": "table", "columns": ["A"], "rows": [{}]}
+		]
+	}`)
+	out, err := ValidatePageDoc(raw)
+	require.NoError(t, err)
+
+	var doc PageDoc
+	require.NoError(t, json.Unmarshal(out, &doc))
+	require.Len(t, doc.Blocks, 2)
+	assert.Empty(t, doc.Blocks[0].Rows)
+	require.Len(t, doc.Blocks[1].Rows, 1)
+	assert.Empty(t, doc.Blocks[1].Rows[0], "an empty row is an empty cell list")
+
+	// {} where a REQUIRED list belongs still errors — with the validator's
+	// message, not an unmarshal failure.
+	_, err = ValidatePageDoc(json.RawMessage(`{"blocks": [{"type": "actions", "actions": {}}]}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "actions are required")
+	_, err = ValidatePageDoc(json.RawMessage(`{"blocks": {}}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no blocks")
+
+	// A NON-empty object where a list belongs is still rejected.
+	_, err = ValidatePageDoc(json.RawMessage(`{"blocks": [{"type": "table", "columns": ["A"], "rows": {"x": 1}}]}`))
+	require.Error(t, err)
+}
+
+func TestLuaRenderEmptyTableValidates(t *testing.T) {
+	// The zero-search-matches shape of a coffee-budget-style page.
+	inst := loadPageInstance(t, NewLuaRuntime(), "main.lua", `
+function OnPageRender(req)
+  local rows = {}
+  return {
+    blocks = {
+      { type = "stat", label = "Matches", value = 0 },
+      { type = "table", columns = { "Description", "Amount" }, rows = rows },
+    },
+  }
+end
+function OnPageAction(req) return OnPageRender(req) end`)
+
+	raw, err := inst.Render(context.Background(), HookPageRender, PageRequest{Plugin: "pager"})
+	require.NoError(t, err)
+	norm, err := ValidatePageDoc(raw)
+	require.NoError(t, err, "a table with zero rows must validate")
+
+	var doc PageDoc
+	require.NoError(t, json.Unmarshal(norm, &doc))
+	require.Len(t, doc.Blocks, 2)
+	assert.Empty(t, doc.Blocks[1].Rows)
 }

@@ -26,7 +26,7 @@ func TestMergeConfigOverlaysAndCoerces(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "tea", out["keyword"])
-	assert.Equal(t, float64(25), out["limit"])
+	assert.EqualValues(t, 25, out["limit"], "whole string numbers coerce to integers")
 	assert.Equal(t, true, out["enabled"])
 	assert.Equal(t, 1.5, out["ratio"])
 	assert.Equal(t, []any{"a"}, out["tags"], "untouched keys keep their defaults")

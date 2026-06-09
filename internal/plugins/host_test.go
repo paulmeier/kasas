@@ -145,7 +145,7 @@ func TestHostSetConfigPersistsAndMerges(t *testing.T) {
 	merged, err := h.SetConfig(context.Background(), map[string]any{"keyword": "tea", "limit": "25"})
 	require.NoError(t, err)
 	assert.Equal(t, "tea", merged["keyword"])
-	assert.Equal(t, float64(25), merged["limit"])
+	assert.EqualValues(t, 25, merged["limit"])
 	assert.Equal(t, false, merged["enabled"], "untouched keys keep their defaults")
 
 	// The override file was overwritten and is the durable source of truth.

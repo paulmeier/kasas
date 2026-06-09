@@ -27,8 +27,8 @@ type PageRequest struct {
 // PageDoc is the normalized page: an optional title (defaulting to the
 // manifest's ui.title in the dashboard) and an ordered list of blocks.
 type PageDoc struct {
-	Title  string      `json:"title,omitempty"`
-	Blocks []PageBlock `json:"blocks"`
+	Title  string              `json:"title,omitempty"`
+	Blocks flexList[PageBlock] `json:"blocks"`
 }
 
 // PageBlock is one renderable unit. Type selects the shape; only the fields for
@@ -43,36 +43,36 @@ type PageDoc struct {
 //	form     – ID, Fields, SubmitLabel (inputs that POST back to OnPageAction)
 //	divider  – nothing
 type PageBlock struct {
-	Type    string         `json:"type"`
-	Text    string         `json:"text,omitempty"`
-	Label   string         `json:"label,omitempty"`
-	Value   flexString     `json:"value,omitempty"`
-	Hint    string         `json:"hint,omitempty"`
-	Items   []PageKV       `json:"items,omitempty"`
-	Columns []string       `json:"columns,omitempty"`
-	Rows    [][]flexString `json:"rows,omitempty"`
-	Actions []PageAction   `json:"actions,omitempty"`
+	Type    string                         `json:"type"`
+	Text    string                         `json:"text,omitempty"`
+	Label   string                         `json:"label,omitempty"`
+	Value   flexString                     `json:"value,omitempty"`
+	Hint    string                         `json:"hint,omitempty"`
+	Items   flexList[PageKV]               `json:"items,omitempty"`
+	Columns flexList[string]               `json:"columns,omitempty"`
+	Rows    flexList[flexList[flexString]] `json:"rows,omitempty"`
+	Actions flexList[PageAction]           `json:"actions,omitempty"`
 
 	// Form fields (Type == "form"). Submitting POSTs {ID, params} back to
 	// OnPageAction exactly like a button press, with every field's current value
 	// in params under the field's name — so a plugin can collect settings from
 	// the user and persist them with kasas.set_config.
-	ID          string      `json:"id,omitempty"`
-	Fields      []PageField `json:"fields,omitempty"`
-	SubmitLabel string      `json:"submit_label,omitempty"`
+	ID          string              `json:"id,omitempty"`
+	Fields      flexList[PageField] `json:"fields,omitempty"`
+	SubmitLabel string              `json:"submit_label,omitempty"`
 }
 
 // PageField is one input of a form block. Kind selects the control the
 // dashboard renders; values always travel as strings (a toggle submits
 // "true"/"false"), matching action params.
 type PageField struct {
-	Name        string     `json:"name"`
-	Label       string     `json:"label"`
-	Kind        string     `json:"kind,omitempty"` // "text" (default), "number", "toggle", "select"
-	Value       flexString `json:"value,omitempty"`
-	Placeholder string     `json:"placeholder,omitempty"`
-	Help        string     `json:"help,omitempty"`
-	Options     []string   `json:"options,omitempty"` // select only
+	Name        string           `json:"name"`
+	Label       string           `json:"label"`
+	Kind        string           `json:"kind,omitempty"` // "text" (default), "number", "toggle", "select"
+	Value       flexString       `json:"value,omitempty"`
+	Placeholder string           `json:"placeholder,omitempty"`
+	Help        string           `json:"help,omitempty"`
+	Options     flexList[string] `json:"options,omitempty"` // select only
 }
 
 // PageKV is one row of a keyvalue block.
@@ -113,6 +113,36 @@ func (f *flexString) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("value must be a string, number, bool, or null")
 	}
 	return nil
+}
+
+// flexList is a JSON array that also accepts an EMPTY object. A Lua table
+// cannot distinguish an empty array from an empty object, so a page built in
+// Lua encodes zero rows/items/options as {} — without this tolerance a
+// coffee-budget-style table would render fine with matches and 500 with none.
+// A non-empty object where a list belongs is still an error.
+type flexList[T any] []T
+
+func (l *flexList[T]) UnmarshalJSON(b []byte) error {
+	if isEmptyJSONObject(b) {
+		*l = nil
+		return nil
+	}
+	var v []T
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*l = v
+	return nil
+}
+
+// isEmptyJSONObject reports whether b encodes {} — the ambiguous empty Lua
+// table. Anything else (arrays, non-empty objects, scalars) is false.
+func isEmptyJSONObject(b []byte) bool {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return false
+	}
+	return len(m) == 0
 }
 
 // Page document bounds. They are generous for a dashboard page while keeping a
