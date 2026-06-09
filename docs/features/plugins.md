@@ -323,9 +323,11 @@ end
 optional `hint`), `keyvalue` (`items` of `{key, value}`), `table` (`columns` plus
 `rows` of cell arrays), `actions` (buttons of `{id, label, style?, params?}` that
 POST back to `OnPageAction`), `form` (see below), and `divider`. Scalar values may
-be strings, numbers, or booleans — they are normalized to strings. Documents are
-bounds-checked (≤256 KiB, ≤200 blocks, ≤1000 table rows, …) and an unknown block
-type is an error, so a typo surfaces immediately on the page.
+be strings, numbers, or booleans — they are normalized to strings. An **empty Lua table is
+accepted wherever a list is expected** (a table with zero `rows` renders as an
+empty table), since Lua cannot distinguish an empty array from an empty object.
+Documents are bounds-checked (≤256 KiB, ≤200 blocks, ≤1000 table rows, …) and an
+unknown block type is an error, so a typo surfaces immediately on the page.
 
 **Form blocks** let a page collect input — the building block of an in-dashboard
 settings panel (see [Configuring a plugin](#configuring-a-plugin)). A form is
