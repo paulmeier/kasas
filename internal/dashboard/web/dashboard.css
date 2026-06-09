@@ -1246,3 +1246,9 @@ tr:hover .row-delete-btn,
 .ext-table { margin-bottom: 14px; }
 .ext-actions { display: flex; gap: 10px; margin: 4px 0 14px; flex-wrap: wrap; }
 .ext-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+.badge.page-badge {
+  margin-left: 8px;
+  color: var(--accent);
+  background: rgba(110, 168, 254, 0.12);
+  border: 1px solid rgba(110, 168, 254, 0.35);
+}

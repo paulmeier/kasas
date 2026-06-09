@@ -953,19 +953,22 @@ func (c *apiClient) getWithError(ctx context.Context, path string, dst any) erro
 // registryPlugin mirrors api.RegistryPluginDTO: one community-registry plugin with
 // the metadata the Marketplace page shows and this host's install state.
 type registryPlugin struct {
-	Name             string   `json:"name"`
-	Version          string   `json:"version"`
-	Description      string   `json:"description"`
-	Author           string   `json:"author"`
-	License          string   `json:"license"`
-	Homepage         string   `json:"homepage"`
-	Runtime          string   `json:"runtime"`
-	Hooks            []string `json:"hooks"`
-	Capabilities     []string `json:"capabilities"`
-	CapabilityTier   string   `json:"capability_tier"`
-	Installed        bool     `json:"installed"`
-	InstalledVersion string   `json:"installed_version"`
-	UpdateAvailable  bool     `json:"update_available"`
+	Name           string   `json:"name"`
+	Version        string   `json:"version"`
+	Description    string   `json:"description"`
+	Author         string   `json:"author"`
+	License        string   `json:"license"`
+	Homepage       string   `json:"homepage"`
+	Runtime        string   `json:"runtime"`
+	Hooks          []string `json:"hooks"`
+	Capabilities   []string `json:"capabilities"`
+	CapabilityTier string   `json:"capability_tier"`
+	// UI is present when the plugin adds a dashboard page (mirrors
+	// api.RegistryUIDTO), shown as a badge in the catalog.
+	UI               *pluginPage `json:"ui"`
+	Installed        bool        `json:"installed"`
+	InstalledVersion string      `json:"installed_version"`
+	UpdateAvailable  bool        `json:"update_available"`
 }
 
 // listPluginRegistry returns the community catalog and whether the registry is

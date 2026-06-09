@@ -49,21 +49,31 @@ type Index struct {
 // Entry is one listed plugin: manifest metadata plus the registry-computed
 // integrity data the installer verifies against.
 type Entry struct {
-	Name           string    `json:"name"`
-	Version        string    `json:"version"`
-	Description    string    `json:"description"`
-	Author         string    `json:"author"`
-	License        string    `json:"license"`
-	Homepage       string    `json:"homepage"`
-	Runtime        string    `json:"runtime"`
-	Entrypoint     string    `json:"entrypoint"`
-	Hooks          []string  `json:"hooks"`
-	Capabilities   []string  `json:"capabilities"`
-	CapabilityTier string    `json:"capability_tier"`
-	Path           string    `json:"path"`
-	Files          []FileRef `json:"files"`
-	ContentHash    string    `json:"content_hash"`
-	SizeBytes      int64     `json:"size_bytes"`
+	Name           string   `json:"name"`
+	Version        string   `json:"version"`
+	Description    string   `json:"description"`
+	Author         string   `json:"author"`
+	License        string   `json:"license"`
+	Homepage       string   `json:"homepage"`
+	Runtime        string   `json:"runtime"`
+	Entrypoint     string   `json:"entrypoint"`
+	Hooks          []string `json:"hooks"`
+	Capabilities   []string `json:"capabilities"`
+	CapabilityTier string   `json:"capability_tier"`
+	// UI is present when the plugin contributes a dashboard page (a [ui] manifest
+	// block), so the marketplace can badge it before install.
+	UI          *UIRef    `json:"ui,omitempty"`
+	Path        string    `json:"path"`
+	Files       []FileRef `json:"files"`
+	ContentHash string    `json:"content_hash"`
+	SizeBytes   int64     `json:"size_bytes"`
+}
+
+// UIRef is the registry's ui metadata: the sidebar title and curated icon name
+// of the plugin's dashboard page.
+type UIRef struct {
+	Title string `json:"title"`
+	Icon  string `json:"icon"`
 }
 
 // FileRef is one installable file with its integrity hash.

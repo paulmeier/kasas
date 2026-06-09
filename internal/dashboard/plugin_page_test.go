@@ -114,3 +114,24 @@ func TestExtIconFallsBack(t *testing.T) {
 		t.Fatalf("fallback icon missing\nHTML:\n%s", buf.String())
 	}
 }
+
+// TestMarketplacePageBadge checks a catalog row badges plugins that add a
+// dashboard page, and only those.
+func TestMarketplacePageBadge(t *testing.T) {
+	v := &marketplaceView{available: true}
+	withPage := registryPlugin{Name: "pager", Runtime: "lua",
+		UI: &pluginPage{Title: "Pager", Icon: "chart"}}
+	withoutPage := registryPlugin{Name: "plain", Runtime: "lua"}
+
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderRow(withPage))
+	if html := buf.String(); !strings.Contains(html, ">dashboard page<") {
+		t.Fatalf("expected the dashboard-page badge\nHTML:\n%s", html)
+	}
+
+	buf.Reset()
+	app.PrintHTML(&buf, v.renderRow(withoutPage))
+	if html := buf.String(); strings.Contains(html, ">dashboard page<") {
+		t.Fatalf("plain plugin must not carry the badge\nHTML:\n%s", html)
+	}
+}
