@@ -176,6 +176,40 @@ func TestCatalogRejectsUnsupportedSchema(t *testing.T) {
 	}
 }
 
+// TestDefaultLimitsAdmitWasmPlugin pins the invariant DefaultLimits exists for:
+// the largest plugin the registry's submission gate accepts — an 8 MiB compiled
+// wasm entrypoint (exempt from the registry's tighter per-file and total caps)
+// plus its manifest — must download cleanly. A standard-toolchain Go guest build
+// is ~3.5 MiB, so a per-file cap below the registry's wasm budget breaks every
+// marketplace install of a wasm plugin.
+func TestDefaultLimitsAdmitWasmPlugin(t *testing.T) {
+	contents := map[string]string{
+		"plugin.toml": "name=\"watcher\"\n",
+		"main.wasm":   strings.Repeat("\x00asm", 2*1024*1024), // 8 MiB, the registry's full wasm budget
+	}
+	idx := &Index{SchemaVersion: 1}
+	fr := newFakeRegistry(t, idx, nil)
+	entry, raw := buildEntry(fr.srv.URL, "watcher", contents)
+	entry.Runtime = "wasm"
+	entry.Entrypoint = "main.wasm"
+	idx.Repository = fr.srv.URL
+	idx.Plugins = []Entry{entry}
+	fr.files = raw
+
+	c := New(fr.srv.URL+"/index.json", "main", fr.srv.Client(), DefaultLimits())
+	dest := t.TempDir()
+	if err := c.Download(context.Background(), fr.srv.URL, entry, dest); err != nil {
+		t.Fatalf("registry-max wasm plugin must pass default limits: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dest, "main.wasm"))
+	if err != nil {
+		t.Fatalf("read main.wasm: %v", err)
+	}
+	if len(b) != 8*1024*1024 {
+		t.Fatalf("main.wasm size = %d, want %d", len(b), 8*1024*1024)
+	}
+}
+
 func TestDownloadEnforcesFileSizeLimit(t *testing.T) {
 	big := strings.Repeat("a", 200)
 	contents := map[string]string{"plugin.toml": "name=\"x\"\n", "main.lua": big}

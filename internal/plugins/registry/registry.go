@@ -85,7 +85,13 @@ type FileRef struct {
 
 // Limits bound what the client will accept from a registry, so a malicious or
 // broken index cannot exhaust disk. They mirror the registry's own submission
-// limits with headroom.
+// limits with headroom: the registry caps source files at 256 KiB and a plugin's
+// total at 1 MiB, but a wasm plugin's compiled entrypoint has its own 8 MiB
+// budget exempt from both, so the largest plugin a registry will list is ~9 MiB
+// and the per-file limit here must clear its wasm module. One per-file knob
+// (rather than one per file type) is deliberate: the index, not the bytes,
+// declares which file is the entrypoint, so a type-specific budget would not
+// constrain a malicious index any further than the total cap already does.
 type Limits struct {
 	MaxFileBytes  int64
 	MaxTotalBytes int64
@@ -95,8 +101,8 @@ type Limits struct {
 // DefaultLimits are applied when a Client is created without explicit limits.
 func DefaultLimits() Limits {
 	return Limits{
-		MaxFileBytes:  512 * 1024,      // 512 KiB
-		MaxTotalBytes: 4 * 1024 * 1024, // 4 MiB
+		MaxFileBytes:  16 * 1024 * 1024, // 16 MiB: 2x the registry's 8 MiB wasm-entrypoint budget
+		MaxTotalBytes: 20 * 1024 * 1024, // 20 MiB: ~2x the registry's worst case (8 MiB wasm + 1 MiB rest)
 		MaxFiles:      64,
 	}
 }
@@ -114,7 +120,10 @@ type Client struct {
 // httpClient gets a sensible default with a timeout.
 func New(indexURL, ref string, httpClient *http.Client, limits Limits) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		// The timeout bounds a whole request including its body, and each file is
+		// its own request; it is sized so the largest legitimate file (an 8 MiB
+		// wasm entrypoint) survives a slow link.
+		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
 	if ref == "" {
 		ref = "main"
