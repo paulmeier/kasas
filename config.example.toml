@@ -100,6 +100,34 @@ access_token = ""
 certificate = ""  # e.g. "/data/teller/certificate.pem"
 private_key = ""  # e.g. "/data/teller/private_key.pem"
 
+[plaid]
+# Plaid (https://plaid.com) pull source, alongside SimpleFIN. Each access token is
+# ONE linked bank (Item); the source fans out over all of them. It starts only when
+# BOTH client_id and secret are set; it is then idle until an access token is added.
+# Full guide: docs/features/plaid.md
+#
+# client_id / secret: your app-level Plaid credentials from the Plaid Dashboard (the
+# secret is per-environment). Env-friendly: KASAS_PLAID_CLIENT_ID, KASAS_PLAID_SECRET.
+client_id = ""
+secret    = ""
+#
+# environment: which Plaid host to use — "sandbox" (default), "development", or
+# "production". The secret above must match the chosen environment.
+environment = "sandbox"
+#
+# country_codes: ISO-3166-1 alpha-2 codes used to resolve institution names. Optional;
+# defaults to US.
+# country_codes = ["US"]
+#
+# access_token: a single per-Item token from Plaid Link (one linked bank). The
+# env-friendly form (KASAS_PLAID_ACCESS_TOKEN). Obtain it by exchanging a Link
+# public_token via Plaid's /item/public_token/exchange.
+access_token = ""
+#
+# access_tokens: several tokens, one per bank. Config tokens and tokens added at
+# runtime from the dashboard's Sources page (no restart) are unioned/deduplicated.
+# access_tokens = ["access-production-…", "access-production-…"]
+
 [sync]
 enabled       = true
 interval      = "6h"  # any Go duration: "30m", "1h", "12h"

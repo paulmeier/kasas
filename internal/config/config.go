@@ -20,6 +20,7 @@ type Config struct {
 	SimpleFIN SimpleFIN
 	CSV       CSV
 	Teller    Teller
+	Plaid     Plaid
 	Sync      Sync
 	Vault     Vault
 	Secrets   Secrets
@@ -115,6 +116,24 @@ type Teller struct {
 	AccessTokens []string `mapstructure:"access_tokens"`
 	Certificate  string   `mapstructure:"certificate"`
 	PrivateKey   string   `mapstructure:"private_key"`
+}
+
+// Plaid configures the Plaid (https://plaid.com) ingestion source, a pull source
+// alongside SimpleFIN. ClientID and Secret are the app-level credentials (one pair
+// per environment, from the Plaid Dashboard) shared by every linked bank; the source
+// is started only when both are set. Environment selects the API host (sandbox,
+// development, or production). Each access token is one linked Item (bank login):
+// provide a single one as AccessToken (env-friendly) and/or a list as AccessTokens
+// (config-file array), and more can be added at runtime from the dashboard Sources
+// page (stored in the secret store, unioned with these). CountryCodes scopes the
+// institution-name lookup (default US).
+type Plaid struct {
+	ClientID     string   `mapstructure:"client_id"`
+	Secret       string   `mapstructure:"secret"`
+	Environment  string   `mapstructure:"environment"`
+	CountryCodes []string `mapstructure:"country_codes"`
+	AccessToken  string   `mapstructure:"access_token"`
+	AccessTokens []string `mapstructure:"access_tokens"`
 }
 
 // Sync controls the background polling schedule.
@@ -232,6 +251,10 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("teller.access_token", "")
 	v.SetDefault("teller.certificate", "")
 	v.SetDefault("teller.private_key", "")
+	v.SetDefault("plaid.client_id", "")
+	v.SetDefault("plaid.secret", "")
+	v.SetDefault("plaid.environment", "sandbox")
+	v.SetDefault("plaid.access_token", "")
 	v.SetDefault("sync.enabled", true)
 	v.SetDefault("sync.interval", "6h")
 	v.SetDefault("sync.lookback_days", 90)
@@ -308,6 +331,12 @@ func Load(path string) (*Config, error) {
 			Certificate: v.GetString("teller.certificate"),
 			PrivateKey:  v.GetString("teller.private_key"),
 		},
+		Plaid: Plaid{
+			ClientID:    v.GetString("plaid.client_id"),
+			Secret:      v.GetString("plaid.secret"),
+			Environment: v.GetString("plaid.environment"),
+			AccessToken: v.GetString("plaid.access_token"),
+		},
 		Sync: Sync{
 			Enabled:      v.GetBool("sync.enabled"),
 			Interval:     interval,
@@ -361,6 +390,15 @@ func Load(path string) (*Config, error) {
 	// structurally; the singular teller.access_token above is the env-friendly form.
 	if err := v.UnmarshalKey("teller.access_tokens", &cfg.Teller.AccessTokens); err != nil {
 		return nil, fmt.Errorf("invalid teller.access_tokens config: %w", err)
+	}
+
+	// Plaid access tokens and country codes are optional string arrays loaded
+	// structurally; the singular plaid.access_token above is the env-friendly form.
+	if err := v.UnmarshalKey("plaid.access_tokens", &cfg.Plaid.AccessTokens); err != nil {
+		return nil, fmt.Errorf("invalid plaid.access_tokens config: %w", err)
+	}
+	if err := v.UnmarshalKey("plaid.country_codes", &cfg.Plaid.CountryCodes); err != nil {
+		return nil, fmt.Errorf("invalid plaid.country_codes config: %w", err)
 	}
 
 	if err := cfg.validate(); err != nil {

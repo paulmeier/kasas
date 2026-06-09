@@ -47,6 +47,7 @@ import (
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/source"
 	"github.com/paulmeier/kasas/internal/sources/csv"
+	"github.com/paulmeier/kasas/internal/sources/plaid"
 	"github.com/paulmeier/kasas/internal/sources/simplefin"
 	"github.com/paulmeier/kasas/internal/sources/teller"
 	"github.com/paulmeier/kasas/internal/vault"
@@ -520,10 +521,11 @@ func openPostgres(dsn string) (*sql.DB, error) {
 
 // buildEngine constructs the ingestion engine: one poller per configured source.
 // SimpleFIN is always built (it reports "not connected" and is skipped on sync
-// until a credential is set, so a CSV-only setup is quiet); the CSV file-import
-// source is built only when folders are configured. Each source is constructed by
-// type through the registry, resolving its credentials/config from the secret
-// store and config via the env.
+// until a credential is set, so a setup that uses only another source is quiet); the
+// CSV file-import source is built only when folders are configured, Teller when an
+// access token or certificate is set, and Plaid when its app credentials are set.
+// Each source is constructed by type through the registry, resolving its
+// credentials/config from the secret store and config via the env.
 func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, emitter *events.Emitter, logger *slog.Logger) (*poller.Engine, error) {
 	newPoller := func(typ string, opts map[string]string) (*poller.Poller, error) {
 		src, err := source.New(typ, source.Env{Logger: logger, Secrets: secrets, Options: opts})
@@ -585,6 +587,30 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 		}
 		pollers = append(pollers, tellerPoller)
 		logger.Info("teller source enabled", "enrollments", len(tellerTokens))
+	}
+
+	// Plaid is a pull source like Teller: each access token is one linked Item (bank),
+	// so it fans out over a list. The app-level client_id/secret/environment are set in
+	// config; per-bank access tokens come from config and/or the Sources page at
+	// runtime. Build it only when the app credentials are present (without them it can
+	// do nothing); like the others it is then skipped until at least one token exists.
+	if cfg.Plaid.ClientID != "" && cfg.Plaid.Secret != "" {
+		plaidTokens := cfg.Plaid.AccessTokens
+		if cfg.Plaid.AccessToken != "" {
+			plaidTokens = append([]string{cfg.Plaid.AccessToken}, plaidTokens...)
+		}
+		plaidPoller, err := newPoller(plaid.SourceType, map[string]string{
+			"client_id":     cfg.Plaid.ClientID,
+			"secret":        cfg.Plaid.Secret,
+			"environment":   cfg.Plaid.Environment,
+			"country_codes": strings.Join(cfg.Plaid.CountryCodes, ","),
+			"access_tokens": strings.Join(plaidTokens, "\n"),
+		})
+		if err != nil {
+			return nil, err
+		}
+		pollers = append(pollers, plaidPoller)
+		logger.Info("plaid source enabled", "environment", cfg.Plaid.Environment, "items", len(plaidTokens))
 	}
 
 	return poller.NewEngine(pollers...), nil
