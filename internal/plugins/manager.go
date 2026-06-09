@@ -59,6 +59,10 @@ type Manager struct {
 
 	mu      sync.RWMutex
 	plugins map[string]*plugin
+	// baseCtx is the manager's lifetime context, recorded by Run. Per-plugin workers
+	// run under it so a plugin enabled later via a short-lived HTTP request context
+	// keeps running after that request returns.
+	baseCtx context.Context
 	wg      sync.WaitGroup
 }
 
@@ -101,6 +105,12 @@ func (m *Manager) Run(ctx context.Context) {
 	if m == nil {
 		return
 	}
+	// Record the lifetime context before loading anything, so workers started now
+	// (reconcile) or later (SetEnabled/Reload, on a request context that dies when the
+	// HTTP handler returns) all run under a context that lives as long as the manager.
+	m.mu.Lock()
+	m.baseCtx = ctx
+	m.mu.Unlock()
 	m.reconcile(ctx)
 	defer m.shutdown()
 
@@ -195,15 +205,33 @@ func (m *Manager) dispatch(ev events.Event) {
 
 // --- per-plugin worker ---
 
-func (m *Manager) startWorker(ctx context.Context, p *plugin) {
+// startWorker runs a plugin's job loop. Hooks are invoked under the manager's
+// lifetime context (workerCtx), NOT the context that happened to trigger the load:
+// a plugin enabled through an HTTP request must keep running after that request's
+// context is cancelled, or every hook would invoke under a dead context and silently
+// no-op (the per-hook timeout would fire instantly).
+func (m *Manager) startWorker(p *plugin) {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		defer close(p.done)
+		ctx := m.workerCtx()
 		for j := range p.jobs {
 			m.invoke(ctx, p, j)
 		}
 	}()
+}
+
+// workerCtx returns the manager's lifetime context (set by Run), falling back to
+// Background for a manager that was never Run (e.g. unit tests that dispatch directly).
+func (m *Manager) workerCtx() context.Context {
+	m.mu.RLock()
+	c := m.baseCtx
+	m.mu.RUnlock()
+	if c == nil {
+		return context.Background()
+	}
+	return c
 }
 
 // invoke runs one hook with the per-hook timeout, records health, and never lets a
@@ -450,7 +478,7 @@ func (m *Manager) load(ctx context.Context, row db.Plugin, d Discovered) error {
 	m.mu.Lock()
 	m.plugins[row.Name] = p
 	m.mu.Unlock()
-	m.startWorker(ctx, p)
+	m.startWorker(p)
 	m.logger.Info("plugin loaded", "plugin", row.Name, "runtime", d.Manifest.Runtime, "hooks", len(triggers), "capabilities", len(caps))
 	return nil
 }

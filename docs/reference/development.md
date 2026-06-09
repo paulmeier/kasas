@@ -54,7 +54,7 @@ internal/rules/      rules engine
 internal/labels/     label normalization
 internal/extensions/ schema-extension helpers
 internal/webhooks/   webhook dispatcher
-internal/plugins/    plugin manager, host facade, Lua runtime
+internal/plugins/    plugin manager, host facade, Lua + JS/TS runtimes
 internal/selfupdate/ release check + in-place apply
 internal/testutil/   shared test database + fixtures
 migrations/          embedded goose migrations (per-dialect)

@@ -1,0 +1,12 @@
+name        = "ts-budgeting"
+version     = "0.1.0"
+description = "Tag transactions matching a keyword (TypeScript)"
+author      = "kasas tests"
+runtime     = "js"
+entrypoint  = "main.ts"
+
+hooks        = ["OnTransactionCreate"]
+capabilities = ["transactions:read", "labels:write", "extensions:write"]
+
+[config]
+keyword = "coffee"

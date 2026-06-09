@@ -166,3 +166,60 @@ func TestManagerEndToEnd(t *testing.T) {
 		return labels.Decode(row.Labels)["category"] == "food"
 	}, 3*time.Second, 20*time.Millisecond, "the plugin should have labeled the coffee transaction")
 }
+
+// TestManagerEnableContextCancelStillRuns is a regression test: a plugin enabled via
+// SetEnabled on a short-lived context (an HTTP request, whose context is cancelled
+// when the handler returns) must keep running afterwards. Before the fix, the worker
+// captured that request context, so every subsequent hook invoked under an
+// already-cancelled context, was interrupted before doing anything, and silently
+// no-oped.
+func TestManagerEnableContextCancelStillRuns(t *testing.T) {
+	store := testutil.NewStore(t)
+	fx := testutil.Seed(t, store)
+	bus := events.NewBus()
+	emitter := events.NewEmitter(bus)
+
+	mgr := NewManager(Options{
+		Store: store, Emitter: emitter, Bus: bus, Dir: "testdata",
+		Runtimes:    map[string]Runtime{RuntimeLua: NewLuaRuntime()},
+		HookTimeout: 2 * time.Second, Logger: testLogger(),
+	})
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	go mgr.Run(runCtx)
+	time.Sleep(100 * time.Millisecond) // let Run record baseCtx and subscribe
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	bud, ok := findByName(statuses, "budgeting")
+	require.True(t, ok)
+
+	// Enable on a request-scoped context, then cancel it as if the HTTP request ended.
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	_, err = mgr.SetEnabled(reqCtx, bud.ID, true)
+	require.NoError(t, err)
+	cancelReq()
+
+	require.NoError(t, emitter.Record(context.Background(), store, func(q db.Querier, rec *events.Recorder) error {
+		if _, err := q.InsertTransaction(context.Background(), db.InsertTransactionParams{
+			ID: "tx-coffee2", AccountID: fx.CheckingID, Amount: "-5.00",
+			Date: testutil.Date2024Jun, Description: "Coffee Bar", Payee: "Cafe", SyncedAt: 1,
+		}); err != nil {
+			return err
+		}
+		row, err := q.GetTransaction(context.Background(), "tx-coffee2")
+		if err != nil {
+			return err
+		}
+		return rec.Emit(context.Background(), q, events.TypeTransactionCreated, events.EntityTransaction, "tx-coffee2", events.TransactionSnapshot(row))
+	}))
+
+	require.Eventually(t, func() bool {
+		row, err := store.GetTransaction(context.Background(), "tx-coffee2")
+		if err != nil {
+			return false
+		}
+		return labels.Decode(row.Labels)["category"] == "food"
+	}, 3*time.Second, 20*time.Millisecond, "hook must still run after the enable request context is cancelled")
+}

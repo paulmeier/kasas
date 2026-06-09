@@ -4,9 +4,15 @@ Plugins are the **in-process** counterpart to [webhooks](webhooks.md): instead o
 pushing events to an external service, a plugin runs *inside* kasas, in a sandboxed
 language VM, and reacts to the same committed events. They let developers extend
 kasas — tax, budgeting, forecasting, notifications — without bloating the core
-ledger. v1 ships the **Lua** runtime
-([gopher-lua](https://github.com/yuin/gopher-lua), pure Go, no cgo);
-JavaScript/TypeScript and Go (via WASM) are planned behind the same adapter seam.
+ledger. Two runtimes ship today, both pure Go (no cgo, so the single-static-binary,
+multi-arch build is preserved):
+
+- **Lua** ([gopher-lua](https://github.com/yuin/gopher-lua))
+- **JavaScript / TypeScript** ([goja](https://github.com/dop251/goja), with
+  [esbuild](https://github.com/evanw/esbuild) stripping TypeScript types and
+  downleveling modern syntax at load)
+
+Go (via WASM) can slot in later behind the same adapter seam.
 
 Source: [`internal/plugins`](https://github.com/paulmeier/kasas/tree/main/internal/plugins).
 Requires `events.enabled` and `plugins.enabled`.
@@ -112,7 +118,94 @@ runtime (Lua today, JS/WASM later) inherits the same enforcement:
 | `kasas.log(level, msg, {k=v,…})` | — (always allowed) |
 | `kasas.config` | — (the manifest `[config]` table) |
 
-A call to a host function the plugin wasn't granted returns an error.
+A call to a host function the plugin wasn't granted returns an error. The table shows
+the **Lua** names; the JavaScript/TypeScript runtime exposes the same methods in
+idiomatic **camelCase** (`kasas.getTransaction`, `kasas.applyLabels`, …) — see
+[JavaScript & TypeScript](#javascript--typescript) below.
+
+## JavaScript & TypeScript
+
+Set `runtime = "js"` in the manifest. The entrypoint defaults to `main.js`; for
+TypeScript, point it at a `.ts` file — esbuild strips the types (and downlevels
+modern syntax) at load, so no build step or `node_modules` is required:
+
+```toml
+name        = "budgeting"
+runtime     = "js"
+entrypoint  = "main.ts"          # or main.js (the default)
+hooks        = ["OnTransactionCreate", "OnTransactionUpdate"]
+capabilities = ["labels:write", "extensions:write"]
+
+[config]
+keyword = "coffee"
+```
+
+Hooks are plain **top-level functions** (same names as everywhere else); the host API
+is the `kasas` global, in camelCase. Data passed to a hook uses kasas's canonical
+snake_case field names (`account_id`, …) — the same shape you would get from the REST
+API — and `date` is a JavaScript `Date`.
+
+```typescript
+function classify(txn: KasasTransaction): void {
+  if (txn.description.toLowerCase().includes(kasas.config.keyword)) {
+    kasas.applyLabels(txn.id, { category: "food" });   // routes through the normal
+    kasas.setExtension(txn.id, "budgeting.flagged", true); // emitter, like a REST edit
+  }
+}
+
+function OnTransactionCreate(txn: KasasTransaction) { classify(txn); }
+function OnTransactionUpdate(txn: KasasTransaction) { classify(txn); }
+```
+
+For editor autocomplete and type-checking, drop this `kasas.d.ts` next to your
+plugin. It is **dev-time only** — esbuild discards all types at load:
+
+```typescript
+// kasas.d.ts — ambient types for kasas JavaScript/TypeScript plugins.
+
+/** A transaction, in kasas's canonical snake_case shape. */
+interface KasasTransaction {
+  id: string;
+  account_id: string;
+  /** Decimal string (never a float) so cents are never lost, e.g. "-4.50". */
+  amount: string;
+  pending: boolean;
+  date: Date;
+  description: string;
+  payee: string;
+  memo: string;
+  labels: Record<string, string>;
+  extensions: Record<string, unknown>;
+}
+
+/** The summary passed to OnSyncComplete. */
+interface KasasSyncSummary {
+  accounts: number;
+  new_transactions: number;
+  updated_transactions: number;
+  auto_labeled: number;
+  duration: string;
+}
+
+/** The capability-checked host API. A method throws if the capability isn't granted. */
+interface Kasas {
+  getTransaction(id: string): KasasTransaction | null;          // transactions:read
+  search(query: string, limit?: number): KasasTransaction[];    // transactions:read
+  applyLabels(id: string, labels: Record<string, string>): void; // labels:write (merge)
+  removeLabels(id: string, keys: string[]): void;                // labels:write
+  setExtension(id: string, key: string, value: unknown): void;   // extensions:write
+  removeExtension(id: string, key: string): void;                // extensions:write
+  log(level: "debug" | "info" | "warn" | "error", message: string,
+      fields?: Record<string, unknown>): void;                   // always allowed
+  config: Record<string, any>;                                   // the [config] table
+}
+
+declare const kasas: Kasas;
+```
+
+Annotate your hook parameters with `KasasTransaction` / `KasasSyncSummary` (don't
+re-`declare` the hook functions — you define them). `console.log/info/warn/error/debug`
+also work and route to kasas's structured logging.
 
 ## The runtime seam
 
@@ -136,6 +229,12 @@ string, math), removes every escape hatch (`dofile`, `loadfile`, `load`,
 `require`, `module`, `newproxy`), routes `print` to structured logging, injects the
 `kasas` table, and resolves the declared hook functions. Each `Invoke` sets the
 VM's context so a runaway pure-Lua loop is interrupted at the deadline.
+
+The JS/TS runtime transpiles the entrypoint with esbuild, then runs it in a fresh
+goja VM — which exposes no `require`, filesystem, or network by default — injects the
+camelCase `kasas` object plus a `console` shim, and resolves the declared hooks as
+global functions. A watcher goroutine calls the VM's `Interrupt` at the deadline, so
+a runaway `while (true) {}` is stopped just like a Lua loop.
 
 ## Enabling is opt-in & admin-only
 
@@ -166,8 +265,11 @@ run health — while the code lives on disk under `plugins.dir`.
 
 ## Sandbox & limits (v1)
 
-The Lua VM opens only safe libraries — **no filesystem, process, network, or
-dynamic code loading** — and each hook is bounded by `plugins.hook_timeout`. It is
-**not** a hard memory sandbox (a buggy plugin can still allocate without bound), so
-the v1 trust model is *operator-installed, opt-in* plugins. A stronger WASM sandbox
-with hard resource caps — and a plugin marketplace — is the planned next step.
+Both runtimes run with **no filesystem, process, or network access** and a single,
+self-contained source file (no `import`/`require`, no `node_modules`) — the Lua VM
+opens only safe libraries, and the goja VM exposes none of those globals by default
+(`eval` and the `Function` constructor binding are removed too). Each hook is bounded
+by `plugins.hook_timeout`. Neither is a hard **memory** sandbox (a buggy plugin can
+still allocate without bound), so the v1 trust model is *operator-installed, opt-in*
+plugins. A stronger WASM sandbox with hard resource caps — and a plugin marketplace —
+is the planned next step.

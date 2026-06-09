@@ -168,11 +168,14 @@ func run(command, configPath string) error {
 	var pluginManager *plugins.Manager
 	if cfg.Plugins.Enabled && eventBus != nil {
 		pluginManager = plugins.NewManager(plugins.Options{
-			Store:       store,
-			Emitter:     emitter,
-			Bus:         eventBus,
-			Dir:         cfg.Plugins.Dir,
-			Runtimes:    map[string]plugins.Runtime{plugins.RuntimeLua: plugins.NewLuaRuntime()},
+			Store:   store,
+			Emitter: emitter,
+			Bus:     eventBus,
+			Dir:     cfg.Plugins.Dir,
+			Runtimes: map[string]plugins.Runtime{
+				plugins.RuntimeLua: plugins.NewLuaRuntime(),
+				plugins.RuntimeJS:  plugins.NewJSRuntime(),
+			},
 			HookTimeout: cfg.Plugins.HookTimeout,
 			QueueSize:   cfg.Plugins.QueueSize,
 			Logger:      logger,
