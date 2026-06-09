@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.23.0](https://github.com/paulmeier/kasas/compare/v2.22.0...v2.23.0) (2026-06-09)
+
+
+### Features
+
+* **plugins:** let plugins extend the dashboard with a sidebar entry and page ([#91](https://github.com/paulmeier/kasas/issues/91)) ([7b296e9](https://github.com/paulmeier/kasas/commit/7b296e959cdd2c408f3148d4de5f8fabdab93c55))
+
 ## [2.22.0](https://github.com/paulmeier/kasas/compare/v2.21.0...v2.22.0) (2026-06-09)
 
 
