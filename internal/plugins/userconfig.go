@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -115,6 +116,11 @@ func coerceConfigValue(key string, def, v any) (any, error) {
 			return x, nil
 		case string:
 			if f, err := strconv.ParseFloat(strings.TrimSpace(x), 64); err == nil {
+				// Whole values become integers so the saved TOML reads `5`, not
+				// `5.0` — the file is meant to be hand-edited too.
+				if f == math.Trunc(f) && math.Abs(f) < 1<<53 {
+					return int64(f), nil
+				}
 				return f, nil
 			}
 		}

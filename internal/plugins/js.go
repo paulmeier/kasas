@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dop251/goja"
 	esbuild "github.com/evanw/esbuild/pkg/api"
@@ -366,7 +367,7 @@ func hookArgJS(vm *goja.Runtime, hook Hook, ev HookEvent) goja.Value {
 
 // txnToJS builds the plugin-facing transaction object. Field names match kasas's
 // canonical snake_case JSON wire format (REST + events), so a JS author sees the same
-// shape they would from the API; `date` is a JS Date (goja converts time.Time).
+// shape they would from the API; `date` is a real JS Date (see jsDate).
 // labels/extensions are always objects (never null) so a plugin can iterate them.
 func txnToJS(vm *goja.Runtime, t Transaction) goja.Value {
 	lbls := t.Labels
@@ -382,13 +383,29 @@ func txnToJS(vm *goja.Runtime, t Transaction) goja.Value {
 		"account_id":  t.AccountID,
 		"amount":      t.Amount,
 		"pending":     t.Pending,
-		"date":        t.Date,
+		"date":        jsDate(vm, t.Date),
 		"description": t.Description,
 		"payee":       t.Payee,
 		"memo":        t.Memo,
 		"labels":      lbls,
 		"extensions":  exts,
 	})
+}
+
+// jsDate converts a Go time into a REAL JS Date through the VM's Date
+// constructor. goja does not do this conversion itself — vm.ToValue(time.Time)
+// wraps the Go value, whose methods (getTime, toISOString, …) don't exist —
+// which would break the documented contract that `date` is a JS Date.
+func jsDate(vm *goja.Runtime, t time.Time) goja.Value {
+	ctor, ok := goja.AssertConstructor(vm.Get("Date"))
+	if !ok {
+		return vm.ToValue(t) // unreachable in practice: Date is a built-in
+	}
+	d, err := ctor(nil, vm.ToValue(t.UnixMilli()))
+	if err != nil {
+		return vm.ToValue(t)
+	}
+	return d
 }
 
 // exportStringMap reads a JS object argument into a Go string map (the labels shape),
