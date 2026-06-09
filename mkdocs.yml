@@ -1,9 +1,9 @@
 site_name: kasas
 site_description: >-
   kasas is a financial ledger that can power all kinds of apps — it ingests your
-  financial data through pluggable sources (SimpleFIN and CSV file import today)
-  into SQLite or Postgres and exposes it over a REST API, an MCP server, a
-  canonical event stream, webhooks, and sandboxed plugins.
+  financial data through pluggable sources (SimpleFIN, Teller, Plaid, and CSV file
+  import today) into SQLite or Postgres and exposes it over a REST API, an MCP
+  server, a canonical event stream, webhooks, and sandboxed plugins.
 site_url: https://paulmeier.github.io/kasas/
 site_author: Paul Meier
 
@@ -115,6 +115,7 @@ nav:
       - Sync Pipeline: features/sync.md
       - CSV File Import: features/csv-import.md
       - Teller: features/teller.md
+      - Plaid: features/plaid.md
       - Manual Entry: features/manual-entry.md
       - Event Stream: features/event-stream.md
       - Transaction History: features/transaction-history.md

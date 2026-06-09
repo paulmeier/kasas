@@ -127,6 +127,35 @@ private_key = "/data/teller/key.pem"
 	assert.Equal(t, "/data/teller/key.pem", cfg.Teller.PrivateKey)
 }
 
+func TestLoadPlaidConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+[plaid]
+client_id = "cid_123"
+secret = "sec_abc"
+environment = "production"
+country_codes = ["US", "CA"]
+access_token = "access-prod-single"
+access_tokens = ["access-prod-a", "access-prod-b"]
+`
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "cid_123", cfg.Plaid.ClientID)
+	assert.Equal(t, "sec_abc", cfg.Plaid.Secret)
+	assert.Equal(t, "production", cfg.Plaid.Environment)
+	assert.Equal(t, []string{"US", "CA"}, cfg.Plaid.CountryCodes)
+	assert.Equal(t, "access-prod-single", cfg.Plaid.AccessToken, "the singular env-friendly token")
+	assert.Equal(t, []string{"access-prod-a", "access-prod-b"}, cfg.Plaid.AccessTokens, "the config-file token array")
+}
+
+func TestPlaidEnvironmentDefaultsToSandbox(t *testing.T) {
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, "sandbox", cfg.Plaid.Environment)
+}
+
 func TestLoadEnvWinsOverFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	require.NoError(t, os.WriteFile(path, []byte("[server]\naddr = \":7777\"\n"), 0o600))

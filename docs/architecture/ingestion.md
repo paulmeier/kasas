@@ -5,8 +5,9 @@ adapter that knows how to talk to one provider and shape its data into a neutral
 batch — and a generic *ingestion engine* persists it. [SimpleFIN](https://www.simplefin.org/)
 is the **first** source and the reference one, but it is not special — it plugs
 into the engine through the same contract every other source does.
-[CSV import](../features/csv-import.md) and [Teller](../features/teller.md) ship
-alongside it today, and more sources are a thin adapter each.
+[CSV import](../features/csv-import.md), [Teller](../features/teller.md), and
+[Plaid](../features/plaid.md) ship alongside it today, and more sources are a thin
+adapter each.
 
 Source: [`internal/source`](https://github.com/paulmeier/kasas/tree/main/internal/source)
 (the SDK) · [`internal/sources/simplefin`](https://github.com/paulmeier/kasas/tree/main/internal/sources/simplefin)
@@ -23,6 +24,7 @@ flowchart LR
         direction TB
         SF[SimpleFIN<br/>Puller]:::live
         TL[Teller<br/>Puller]:::live
+        PL[Plaid<br/>Puller]:::live
         CSV[CSV files<br/>local · Google Drive]:::live
         WHK[inbound webhook<br/>planned]:::soon
         ENR[enrichment<br/>planned]:::soon
@@ -39,6 +41,7 @@ flowchart LR
 
     SF --> BATCH
     TL --> BATCH
+    PL --> BATCH
     CSV --> BATCH
     WHK -.-> BATCH
     ENR -.-> BATCH
@@ -72,9 +75,9 @@ in that archetype is a thin adapter. **O(archetypes), not O(providers).**
 
 | Archetype | How data arrives | Engine trigger | Examples |
 | --- | --- | --- | --- |
-| **`pull`** | The engine fetches on a schedule. | `gocron` interval + on-demand | SimpleFIN, Teller, on-chain |
+| **`pull`** | The engine fetches on a schedule. | `gocron` interval + on-demand | SimpleFIN, Teller, Plaid, on-chain |
 | **`file`** | Files in a folder are parsed. | scheduled folder scan | **CSV (local + Google Drive)**, OFX, QIF |
-| **`webhook`** | An inbound request pushes data. | HTTP endpoint | Plaid, Stripe |
+| **`webhook`** | An inbound request pushes data. | HTTP endpoint | Stripe, payment processors |
 | **`manual`** | A human or agent writes directly. | API / MCP call | hand-entered cash |
 | **`enrichment`** | Annotates transactions that already exist. | post-change hook | categorizers, geocoders |
 
@@ -104,8 +107,9 @@ type OAuthCredentialed interface { // optional: a browser OAuth 2.0 connect flow
 }
 ```
 
-`Puller`, `Credentialed`, and `OAuthCredentialed` exist today, and **two
-archetypes ship**: `pull` (SimpleFIN) and `file` (CSV import). The `file` source
+`Puller`, `Credentialed`, `MultiCredentialed`, and `OAuthCredentialed` exist today,
+and **two archetypes ship**: `pull` (SimpleFIN, Teller, Plaid) and `file` (CSV
+import). The `file` source
 reuses the `pull` trigger — scanning its configured folders on the sync schedule —
 rather than needing a separate file-upload interface, so adding it required **no
 engine change**. The `webhook` and `enrichment` archetypes remain reserved in the
