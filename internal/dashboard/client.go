@@ -806,6 +806,37 @@ func (c *apiClient) pluginAction(ctx context.Context, id int64, action string) (
 	return out, nil
 }
 
+// uninstallResult mirrors api.UninstallResultDTO: the outcome of removing a plugin,
+// including whether its OnUninstall cleanup hook ran and any error it reported.
+type uninstallResult struct {
+	Name        string `json:"name"`
+	Uninstalled bool   `json:"uninstalled"`
+	HookRan     bool   `json:"hook_ran"`
+	HookError   string `json:"hook_error"`
+}
+
+// uninstallPlugin removes a plugin (running its cleanup hook first) and returns the
+// result.
+func (c *apiClient) uninstallPlugin(ctx context.Context, id int64) (uninstallResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/plugins/"+strconv.FormatInt(id, 10), nil)
+	if err != nil {
+		return uninstallResult{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return uninstallResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return uninstallResult{}, decodeAPIError(resp, "uninstall plugin")
+	}
+	var out uninstallResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return uninstallResult{}, err
+	}
+	return out, nil
+}
+
 // registryPlugin mirrors api.RegistryPluginDTO: one community-registry plugin with
 // the metadata the Marketplace page shows and this host's install state.
 type registryPlugin struct {

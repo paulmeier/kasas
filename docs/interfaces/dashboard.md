@@ -22,7 +22,7 @@ A collapsible left sidebar (the choice is remembered) navigates eight pages:
 | **Rules** | Create, edit, enable/disable, delete [rules](../features/rules.md) inline, and **Run** one or all. |
 | **Events** | A live feed of the [event stream](../features/event-stream.md), polled forward, with an expandable JSON payload per row. |
 | **Webhooks** | Register, edit, toggle, and test [webhook](../features/webhooks.md) endpoints; per-endpoint health. |
-| **Plugins** | [Plugin](../features/plugins.md) status/health, enable/disable, reload. |
+| **Plugins** | [Plugin](../features/plugins.md) status/health, enable/disable, reload, uninstall (runs the plugin's cleanup hook). |
 | **Marketplace** | Browse and install [community plugins](../features/plugins.md#the-community-marketplace) with a capability-tier warning; integrity-verified and installed disabled. |
 | **Settings** | Connect a source (SimpleFIN today), manage the [dashboard token](authentication.md), force a sync, and review the effective config (read-only, secrets redacted). |
 

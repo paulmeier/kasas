@@ -17,11 +17,12 @@ type pluginsView struct {
 	app.Compo
 	chrome // shared sidebar + API client + version badge
 
-	plugins []plugin
-	enabled bool // whether the plugin system is enabled (server-reported)
-	loading bool
-	errMsg  string
-	busyID  int64 // plugin with an action in flight (disables its controls)
+	plugins   []plugin
+	enabled   bool // whether the plugin system is enabled (server-reported)
+	loading   bool
+	errMsg    string
+	noticeMsg string // transient success line (e.g. after an uninstall)
+	busyID    int64  // plugin with an action in flight (disables its controls)
 }
 
 func (v *pluginsView) OnMount(ctx app.Context) {
@@ -111,7 +112,57 @@ func (v *pluginsView) onReload(ctx app.Context, p plugin) {
 	})
 }
 
-func (v *pluginsView) onRefresh(ctx app.Context, _ app.Event) { v.fetchPlugins(ctx) }
+func (v *pluginsView) onUninstall(ctx app.Context, p plugin) {
+	if v.busyID != 0 {
+		return
+	}
+	if !app.Window().Call("confirm",
+		"Uninstall "+p.Name+"? This runs the plugin's cleanup hook, then permanently removes its files and registration. To reinstall later you'd add it again from the Marketplace or by hand.").Bool() {
+		return
+	}
+	v.busyID = p.ID
+	v.errMsg = ""
+	v.noticeMsg = ""
+	ctx.Update()
+
+	id := p.ID
+	name := p.Name
+	ctx.Async(func() {
+		res, err := v.client.uninstallPlugin(context.Background(), id)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.busyID = 0
+			if err != nil {
+				v.errMsg = "Failed to uninstall " + name + ": " + err.Error()
+				ctx.Update()
+				return
+			}
+			v.removePlugin(id)
+			if res.HookError != "" {
+				// The plugin is gone, but its own cleanup reported a problem — surface it.
+				v.noticeMsg = "Uninstalled " + name + ", but its cleanup hook reported: " + res.HookError
+			} else {
+				v.noticeMsg = "Uninstalled " + name + "."
+			}
+			ctx.Update()
+		})
+	})
+}
+
+func (v *pluginsView) onRefresh(ctx app.Context, _ app.Event) {
+	v.noticeMsg = ""
+	v.fetchPlugins(ctx)
+}
+
+// removePlugin drops a plugin from the local list after it is uninstalled.
+func (v *pluginsView) removePlugin(id int64) {
+	out := v.plugins[:0]
+	for _, p := range v.plugins {
+		if p.ID != id {
+			out = append(out, p)
+		}
+	}
+	v.plugins = out
+}
 
 func (v *pluginsView) upsertPlugin(p plugin) {
 	for i := range v.plugins {
@@ -133,6 +184,7 @@ func (v *pluginsView) Render() app.UI {
 			app.Span().Class("page-subtitle").Text("Extend kasas with sandboxed plugins that react to ledger events"),
 		),
 		v.renderError(),
+		v.renderNotice(),
 		v.renderToolbar(),
 		v.renderList(),
 	)
@@ -143,6 +195,13 @@ func (v *pluginsView) renderError() app.UI {
 		return app.Text("")
 	}
 	return app.Div().Class("error").Text("Error: " + v.errMsg)
+}
+
+func (v *pluginsView) renderNotice() app.UI {
+	if v.noticeMsg == "" {
+		return app.Text("")
+	}
+	return app.Div().Class("status").Text(v.noticeMsg)
 }
 
 func (v *pluginsView) renderToolbar() app.UI {
@@ -217,6 +276,10 @@ func (v *pluginsView) renderPluginRow(p plugin) app.UI {
 			app.Button().Type("button").Class("btn btn-small").Title("Reload from disk").Text("Reload").
 				Disabled(v.busyID == p.ID || !p.OnDisk).
 				OnClick(func(ctx app.Context, _ app.Event) { v.onReload(ctx, p) }),
+			app.Button().Type("button").Class("btn btn-small btn-danger").
+				Title("Run the plugin's cleanup hook, then remove it entirely").Text("Uninstall").
+				Disabled(v.busyID == p.ID).
+				OnClick(func(ctx app.Context, _ app.Event) { v.onUninstall(ctx, p) }),
 		),
 	)
 }

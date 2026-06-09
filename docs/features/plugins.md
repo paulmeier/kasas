@@ -46,8 +46,10 @@ description = "Auto-categorize spending"
 runtime     = "lua"
 entrypoint  = "main.lua"
 
-# Hooks fire on matching events: OnTransactionCreate (transaction.created),
-# OnTransactionUpdate (transaction.updated), OnSyncComplete (sync.completed).
+# Event hooks fire on matching events: OnTransactionCreate (transaction.created),
+# OnTransactionUpdate (transaction.updated), OnSyncComplete (sync.completed). The
+# OnUninstall lifecycle hook (no event) runs once at uninstall so the plugin can
+# clean up; see "Uninstalling" below.
 hooks = ["OnTransactionCreate", "OnTransactionUpdate"]
 
 # Capabilities the host grants and enforces: transactions:read,
@@ -256,9 +258,9 @@ curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
 
 | Surface | Operations |
 | --- | --- |
-| REST | `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}`, admin `POST /api/v1/plugins/{id}/{enable,disable,reload}` |
-| MCP | `list_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `reload_plugin` |
-| Dashboard | The **Plugins** page: status/health, enable/disable toggle, reload |
+| REST | `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}`, admin `POST /api/v1/plugins/{id}/{enable,disable,reload}`, admin `DELETE /api/v1/plugins/{id}` (uninstall) |
+| MCP | `list_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `reload_plugin`, `uninstall_plugin` |
+| Dashboard | The **Plugins** page: status/health, enable/disable toggle, reload, uninstall |
 
 The `plugins` table stays lean — name, runtime, granted capabilities, config, and
 run health — while the code lives on disk under `plugins.dir`.
@@ -313,6 +315,37 @@ ref     = "main"   # used to build raw file-download URLs
 | REST | admin `GET /api/v1/plugins/registry`, `POST /api/v1/plugins/registry/{name}/install` |
 | MCP | `browse_plugin_registry`, `install_plugin` |
 | Dashboard | The **Marketplace** page: browse, capability-tier warning, one-click install |
+
+## Uninstalling & the cleanup hook
+
+Disabling a plugin only stops it; **uninstalling** removes it entirely. Because a
+plugin may have created data (labels, schema extensions), the plugin — not kasas —
+owns undoing that. Every plugin therefore implements an **`OnUninstall`** lifecycle
+hook, and kasas runs it at uninstall time:
+
+```lua
+function OnUninstall()
+  -- Undo what this plugin created. It runs with the plugin's granted
+  -- capabilities, so it can remove its own labels/extensions via the kasas API.
+  kasas.log("info", "budgeting: cleaning up")
+end
+```
+
+`OnUninstall` is a **lifecycle** hook, not an event hook: it has no triggering
+event and is never dispatched off the bus — it is invoked exactly once, when the
+plugin is removed. Uninstall:
+
+1. stops the plugin if it is running;
+2. loads a fresh, isolated instance (with the plugin's granted capabilities) and
+   runs `OnUninstall` under the per-hook timeout;
+3. deletes the plugin's files from `plugins.dir` and removes its registration.
+
+The plugin is **always removed**, even if its `OnUninstall` errors or times out —
+a buggy cleanup can never trap a plugin as un-removable. The hook's error is
+reported back (in the REST/MCP response and the dashboard) so you know cleanup may
+have been incomplete. Community plugins are **required** to declare `OnUninstall`
+(the [registry](#the-community-marketplace) gate rejects those that don't); a
+hand-dropped plugin without it is still removable, just without self-cleanup.
 
 ## Sandbox & limits (v1)
 

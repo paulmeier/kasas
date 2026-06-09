@@ -327,6 +327,9 @@ func (s *Server) Router() http.Handler {
 					r.Post("/plugins/{id}/enable", s.handleEnablePlugin)
 					r.Post("/plugins/{id}/disable", s.handleDisablePlugin)
 					r.Post("/plugins/{id}/reload", s.handleReloadPlugin)
+					// Uninstall runs the plugin's OnUninstall cleanup hook, then removes its
+					// files and DB row. Destructive + runs code, so admin-only.
+					r.Delete("/plugins/{id}", s.handleUninstallPlugin)
 
 					// Community marketplace: browse the registry catalog and install
 					// (download + integrity-verify) a plugin into plugins.dir. Installing

@@ -95,6 +95,30 @@ func TestPluginsListAndLifecycle(t *testing.T) {
 	assert.Equal(t, "disabled", disabled.State)
 }
 
+func TestPluginUninstall(t *testing.T) {
+	srv := newPluginTestServer(t)
+
+	// Discover the on-disk plugin.
+	var list struct {
+		Plugins []api.PluginDTO `json:"plugins"`
+	}
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/plugins", &list))
+	require.Len(t, list.Plugins, 1)
+	id := strconv.FormatInt(list.Plugins[0].ID, 10)
+
+	// Uninstall it (the demo plugin declares no OnUninstall hook, so HookRan is false).
+	var res api.UninstallResultDTO
+	require.Equal(t, http.StatusOK, deleteJSON(t, srv, "/api/v1/plugins/"+id, &res))
+	assert.True(t, res.Uninstalled)
+	assert.False(t, res.HookRan)
+	assert.Equal(t, "demo", res.Name)
+
+	// It is gone from the list and a second uninstall 404s.
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/plugins", &list))
+	assert.Empty(t, list.Plugins)
+	require.Equal(t, http.StatusNotFound, deleteJSON(t, srv, "/api/v1/plugins/"+id, nil))
+}
+
 func TestPluginGetNotFound(t *testing.T) {
 	srv := newPluginTestServer(t)
 	require.Equal(t, http.StatusNotFound, getJSON(t, srv, "/api/v1/plugins/9999", nil))

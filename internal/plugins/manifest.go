@@ -24,15 +24,23 @@ import (
 	"github.com/paulmeier/kasas/internal/events"
 )
 
-// Hook is a lifecycle point a plugin can subscribe to. Each maps to exactly one
+// Hook is a lifecycle point a plugin can subscribe to. Most map to exactly one
 // event type (see hookTrigger); the manager only delivers an event to a plugin
-// that declared the corresponding hook.
+// that declared the corresponding hook. HookUninstall is the exception: it is a
+// LIFECYCLE hook with no triggering event, invoked directly when the plugin is
+// uninstalled so it can clean up anything it created.
 type Hook string
 
 const (
 	HookTransactionCreate Hook = "OnTransactionCreate" // <- events.TypeTransactionCreated
 	HookTransactionUpdate Hook = "OnTransactionUpdate" // <- events.TypeTransactionUpdated
 	HookSyncComplete      Hook = "OnSyncComplete"      // <- events.TypeSyncCompleted
+	// HookUninstall runs once, synchronously, when a plugin is uninstalled — before
+	// its files are removed — so the plugin can undo anything it created (labels,
+	// extensions). It is not driven by the event bus (absent from hookTrigger), so it
+	// is never dispatched as part of normal operation. A plugin owns its own cleanup;
+	// kasas just runs this hook.
+	HookUninstall Hook = "OnUninstall"
 )
 
 // Capability is a permission a plugin must declare and be granted before the host
@@ -96,6 +104,7 @@ var knownHooks = map[Hook]bool{
 	HookTransactionCreate: true,
 	HookTransactionUpdate: true,
 	HookSyncComplete:      true,
+	HookUninstall:         true, // accepted and resolved, but never event-dispatched
 }
 
 var knownCapabilities = map[Capability]bool{
