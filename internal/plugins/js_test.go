@@ -200,3 +200,38 @@ function OnTransactionCreate(txn) {
 	assert.Equal(t, "2026-06-09T12:30:00.000Z", host.applied["tx-1"]["iso"])
 	assert.Equal(t, strconv.FormatInt(when.UnixMilli(), 10), host.applied["tx-1"]["ms"])
 }
+
+// TestJSLoadsBundledEntrypoint proves the host can load a plugin whose entrypoint
+// is a dependency bundle (ADR 0001). The canonical bundle wraps everything in an
+// IIFE that assigns the entry's exported hooks to a namespace, then a footer copies
+// them onto the global object — so the host resolves each declared hook as a global
+// function exactly as it does for a hand-written entrypoint. This is the shape
+// kasas-plugins' `bundle`/verifier produces, so loading it here keeps the host and
+// the gate's contract in lockstep.
+func TestJSLoadsBundledEntrypoint(t *testing.T) {
+	dir := t.TempDir()
+	bundle := `var __kasasExports = (() => {
+  // a stand-in for a bundled dependency: pure computation, inlined
+  function toCents(a) { return Math.round(parseFloat(a) * 100); }
+  function OnTransactionCreate(txn) {
+    if (toCents(txn.amount) < 0) { kasas.applyLabels(txn.id, { category: "food" }); }
+  }
+  function OnUninstall() {}
+  return { OnTransactionCreate, OnUninstall };
+})();
+Object.assign(globalThis, __kasasExports);
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.js"), []byte(bundle), 0o644))
+	m, err := ParseManifest([]byte("name=\"bundled\"\nruntime=\"js\"\nhooks=[\"OnTransactionCreate\",\"OnUninstall\"]\ncapabilities=[\"labels:write\"]\n"))
+	require.NoError(t, err)
+
+	host := newFakeHost()
+	inst, err := NewJSRuntime().Load(context.Background(), m, dir, host)
+	require.NoError(t, err, "a bundled entrypoint must load like any other")
+	t.Cleanup(func() { _ = inst.Close() })
+
+	ev := HookEvent{Transaction: &Transaction{ID: "tx-1", Amount: "-9.99"}}
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate, ev))
+	assert.Equal(t, map[string]string{"category": "food"}, host.applied["tx-1"],
+		"the bundled plugin's hook should run and reach the host")
+}

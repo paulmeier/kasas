@@ -1,6 +1,6 @@
 # ADR 0001 — Allow bundled dependencies in plugins
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-10
 - **Related:** [Plugins](../../features/plugins.md), [ADR 0002](0002-plugin-network-capability.md)
 
