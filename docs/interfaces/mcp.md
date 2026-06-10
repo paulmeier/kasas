@@ -71,12 +71,23 @@ as the corresponding REST route, so responses are identical.
     | `get_transaction_history` | One transaction's [version history](../features/transaction-history.md) with diffs. |
     | `get_transaction_provenance` | One transaction's [provenance](../features/transaction-provenance.md): source, identity, and its transformation lineage. |
 
-=== "Sync"
+=== "Sync & sources"
 
     | Tool | Description |
     | --- | --- |
     | `sync_status` | The most recent [sync](../features/sync.md) status. |
-    | `trigger_sync` | Run a sync now; returns counts. |
+    | `trigger_sync` | Run a sync now (every source); returns counts. |
+    | `sync_source` | Run a sync of one source by type. |
+    | `list_sources` | Every ingestion source — active and inactive — with readiness, credential shape, and its editable config. |
+
+=== "Settings"
+
+    | Tool | Description |
+    | --- | --- |
+    | `list_settings` | Every [editable setting](../getting-started/configuration.md#settings-from-the-dashboard) with its value, override state, and restart-pending flag. Secrets are never returned. |
+    | `set_setting` | Permanently set one setting by key; validated, persisted, applies at the next restart. |
+    | `reset_setting` | Remove a setting's stored override (back to the config file/env value). |
+    | `restart_kasas` | Restart kasas in place so pending setting changes apply (the connection drops briefly). |
 
 === "Admin"
 

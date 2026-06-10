@@ -47,6 +47,7 @@ import (
 	"github.com/paulmeier/kasas/internal/plugins/registry"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
+	"github.com/paulmeier/kasas/internal/settings"
 	"github.com/paulmeier/kasas/internal/source"
 	"github.com/paulmeier/kasas/internal/sources/bitcoin"
 	"github.com/paulmeier/kasas/internal/sources/csv"
@@ -107,18 +108,6 @@ func run(command, configPath string) error {
 
 	store := newStore(cfg.Database.Driver, database)
 
-	// Event stream: a bus fans live events out to SSE subscribers, and an emitter
-	// records each change transactionally and publishes it after commit. Both stay
-	// nil when events are disabled, which makes the poller and API emit nothing.
-	var (
-		eventBus *events.Bus
-		emitter  *events.Emitter
-	)
-	if cfg.Events.Enabled {
-		eventBus = events.NewBus()
-		emitter = events.NewEmitter(eventBus)
-	}
-
 	secrets, err := vault.New(vault.Config{
 		Enabled:      cfg.Vault.Enabled,
 		Address:      cfg.Vault.Address,
@@ -129,6 +118,35 @@ func run(command, configPath string) error {
 	}, cfg.Secrets.File)
 	if err != nil {
 		return fmt.Errorf("init secret store: %w", err)
+	}
+
+	// Settings changed from the dashboard/REST/MCP are persisted (settings table +
+	// secret store) and applied here, OVER the config file / environment, so they
+	// are permanent. baseCfg keeps the pre-override config so the settings service
+	// can tell "overridden" from "from config". A failure to load or apply is
+	// never fatal: kasas falls back to the file/env config rather than refusing to
+	// start over a stale stored value.
+	baseCfg := settings.Clone(cfg)
+	if overrides, err := settings.LoadOverrides(context.Background(), store, secrets); err != nil {
+		logger.Warn("could not load stored settings; using file/env config only", "error", err)
+	} else if err := settings.Apply(cfg, overrides, logger); err != nil {
+		logger.Error("stored settings ignored", "error", err)
+	}
+	// Log settings may have been overridden; rebuild the logger to match.
+	logger = newLogger(cfg.Log)
+	slog.SetDefault(logger)
+	settingsSvc := settings.NewService(store, secrets, baseCfg, cfg)
+
+	// Event stream: a bus fans live events out to SSE subscribers, and an emitter
+	// records each change transactionally and publishes it after commit. Both stay
+	// nil when events are disabled, which makes the poller and API emit nothing.
+	var (
+		eventBus *events.Bus
+		emitter  *events.Emitter
+	)
+	if cfg.Events.Enabled {
+		eventBus = events.NewBus()
+		emitter = events.NewEmitter(eventBus)
 	}
 
 	// Dashboard token guard: a config/env token is authoritative; otherwise a
@@ -203,6 +221,11 @@ func run(command, configPath string) error {
 		Version:    version,
 		MCPEnabled: cfg.MCP.Enabled,
 		Dashboard:  dashboardHandler,
+		// Persisted setting overrides, editable across REST/MCP/dashboard.
+		Settings: settingsSvc,
+		// Restart re-execs the binary in place: it applies pending setting changes
+		// and finishes a dashboard-triggered self-update.
+		Restart: restartIntoNewBinary(logger),
 		// nil when the plugin system is disabled; gates the plugin REST/MCP surface.
 		PluginManager: pluginManager,
 	}
@@ -211,7 +234,6 @@ func run(command, configPath string) error {
 	if updateChecker != nil {
 		apiOpts.UpdateChecker = updateChecker
 		apiOpts.AllowApply = cfg.Update.AllowApply
-		apiOpts.Restart = restartIntoNewBinary(logger)
 	}
 	srv := api.New(apiOpts)
 

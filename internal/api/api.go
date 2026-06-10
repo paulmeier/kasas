@@ -18,6 +18,7 @@ import (
 	"github.com/paulmeier/kasas/internal/plugins"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
+	"github.com/paulmeier/kasas/internal/settings"
 )
 
 // Syncer triggers an on-demand sync.
@@ -57,21 +58,22 @@ type UpdateChecker interface {
 
 // Server wires the HTTP handlers to their dependencies.
 type Server struct {
-	store      db.Store
-	syncer     Syncer
-	sources    SourceManager   // nil when source management is unavailable
-	config     *config.Config  // resolved config for the read-only Settings display
-	auth       Authenticator   // nil when token auth is unavailable; gates /api/v1 + /mcp
-	emitter    *events.Emitter // nil when events are disabled; records + streams events
-	logger     *slog.Logger
-	version    string
-	mcpEnabled bool
-	dashboard  http.Handler
-	updates    UpdateChecker // nil when update checking is disabled
-	allowApply bool
-	restart    func()
-	pluginMgr  *plugins.Manager // nil when the plugin system is disabled
-	oauth      *oauthStates     // pending source OAuth flows (anti-CSRF state)
+	store       db.Store
+	syncer      Syncer
+	sources     SourceManager   // nil when source management is unavailable
+	config      *config.Config  // resolved config for the read-only Settings display
+	auth        Authenticator   // nil when token auth is unavailable; gates /api/v1 + /mcp
+	emitter     *events.Emitter // nil when events are disabled; records + streams events
+	logger      *slog.Logger
+	version     string
+	mcpEnabled  bool
+	dashboard   http.Handler
+	updates     UpdateChecker // nil when update checking is disabled
+	allowApply  bool
+	restart     func()
+	pluginMgr   *plugins.Manager  // nil when the plugin system is disabled
+	settingsSvc *settings.Service // nil when settings management is unavailable
+	oauth       *oauthStates      // pending source OAuth flows (anti-CSRF state)
 }
 
 // Options configures a Server.
@@ -111,6 +113,10 @@ type Options struct {
 	// (REST + MCP). Nil when the plugin system is disabled (plugins.enabled=false
 	// or events disabled), in which case those routes/tools are not registered.
 	PluginManager *plugins.Manager
+	// Settings, when non-nil, enables the persisted-settings endpoints
+	// (GET/PUT/DELETE /api/v1/settings...) and per-source config on /sources,
+	// across REST, MCP, and the dashboard.
+	Settings *settings.Service
 }
 
 // New constructs a Server.
@@ -120,21 +126,22 @@ func New(opts Options) *Server {
 		logger = slog.Default()
 	}
 	return &Server{
-		store:      opts.Store,
-		syncer:     opts.Syncer,
-		sources:    opts.Sources,
-		config:     opts.Config,
-		auth:       opts.Auth,
-		emitter:    opts.Emitter,
-		logger:     logger,
-		version:    opts.Version,
-		mcpEnabled: opts.MCPEnabled,
-		dashboard:  opts.Dashboard,
-		updates:    opts.UpdateChecker,
-		allowApply: opts.AllowApply,
-		restart:    opts.Restart,
-		pluginMgr:  opts.PluginManager,
-		oauth:      newOAuthStates(),
+		store:       opts.Store,
+		syncer:      opts.Syncer,
+		sources:     opts.Sources,
+		config:      opts.Config,
+		auth:        opts.Auth,
+		emitter:     opts.Emitter,
+		logger:      logger,
+		version:     opts.Version,
+		mcpEnabled:  opts.MCPEnabled,
+		dashboard:   opts.Dashboard,
+		updates:     opts.UpdateChecker,
+		allowApply:  opts.AllowApply,
+		restart:     opts.Restart,
+		pluginMgr:   opts.PluginManager,
+		settingsSvc: opts.Settings,
+		oauth:       newOAuthStates(),
 	}
 }
 
@@ -246,6 +253,11 @@ func (s *Server) Router() http.Handler {
 				// Read-only effective configuration (secrets redacted) for the Settings page.
 				r.Get("/config", s.handleGetConfig)
 
+				// Persisted settings: every editable key with its effective value and
+				// override/restart state. Registered even when settings management is
+				// unavailable so the dashboard gets a clean "disabled" response.
+				r.Get("/settings", s.handleListSettings)
+
 				if s.updates != nil {
 					r.Get("/update", s.handleUpdateStatus)
 				}
@@ -353,6 +365,17 @@ func (s *Server) Router() http.Handler {
 					r.Get("/plugins/registry", s.handleListPluginRegistry)
 					r.Post("/plugins/registry/{name}/install", s.handleInstallPlugin)
 				}
+
+				// Persisted settings: set or reset one override. Changing how kasas
+				// works (enabling plugins, sync schedule, source config) is admin-only,
+				// like the other provisioning actions.
+				if s.settingsSvc != nil {
+					r.Put("/settings/{key}", s.handleSetSetting)
+					r.Delete("/settings/{key}", s.handleResetSetting)
+				}
+
+				// Restart kasas in place (re-exec) so pending setting changes apply.
+				r.Post("/system/restart", s.handleRestart)
 
 				// Apply a self-update (status is in the read tier above).
 				if s.updates != nil && s.allowApply {

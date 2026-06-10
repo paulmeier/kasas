@@ -1,15 +1,18 @@
 # Configuration
 
 kasas is configured by a **TOML file** (`-config path`) and/or **environment
-variables**. Every key has a sensible default, so you can run with no config at
-all, an env-only setup, a file, or a mix.
+variables**, and most of it is also editable at runtime from the
+**[dashboard Settings page](../interfaces/dashboard.md)** (or
+`PUT /api/v1/settings/{key}`, or the `set_setting` MCP tool). Every key has a
+sensible default, so you can run with no config at all, an env-only setup, a
+file, or a mix.
 
 ## Precedence & env mapping
 
 Settings resolve in this order (later wins):
 
 ```text
-built-in defaults  →  TOML file  →  environment variables
+built-in defaults  →  TOML file  →  environment variables  →  dashboard-stored settings
 ```
 
 To map any key to an environment variable: **uppercase it, prefix `KASAS_`, and
@@ -23,6 +26,31 @@ join sections with underscores.**
 
 The full annotated template is
 [`config.example.toml`](https://github.com/paulmeier/kasas/blob/main/config.example.toml).
+
+## Settings from the dashboard
+
+A setting changed from the dashboard, the REST API, or MCP is **permanent**: it
+is persisted (non-secret values in the database's `settings` table, secrets like
+a Plaid app secret in the [secret store](#secrets)) and re-applied **over** the
+config file and environment on every boot, until you reset it. Each editable
+setting shows where its value comes from (an `overridden` chip) and offers a
+one-click reset back to your config.
+
+Because subsystems and sources are constructed at startup, a changed setting
+takes effect at the **next restart** — the dashboard shows a *restart pending*
+banner with a one-click in-place restart (`POST /api/v1/system/restart`), the
+same re-exec mechanism a dashboard-triggered self-update uses.
+
+Three things stay file/env-only, because kasas needs them *before* it can read
+its stored settings: `[server].addr`, the whole `[database]` section, and the
+secret-store choice (`[secrets]` / `[vault]`). Source **credentials** (tokens,
+watched addresses) are not settings either — they apply live, no restart, via
+the [Sources page](../interfaces/dashboard.md) or the credential endpoints.
+
+Validation runs before anything is stored: a value that doesn't parse, or that
+would make the combined configuration invalid, is rejected with a `400`. If a
+stored value ever turns stale (e.g. after a downgrade), boot skips it with a
+warning rather than refusing to start.
 
 ## `[server]`
 

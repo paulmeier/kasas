@@ -17,14 +17,21 @@ func TestListSources(t *testing.T) {
 		Sources []struct {
 			Type      string `json:"type"`
 			Connected bool   `json:"connected"`
+			Active    bool   `json:"active"`
 		} `json:"sources"`
 	}
 	status := getJSON(t, srv, "/api/v1/sources", &out)
 	require.Equal(t, http.StatusOK, status)
 	assert.True(t, out.Enabled)
-	require.Len(t, out.Sources, 1)
+	// The engine's sources come first (active), followed by every registered but
+	// unbuilt source type (inactive, configurable from the dashboard).
+	require.NotEmpty(t, out.Sources)
 	assert.Equal(t, "simplefin", out.Sources[0].Type)
 	assert.True(t, out.Sources[0].Connected)
+	assert.True(t, out.Sources[0].Active)
+	for _, s := range out.Sources[1:] {
+		assert.False(t, s.Active, "source %s was not built by the engine", s.Type)
+	}
 }
 
 func TestListSourcesDisabled(t *testing.T) {

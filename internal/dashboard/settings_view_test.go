@@ -30,37 +30,69 @@ func sampleConfig() configData {
 	}
 }
 
-// TestSettingsViewRenders checks the page renders both panels: the SimpleFIN
-// connection form (status, credential input, sync button) and the read-only
-// configuration cards.
+func sampleSettings() []settingItem {
+	return []settingItem{
+		{Key: "sync.enabled", Title: "Background sync", Kind: "bool", Section: "Sync", Value: "true"},
+		{Key: "sync.interval", Title: "Interval", Kind: "duration", Section: "Sync", Value: "6h0m0s"},
+		{Key: "plugins.enabled", Title: "Plugin system", Kind: "bool", Section: "Plugins", Value: "true", Overridden: true, RestartRequired: true},
+		{Key: "log.level", Title: "Log level", Kind: "string", Section: "Logging", Value: "info", Enum: []string{"debug", "info", "warn", "error"}},
+		// A per-source setting must NOT render on the Settings page.
+		{Key: "plaid.client_id", Title: "Client ID", Kind: "string", Source: "plaid", Value: ""},
+	}
+}
+
+// TestSettingsViewRenders checks the page renders the editable setting
+// sections, their override/restart state, and the read-only bootstrap cards —
+// and that SimpleFIN now lives only on the Sources page.
 func TestSettingsViewRenders(t *testing.T) {
-	v := &settingsView{cfgLoaded: true, connected: true, cfg: sampleConfig()}
+	v := &settingsView{
+		cfgLoaded:       true,
+		cfg:             sampleConfig(),
+		settingsLoaded:  true,
+		settingsEnabled: true,
+		items:           sampleSettings(),
+	}
 	html := printUI(t, v.Render())
 
 	wantContains := []string{
-		"SimpleFIN connection",
-		"Connected",
-		`id="simplefin-token-input"`, // credential input
-		"Sync now",
-		"Configuration",   // read-only section heading
-		"/data/kasas.db",  // a config value rendered
-		"paulmeier/kasas", // another config value rendered
+		"How kasas works",                  // editable settings heading
+		"Plugin system",                    // a bool setting rendered
+		"overridden",                       // override chip
+		"restart pending",                  // restart chip
+		`id="setting-input-sync.interval"`, // editable input for a duration
+		"Sync now",                         // run-now control inside the Sync card
+		"Bootstrap configuration",          // read-only section heading
+		"/data/kasas.db",                   // a bootstrap config value rendered
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(html, want) {
 			t.Fatalf("settings render missing %q\nHTML:\n%s", want, html)
 		}
 	}
+
+	wantAbsent := []string{
+		"SimpleFIN connection",       // moved to the Sources page
+		`id="simplefin-token-input"`, // the old credential input
+		"plaid.client_id",            // per-source settings live on the Sources page
+	}
+	for _, bad := range wantAbsent {
+		if strings.Contains(html, bad) {
+			t.Fatalf("settings render must not contain %q\nHTML:\n%s", bad, html)
+		}
+	}
 }
 
-// TestSettingsViewDisconnected checks the status pill reflects a missing credential.
-func TestSettingsViewDisconnected(t *testing.T) {
-	cfg := sampleConfig()
-	cfg.SimpleFIN.Connected = false
-	v := &settingsView{cfgLoaded: true, connected: false, cfg: cfg}
+// TestSettingsViewRestartBanner checks the pending-restart banner renders with
+// its restart action when a stored change awaits a restart.
+func TestSettingsViewRestartBanner(t *testing.T) {
+	v := &settingsView{cfgLoaded: true, cfg: sampleConfig(), settingsLoaded: true, settingsEnabled: true}
+	v.restartNeeded = true
 	html := printUI(t, v.Render())
 
-	if !strings.Contains(html, "Not connected") {
-		t.Fatalf("disconnected settings must show 'Not connected'\nHTML:\n%s", html)
+	if !strings.Contains(html, "waiting for a restart") {
+		t.Fatalf("restart banner missing\nHTML:\n%s", html)
+	}
+	if !strings.Contains(html, "Restart kasas") {
+		t.Fatalf("restart button missing\nHTML:\n%s", html)
 	}
 }

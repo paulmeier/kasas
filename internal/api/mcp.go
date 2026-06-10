@@ -10,10 +10,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/provenance"
 	"github.com/paulmeier/kasas/internal/relationships"
 	"github.com/paulmeier/kasas/internal/rules"
+	"github.com/paulmeier/kasas/internal/settings"
 )
 
 // MCPServer builds the MCP server with all kasas tools registered. It is used
@@ -167,13 +167,38 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sources",
-		Description: "List the configured ingestion sources (e.g. simplefin, csv) with each one's archetype (pull, file, ...), whether it is connected and ready to sync, and how its credential is set.",
+		Description: "List every ingestion source (e.g. simplefin, csv, plaid) with each one's archetype (pull, file, ...), whether it is active in this run and connected, how its credential is set, and its editable configuration (set_setting changes it; an inactive source activates after its required config is set and kasas restarts).",
 	}, s.mcpListSources)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "sync_source",
 		Description: "Trigger an immediate sync of a single ingestion source by type (e.g. csv) and wait for it to finish. Use trigger_sync to sync every source at once.",
 	}, s.mcpSyncSource)
+
+	// Persisted settings are registered only when the settings service is wired.
+	if s.settingsSvc != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "list_settings",
+			Description: "List every editable kasas setting (subsystem toggles like plugins.enabled, sync schedule, per-source config) with its effective value, whether it is overridden from the dashboard/API rather than the config file, and whether a restart is pending. Secret values are never returned.",
+		}, s.mcpListSettings)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "set_setting",
+			Description: "Permanently set one kasas setting by key (see list_settings). The value is validated, persisted (it survives restarts and overrides the config file / environment), and takes effect at the next restart (restart_kasas applies it immediately).",
+		}, s.mcpSetSetting)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "reset_setting",
+			Description: "Remove one setting's stored override so the config file / environment value applies again after the next restart.",
+		}, s.mcpResetSetting)
+	}
+
+	if s.restart != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "restart_kasas",
+			Description: "Restart kasas in place (re-exec) so pending setting changes take effect. The connection drops briefly while the process restarts; reconnect afterwards.",
+		}, s.mcpRestart)
+	}
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_api_keys",
@@ -460,11 +485,38 @@ type triggerSyncOutput struct {
 }
 
 type listSourcesOutput struct {
-	Sources []poller.SourceStatus `json:"sources"`
+	Sources []SourceDTO `json:"sources"`
+	// RestartRequired reports whether any persisted setting change (source or
+	// app) awaits a restart to take effect.
+	RestartRequired bool `json:"restart_required"`
 }
 
 type syncSourceInput struct {
 	Type string `json:"type" jsonschema:"the source type to sync, e.g. csv or simplefin"`
+}
+
+type listSettingsOutput struct {
+	Settings        []settings.Status `json:"settings"`
+	RestartRequired bool              `json:"restart_required"`
+}
+
+type setSettingInput struct {
+	Key   string `json:"key" jsonschema:"the setting key, e.g. plugins.enabled or plaid.client_id (see list_settings)"`
+	Value string `json:"value" jsonschema:"the new value as a string, e.g. true, 6h, or a JSON array for csv.folders"`
+}
+
+type resetSettingInput struct {
+	Key string `json:"key" jsonschema:"the setting key whose stored override to remove"`
+}
+
+type settingOutput struct {
+	Setting         settings.Status `json:"setting"`
+	RestartRequired bool            `json:"restart_required"`
+}
+
+type restartOutput struct {
+	Restarting bool   `json:"restarting"`
+	Message    string `json:"message"`
 }
 
 // --- Tool handlers ---
@@ -839,11 +891,62 @@ func (s *Server) mcpListSources(ctx context.Context, _ *mcp.CallToolRequest, _ e
 	if s.sources == nil {
 		return nil, listSourcesOutput{}, errors.New("source management is not available")
 	}
-	statuses, err := s.sources.Sources(ctx)
+	statuses, restart, err := s.sourceStatuses(ctx)
 	if err != nil {
 		return nil, listSourcesOutput{}, err
 	}
-	return &mcp.CallToolResult{}, listSourcesOutput{Sources: statuses}, nil
+	return &mcp.CallToolResult{}, listSourcesOutput{Sources: statuses, RestartRequired: restart}, nil
+}
+
+func (s *Server) mcpListSettings(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listSettingsOutput, error) {
+	if s.settingsSvc == nil {
+		return nil, listSettingsOutput{}, errors.New("settings management is not available")
+	}
+	list, restart, err := s.settingsSvc.List(ctx)
+	if err != nil {
+		return nil, listSettingsOutput{}, err
+	}
+	return &mcp.CallToolResult{}, listSettingsOutput{Settings: list, RestartRequired: restart}, nil
+}
+
+func (s *Server) mcpSetSetting(ctx context.Context, _ *mcp.CallToolRequest, in setSettingInput) (*mcp.CallToolResult, settingOutput, error) {
+	if s.settingsSvc == nil {
+		return nil, settingOutput{}, errors.New("settings management is not available")
+	}
+	if strings.TrimSpace(in.Key) == "" {
+		return nil, settingOutput{}, errors.New("key is required")
+	}
+	st, restart, err := s.settingsSvc.Set(ctx, in.Key, in.Value)
+	if err != nil {
+		return nil, settingOutput{}, err
+	}
+	return &mcp.CallToolResult{}, settingOutput{Setting: st, RestartRequired: restart}, nil
+}
+
+func (s *Server) mcpResetSetting(ctx context.Context, _ *mcp.CallToolRequest, in resetSettingInput) (*mcp.CallToolResult, settingOutput, error) {
+	if s.settingsSvc == nil {
+		return nil, settingOutput{}, errors.New("settings management is not available")
+	}
+	if strings.TrimSpace(in.Key) == "" {
+		return nil, settingOutput{}, errors.New("key is required")
+	}
+	st, restart, err := s.settingsSvc.Reset(ctx, in.Key)
+	if err != nil {
+		return nil, settingOutput{}, err
+	}
+	return &mcp.CallToolResult{}, settingOutput{Setting: st, RestartRequired: restart}, nil
+}
+
+func (s *Server) mcpRestart(_ context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, restartOutput, error) {
+	if s.restart == nil {
+		return nil, restartOutput{}, errors.New("restart is not available in this run mode")
+	}
+	s.logger.Info("restart requested via MCP")
+	s.restart()
+	return &mcp.CallToolResult{}, restartOutput{
+		Restarting: true,
+		Message:    "kasas is restarting; the connection will drop briefly",
+	}, nil
 }
 
 func (s *Server) mcpSyncSource(ctx context.Context, _ *mcp.CallToolRequest, in syncSourceInput) (*mcp.CallToolResult, triggerSyncOutput, error) {

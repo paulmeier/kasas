@@ -2,38 +2,36 @@ package dashboard
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
 
-// tokenInputID is the stable DOM id of the SimpleFIN credential input, so its
-// value can be read on save and cleared imperatively afterwards (go-app drops
-// empty value attributes, so a controlled Value("") could not clear it).
-const tokenInputID = "simplefin-token-input"
-
 // securityTokenInputID is the DOM id of the optional custom dashboard-token input.
 const securityTokenInputID = "kasas-security-token-input"
 
-// settingsView is the Settings page: a SimpleFIN connection panel (set the
-// credential at runtime + force a sync, with live status) and a read-only view of
-// the effective configuration (secrets redacted). Config other than the SimpleFIN
-// credential is loaded from the config file / KASAS_ env at startup and is not
-// editable here — changing it means editing the config and restarting.
+// settingsView is the Settings page: editable, permanently persisted settings
+// for how kasas works (sync schedule, plugins, events, webhooks, MCP, updates,
+// logging), the dashboard-security and API-key panels, and a read-only view of
+// the bootstrap configuration that stays file/env-managed (server address,
+// database, secret store). A changed setting overrides the config file / KASAS_
+// environment and takes effect after a restart, offered by the banner up top.
+// Ingestion sources — including SimpleFIN — are managed on the Sources page.
 type settingsView struct {
 	app.Compo
-	chrome // shared sidebar + API client + version badge
+	chrome          // shared sidebar + API client + version badge
+	settingsEditing // setting save/reset (shared with the Sources page)
+	restartPrompt   // "restart required" banner + in-place restart
 
 	cfg        configData
 	cfgLoaded  bool
-	connected  bool
 	loadingCfg bool
 
-	// SimpleFIN credential save state.
-	saving  bool
-	saveMsg string
+	// Editable settings state.
+	items           []settingItem
+	settingsEnabled bool
+	settingsLoaded  bool
 
 	// Force-sync state.
 	latest  *syncRun
@@ -65,9 +63,45 @@ const (
 
 func (v *settingsView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx)
+	v.initSettingsEditing(
+		func() *apiClient { return v.client },
+		v.adoptSetting,
+	)
 	v.loadConfig(ctx)
+	v.loadSettings(ctx)
 	v.loadLatestSync(ctx)
 	v.loadApiKeys(ctx)
+}
+
+// loadSettings fetches the editable settings with their override/restart state.
+func (v *settingsView) loadSettings(ctx app.Context) {
+	ctx.Async(func() {
+		data, err := v.client.listSettings(context.Background())
+		ctx.Dispatch(func(ctx app.Context) {
+			v.settingsLoaded = true
+			if err != nil {
+				v.errMsg = err.Error()
+				ctx.Update()
+				return
+			}
+			v.items = data.Settings
+			v.settingsEnabled = data.Enabled
+			v.restartNeeded = data.RestartRequired
+			ctx.Update()
+		})
+	})
+}
+
+// adoptSetting folds a saved/reset setting back into the local list so the row
+// shows the server-normalized value and state.
+func (v *settingsView) adoptSetting(_ app.Context, st settingItem, restartRequired bool) {
+	v.restartNeeded = restartRequired
+	for i := range v.items {
+		if v.items[i].Key == st.Key {
+			v.items[i] = st
+			return
+		}
+	}
 }
 
 // loadApiKeys fetches the provisioned API keys for the panel. Best-effort: a failure
@@ -100,7 +134,6 @@ func (v *settingsView) loadConfig(ctx app.Context) {
 			}
 			v.cfg = cfg
 			v.cfgLoaded = true
-			v.connected = cfg.SimpleFIN.Connected
 			ctx.Update()
 		})
 	})
@@ -114,52 +147,6 @@ func (v *settingsView) loadLatestSync(ctx app.Context) {
 				return // best-effort; the connection panel still works
 			}
 			v.latest = run
-			ctx.Update()
-		})
-	})
-}
-
-// onSaveToken stores the SimpleFIN setup token or access URL entered in the input.
-// The value is read straight from the DOM (the input is uncontrolled) and cleared
-// on success so the secret does not linger in the field.
-func (v *settingsView) onSaveToken(ctx app.Context, _ app.Event) { v.submitToken(ctx) }
-
-func (v *settingsView) onTokenKeyDown(ctx app.Context, e app.Event) {
-	if e.Get("key").String() == "Enter" {
-		e.PreventDefault()
-		v.submitToken(ctx)
-	}
-}
-
-func (v *settingsView) submitToken(ctx app.Context) {
-	if v.saving {
-		return
-	}
-	token := tokenInputValue()
-	if token == "" {
-		v.errMsg = "Enter a SimpleFIN setup token or access URL."
-		v.saveMsg = ""
-		ctx.Update()
-		return
-	}
-	v.saving = true
-	v.saveMsg = ""
-	v.errMsg = ""
-	ctx.Update()
-
-	ctx.Async(func() {
-		connected, err := v.client.setSimpleFINToken(context.Background(), token)
-		ctx.Dispatch(func(ctx app.Context) {
-			v.saving = false
-			if err != nil {
-				v.errMsg = "Could not save credential: " + err.Error()
-				ctx.Update()
-				return
-			}
-			v.connected = connected
-			v.cfg.SimpleFIN.Connected = connected
-			v.saveMsg = "SimpleFIN credential saved. Run a sync to pull your data."
-			clearTokenInput()
 			ctx.Update()
 		})
 	})
@@ -217,15 +204,6 @@ func (v *settingsView) pollSync(ctx app.Context, priorID int64) {
 			ctx.Update()
 		})
 		if done {
-			// A first successful sync may have just connected us; refresh config so
-			// the connection state and any other derived display stays accurate.
-			if cfg, err := v.client.config(context.Background()); err == nil {
-				ctx.Dispatch(func(ctx app.Context) {
-					v.cfg = cfg
-					v.connected = cfg.SimpleFIN.Connected
-					ctx.Update()
-				})
-			}
 			return
 		}
 	}
@@ -236,28 +214,83 @@ func (v *settingsView) pollSync(ctx app.Context, priorID int64) {
 	})
 }
 
-// tokenInputValue reads and trims the credential input's current value from the
-// DOM. Returns "" when the element is absent (e.g. during a host/test render).
-func tokenInputValue() string {
-	return domInputValue(tokenInputID)
-}
-
-// clearTokenInput empties the credential input imperatively.
-func clearTokenInput() {
-	clearDomInput(tokenInputID)
-}
-
 func (v *settingsView) Render() app.UI {
 	return v.renderShell(navSettings,
+		v.renderRestartBanner(func() *apiClient { return v.client }),
 		app.Header().Class("page-header").Body(
 			app.H1().Class("page-title").Text("Settings"),
-			app.Span().Class("page-subtitle").Text("Connect SimpleFIN, run a sync, and review your configuration"),
+			app.Span().Class("page-subtitle").Text("Configure how kasas works — changes are permanent and survive restarts"),
 		),
 		v.renderError(),
-		v.renderSimpleFIN(),
+		v.renderSettingMessages(),
 		v.renderSecurity(),
 		v.renderApiKeys(),
+		v.renderSettingSections(),
 		v.renderConfig(),
+	)
+}
+
+// renderSettingSections renders the editable app settings grouped by section
+// (Sync, Events & history, Webhooks, Plugins, ...). Per-source settings carry a
+// Source instead of a Section and live on the Sources page.
+func (v *settingsView) renderSettingSections() app.UI {
+	if !v.settingsLoaded {
+		return app.Div().Class("status").Text("Loading…")
+	}
+	if !v.settingsEnabled {
+		return app.Div().Class("settings-note").Text("Settings management is unavailable in this build.")
+	}
+
+	// Collect the app-setting sections in definition order.
+	var sections []string
+	bySection := map[string][]settingItem{}
+	for _, it := range v.items {
+		if it.Source != "" || it.Section == "" {
+			continue
+		}
+		if _, ok := bySection[it.Section]; !ok {
+			sections = append(sections, it.Section)
+		}
+		bySection[it.Section] = append(bySection[it.Section], it)
+	}
+
+	cards := []app.UI{
+		app.P().Class("settings-help").Text(
+			"Changes save immediately and permanently: they override the config file and KASAS_ environment " +
+				"and still apply after restarts and updates. A change to how kasas runs takes effect at the " +
+				"next restart — the banner at the top offers one when needed. Reset returns a setting to your config."),
+	}
+	for _, sec := range sections {
+		rows := []app.UI{
+			app.Div().Class("settings-section-head").Body(
+				app.H2().Class("settings-title").Text(sec),
+			),
+		}
+		for i := range bySection[sec] {
+			rows = append(rows, v.renderSettingRow(bySection[sec][i]))
+		}
+		// The Sync section also hosts the run-now control, next to its schedule.
+		if sec == "Sync" {
+			rows = append(rows,
+				app.Div().Class("settings-divider"),
+				app.Div().Class("form-row").Body(
+					app.Button().
+						Class("btn btn-primary").
+						Text(syncLabel(v.syncing)).
+						Disabled(v.syncing).
+						OnClick(v.onSyncNow),
+					v.renderSyncStatus(),
+				),
+			)
+		}
+		cards = append(cards, app.Section().Class("card settings-section").Body(rows...))
+	}
+
+	return app.Section().Class("settings-section").Body(
+		app.Div().Class("settings-section-head").Body(
+			app.H2().Class("settings-title").Text("How kasas works"),
+		),
+		app.Div().Body(cards...),
 	)
 }
 
@@ -266,63 +299,6 @@ func (v *settingsView) renderError() app.UI {
 		return app.Text("")
 	}
 	return app.Div().Class("error").Text("Error: " + v.errMsg)
-}
-
-// renderSimpleFIN renders the connection panel: status, the credential form, and
-// the force-sync control with live status.
-func (v *settingsView) renderSimpleFIN() app.UI {
-	pillClass := "status-pill disconnected"
-	pillText := "Not connected"
-	if v.connected {
-		pillClass = "status-pill connected"
-		pillText = "Connected"
-	}
-
-	body := []app.UI{
-		app.Div().Class("settings-section-head").Body(
-			app.H2().Class("settings-title").Text("SimpleFIN connection"),
-			app.Span().Class(pillClass).Text(pillText),
-		),
-		app.P().Class("settings-help").Text(
-			"Paste a SimpleFIN setup token (the one-time base64 token from your bridge) " +
-				"or a full access URL. It is stored securely and used on the next sync — no restart needed."),
-		app.P().Class("settings-help").Body(
-			app.Text("Manage every ingestion source — including CSV file import — on the "),
-			app.A().Class("settings-link").Href("/sources").Text("Sources page"),
-			app.Text("."),
-		),
-		app.Div().Class("form-row").Body(
-			app.Input().
-				ID(tokenInputID).
-				Class("settings-input").
-				Type("password").
-				Placeholder("Setup token or access URL").
-				AutoComplete(false).
-				OnKeyDown(v.onTokenKeyDown),
-			app.Button().
-				Class("btn btn-primary").
-				Text(saveLabel(v.saving)).
-				Disabled(v.saving).
-				OnClick(v.onSaveToken),
-		),
-	}
-	if v.saveMsg != "" {
-		body = append(body, app.Div().Class("settings-ok").Text(v.saveMsg))
-	}
-
-	body = append(body,
-		app.Div().Class("settings-divider"),
-		app.Div().Class("form-row").Body(
-			app.Button().
-				Class("btn btn-primary").
-				Text(syncLabel(v.syncing)).
-				Disabled(v.syncing).
-				OnClick(v.onSyncNow),
-			v.renderSyncStatus(),
-		),
-	)
-
-	return app.Section().Class("card settings-section").Body(body...)
 }
 
 func saveLabel(saving bool) string {
@@ -774,14 +750,18 @@ func removeApiKey(list []apiKey, id int64) []apiKey {
 	return out
 }
 
-// renderConfig renders the read-only effective configuration as a grid of cards.
+// renderConfig renders the read-only bootstrap configuration: the few values
+// that stay file/env-managed because kasas needs them before it can read its
+// stored settings (the listen address, the database itself, and the secret
+// store). Everything else is editable in the sections above or on the Sources
+// page.
 func (v *settingsView) renderConfig() app.UI {
 	head := app.Div().Class("settings-section-head").Body(
-		app.H2().Class("settings-title").Text("Configuration"),
+		app.H2().Class("settings-title").Text("Bootstrap configuration"),
 	)
 	note := app.P().Class("settings-help").Text(
-		"Loaded from the config file or KASAS_ environment variables at startup. " +
-			"To change these, edit your config and restart kasas. Secrets are not shown.")
+		"These load from the config file or KASAS_ environment variables before the database opens, " +
+			"so they cannot be changed here — edit your config and restart kasas. Secrets are not shown.")
 
 	if !v.cfgLoaded {
 		status := "Loading…"
@@ -794,35 +774,8 @@ func (v *settingsView) renderConfig() app.UI {
 	c := v.cfg
 	cards := []app.UI{
 		configCard("Server", configRow("Address", c.Server.Addr)),
-		configCard("Logging",
-			configRow("Level", c.Log.Level),
-			configRow("Format", c.Log.Format),
-		),
 		configCard("Database", v.databaseRows(c.Database)...),
-		configCard("Sync",
-			configRow("Enabled", enabledText(c.Sync.Enabled)),
-			configRow("Interval", c.Sync.Interval),
-			configRow("Lookback", lookbackText(c.Sync.LookbackDays)),
-			configRow("Run on start", yesNo(c.Sync.RunOnStart)),
-		),
 		configCard("Secret store", v.vaultRows(c.Vault, c.Secrets)...),
-		configCard("MCP server", configRow("Enabled", enabledText(c.MCP.Enabled))),
-		configCard("Events & history",
-			configRow("Enabled", enabledText(c.Events.Enabled)),
-			configRow("Event retention", retentionText(c.Events.RetentionDays)),
-			configRow("History retention", retentionText(c.Events.HistoryRetentionDays)),
-		),
-		configCard("Webhooks",
-			configRow("Enabled", enabledText(c.Webhooks.Enabled)),
-			configRow("Timeout", c.Webhooks.Timeout),
-			configRow("Max attempts", strconv.Itoa(c.Webhooks.MaxAttempts)),
-		),
-		configCard("Dashboard", configRow("Enabled", enabledText(c.Dashboard.Enabled))),
-		configCard("Updates",
-			configRow("Check", yesNo(c.Update.Check)),
-			configRow("Allow apply", yesNo(c.Update.AllowApply)),
-			configRow("Repository", c.Update.Repository),
-		),
 	}
 
 	return app.Section().Class("settings-section").Body(
@@ -875,46 +828,11 @@ func configCard(title string, rows ...app.UI) app.UI {
 	return app.Div().Class("card config-card").Body(body...)
 }
 
-func enabledText(b bool) string {
-	if b {
-		return "Enabled"
-	}
-	return "Disabled"
-}
-
-func yesNo(b bool) string {
-	if b {
-		return "Yes"
-	}
-	return "No"
-}
-
 func configuredText(b bool) string {
 	if b {
 		return "Configured"
 	}
 	return "Not set"
-}
-
-func lookbackText(days int) string {
-	if days <= 0 {
-		return "All available"
-	}
-	if days == 1 {
-		return "1 day"
-	}
-	return strconv.Itoa(days) + " days"
-}
-
-// retentionText renders a retention-days setting, where 0 means keep forever.
-func retentionText(days int) string {
-	if days <= 0 {
-		return "Forever"
-	}
-	if days == 1 {
-		return "1 day"
-	}
-	return strconv.Itoa(days) + " days"
 }
 
 // orNone renders an empty value as a muted dash so empty rows are not ambiguous.

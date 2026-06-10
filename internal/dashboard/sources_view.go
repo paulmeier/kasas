@@ -7,14 +7,19 @@ import (
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
 
-// sourcesView is the Sources page: one card per configured ingestion source, with
-// its connection status, a per-source "Sync now" control, a credential form for
-// sources that take a pasted secret, and a "Connect" button for sources that use a
+// sourcesView is the Sources page: one card per ingestion source — active AND
+// inactive — with its connection status, editable configuration (persisted
+// settings), a per-source "Sync now" control, a credential form for sources
+// that take a pasted secret, and a "Connect" button for sources that use a
 // browser OAuth flow (e.g. Google Drive). It manages every source uniformly —
-// SimpleFIN, CSV, and any future source.
+// SimpleFIN, CSV, and any future source. An inactive source (registered but
+// missing its activating config, like Plaid without app credentials) is shown
+// so it can be configured here and activated by a restart.
 type sourcesView struct {
 	app.Compo
-	chrome // shared sidebar + API client + version badge
+	chrome          // shared sidebar + API client + version badge
+	settingsEditing // per-source config save/reset (shared with the Settings page)
+	restartPrompt   // "restart required" banner + in-place restart
 
 	sources []sourceStatus
 	enabled bool
@@ -38,8 +43,29 @@ func credInputID(typ string) string { return "source-cred-" + typ }
 
 func (v *sourcesView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx)
+	v.initSettingsEditing(
+		func() *apiClient { return v.client },
+		v.adoptSetting,
+	)
 	v.readOAuthResult()
 	v.loadSources(ctx)
+}
+
+// adoptSetting folds a saved/reset setting back into the matching source's
+// config list so the row shows the server-normalized value and state.
+func (v *sourcesView) adoptSetting(_ app.Context, st settingItem, restartRequired bool) {
+	v.restartNeeded = restartRequired
+	for i := range v.sources {
+		if v.sources[i].Type != st.Source {
+			continue
+		}
+		for j := range v.sources[i].Config {
+			if v.sources[i].Config[j].Key == st.Key {
+				v.sources[i].Config[j] = st
+				return
+			}
+		}
+	}
 }
 
 // readOAuthResult surfaces the result of a just-completed OAuth flow, which the
@@ -60,7 +86,7 @@ func (v *sourcesView) readOAuthResult() {
 
 func (v *sourcesView) loadSources(ctx app.Context) {
 	ctx.Async(func() {
-		sources, enabled, err := v.client.listSources(context.Background())
+		data, err := v.client.listSources(context.Background())
 		ctx.Dispatch(func(ctx app.Context) {
 			v.loaded = true
 			if err != nil {
@@ -68,8 +94,9 @@ func (v *sourcesView) loadSources(ctx app.Context) {
 				ctx.Update()
 				return
 			}
-			v.sources = sources
-			v.enabled = enabled
+			v.sources = data.Sources
+			v.enabled = data.Enabled
+			v.restartNeeded = data.RestartRequired
 			ctx.Update()
 		})
 	})
@@ -163,11 +190,13 @@ func (v *sourcesView) setConnected(typ string, connected bool) {
 
 func (v *sourcesView) Render() app.UI {
 	return v.renderShell(navSources,
+		v.renderRestartBanner(func() *apiClient { return v.client }),
 		app.Header().Class("page-header").Body(
 			app.H1().Class("page-title").Text("Sources"),
-			app.Span().Class("page-subtitle").Text("Connect and sync where your transactions come from"),
+			app.Span().Class("page-subtitle").Text("Connect, configure, and sync where your transactions come from"),
 		),
 		v.renderError(),
+		v.renderSettingMessages(),
 		v.renderOAuthBanner(),
 		v.renderBody(),
 	)
@@ -213,7 +242,10 @@ func (v *sourcesView) renderBody() app.UI {
 
 func (v *sourcesView) renderSource(s sourceStatus) app.UI {
 	pillClass, pillText := "status-pill disconnected", "Not connected"
-	if s.Connected {
+	switch {
+	case !s.Active:
+		pillClass, pillText = "status-pill inactive", "Inactive"
+	case s.Connected:
 		pillClass, pillText = "status-pill connected", "Connected"
 	}
 
@@ -224,33 +256,53 @@ func (v *sourcesView) renderSource(s sourceStatus) app.UI {
 		),
 		app.P().Class("settings-help").Text(sourceArchetypeHelp(s.Archetype)),
 	}
-
-	// Credential entry. A multi-credential source (e.g. Teller) shows its connected
-	// credentials with per-entry remove plus an "add another" form; a single-credential
-	// source shows one replace input.
-	switch {
-	case s.MultiCredential:
-		body = append(body, v.renderMultiCredential(s))
-	case s.Credentialed:
-		body = append(body, v.renderCredentialForm(s))
+	if !s.Active {
+		body = append(body, app.P().Class("settings-help").Text(
+			"Not active in this run. Set its configuration below — once the required values are in place, restart kasas to activate it."))
 	}
-	// Browser OAuth connect for sources that support it.
-	if s.OAuth {
-		body = append(body, v.renderConnectButton(s))
+
+	// Credential and sync controls need a running source instance, so they are
+	// offered only for active sources. A multi-credential source (e.g. Teller)
+	// shows its connected credentials with per-entry remove plus an "add another"
+	// form; a single-credential source shows one replace input.
+	if s.Active {
+		switch {
+		case s.MultiCredential:
+			body = append(body, v.renderMultiCredential(s))
+		case s.Credentialed:
+			body = append(body, v.renderCredentialForm(s))
+		}
+		// Browser OAuth connect for sources that support it.
+		if s.OAuth {
+			body = append(body, v.renderConnectButton(s))
+		}
+	}
+
+	// Editable, persisted configuration (applies after a restart).
+	if len(s.Config) > 0 {
+		body = append(body,
+			app.Div().Class("settings-divider"),
+			app.H3().Class("setting-group-title").Text("Configuration"),
+		)
+		for i := range s.Config {
+			body = append(body, v.renderSettingRow(s.Config[i]))
+		}
 	}
 
 	// Per-source sync control.
-	body = append(body,
-		app.Div().Class("settings-divider"),
-		app.Div().Class("form-row").Body(
-			app.Button().
-				Class("btn btn-primary").
-				Text(sourceSyncLabel(v.syncingType == s.Type)).
-				Disabled(v.syncingType == s.Type).
-				OnClick(func(ctx app.Context, _ app.Event) { v.onSyncSource(ctx, s.Type) }),
-			v.renderSyncMsg(s.Type),
-		),
-	)
+	if s.Active {
+		body = append(body,
+			app.Div().Class("settings-divider"),
+			app.Div().Class("form-row").Body(
+				app.Button().
+					Class("btn btn-primary").
+					Text(sourceSyncLabel(v.syncingType == s.Type)).
+					Disabled(v.syncingType == s.Type).
+					OnClick(func(ctx app.Context, _ app.Event) { v.onSyncSource(ctx, s.Type) }),
+				v.renderSyncMsg(s.Type),
+			),
+		)
+	}
 
 	return app.Section().Class("card settings-section").Body(body...)
 }

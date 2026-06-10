@@ -252,12 +252,12 @@ func TestValidate(t *testing.T) {
 			Ethereum: Ethereum{ChainID: 1},
 		}
 	}
-	require.NoError(t, valid().validate())
+	require.NoError(t, valid().Validate())
 
 	// Postgres with a DSN is also valid.
 	pg := valid()
 	pg.Database = Database{Driver: "postgres", DSN: "postgres://localhost/kasas"}
-	require.NoError(t, pg.validate())
+	require.NoError(t, pg.Validate())
 
 	tests := map[string]func(*Config){
 		"empty addr":           func(c *Config) { c.Server.Addr = "" },
@@ -274,7 +274,7 @@ func TestValidate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := valid()
 			mutate(c)
-			require.Error(t, c.validate())
+			require.Error(t, c.Validate())
 		})
 	}
 }

@@ -481,13 +481,16 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid ethereum.addresses config: %w", err)
 	}
 
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil
 }
 
-func (c *Config) validate() error {
+// Validate checks the configuration's cross-field invariants. Load calls it on
+// every boot; the settings service calls it again after applying dashboard-stored
+// overrides so an invalid override is rejected before it is persisted.
+func (c *Config) Validate() error {
 	if c.Server.Addr == "" {
 		return fmt.Errorf("server.addr must not be empty")
 	}
