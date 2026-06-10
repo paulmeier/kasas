@@ -235,3 +235,44 @@ Object.assign(globalThis, __kasasExports);
 	assert.Equal(t, map[string]string{"category": "food"}, host.applied["tx-1"],
 		"the bundled plugin's hook should run and reach the host")
 }
+
+// TestJSBundledLibraryFindsGlobalWithoutFunction guards a subtle interaction
+// between the host sandbox and bundled dependencies (ADR 0001). Many npm libraries
+// (lodash among them) locate the global object with the classic probe
+// `freeGlobal || freeSelf || Function('return this')()`. The host removes the
+// Function constructor, so the fallback would throw at load — which would break a
+// bundled lodash. The registry's canonical bundler therefore resolves `global`/
+// `self` to `globalThis` (which goja provides) at bundle time, so the probe
+// succeeds before ever reaching the removed constructor. This test embeds that
+// exact post-bundle shape and asserts it loads and runs in the real host VM.
+func TestJSBundledLibraryFindsGlobalWithoutFunction(t *testing.T) {
+	dir := t.TempDir()
+	// As emitted by the canonical bundler: the library's `global`/`self` references
+	// have already been mapped to `globalThis`, so `root` resolves without Function.
+	bundle := `var __kasasExports = (() => {
+  var freeGlobal = typeof globalThis == "object" && globalThis !== null && globalThis.Object === Object && globalThis;
+  var freeSelf  = typeof globalThis == "object" && globalThis !== null && globalThis.Object === Object && globalThis;
+  var root = freeGlobal || freeSelf || Function("return this")(); // fallback must NOT be reached
+  function OnTransactionCreate(txn) {
+    // use the discovered global to prove root is a real object, then write
+    var tag = root.String(txn.amount).indexOf("-") === 0 ? "expense" : "income";
+    kasas.applyLabels(txn.id, { kind: tag });
+  }
+  function OnUninstall() {}
+  return { OnTransactionCreate, OnUninstall };
+})();
+Object.assign(globalThis, __kasasExports);
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.js"), []byte(bundle), 0o644))
+	m, err := ParseManifest([]byte("name=\"glob\"\nruntime=\"js\"\nhooks=[\"OnTransactionCreate\",\"OnUninstall\"]\ncapabilities=[\"labels:write\"]\n"))
+	require.NoError(t, err)
+
+	host := newFakeHost()
+	inst, err := NewJSRuntime().Load(context.Background(), m, dir, host)
+	require.NoError(t, err, "a bundle that probes for the global must load even though Function is removed")
+	t.Cleanup(func() { _ = inst.Close() })
+
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
+		HookEvent{Transaction: &Transaction{ID: "tx-1", Amount: "-9.99"}}))
+	assert.Equal(t, map[string]string{"kind": "expense"}, host.applied["tx-1"])
+}
