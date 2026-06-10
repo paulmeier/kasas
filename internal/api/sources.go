@@ -14,23 +14,89 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/paulmeier/kasas/internal/poller"
+	"github.com/paulmeier/kasas/internal/settings"
+	"github.com/paulmeier/kasas/internal/source"
 )
 
-// handleListSources lists the configured ingestion sources with their readiness
-// and credential shape. It always responds 200 (with enabled=false when source
-// management is unavailable) so the dashboard's Sources page can distinguish a
-// disabled state from a routing error.
+// SourceDTO is one ingestion source for the API and dashboard: the engine's
+// status plus whether the source is active in this run and its editable,
+// persisted configuration. An inactive source is registered but was not built
+// at startup (its activating config is missing — e.g. Plaid without app
+// credentials); setting its config here and restarting activates it.
+type SourceDTO struct {
+	poller.SourceStatus
+	Active bool              `json:"active"`
+	Config []settings.Status `json:"config,omitempty"`
+}
+
+// handleListSources lists every ingestion source — active and inactive — with
+// readiness, credential shape, and editable config. It always responds 200
+// (with enabled=false when source management is unavailable) so the dashboard's
+// Sources page can distinguish a disabled state from a routing error.
 func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 	if s.sources == nil {
-		s.writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "sources": []poller.SourceStatus{}})
+		s.writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "restart_required": false, "sources": []SourceDTO{}})
 		return
 	}
-	statuses, err := s.sources.Sources(r.Context())
+	list, restart, err := s.sourceStatuses(r.Context())
 	if err != nil {
 		s.serverError(w, "list sources", err)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "sources": statuses})
+	s.writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "restart_required": restart, "sources": list})
+}
+
+// sourceStatuses composes the full source listing: the engine's active sources
+// first (in engine order), then every registered-but-inactive source type, each
+// annotated with its persisted per-source settings. The restart flag reports
+// whether ANY setting (source or app) awaits a restart, so the Sources page can
+// show the restart banner. Settings are best-effort: a settings read error
+// leaves the config sections empty rather than failing the listing.
+func (s *Server) sourceStatuses(ctx context.Context) ([]SourceDTO, bool, error) {
+	statuses, err := s.sources.Sources(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	bySource := map[string][]settings.Status{}
+	restart := false
+	if s.settingsSvc != nil {
+		all, pending, err := s.settingsSvc.List(ctx)
+		if err != nil {
+			s.logger.Warn("list settings for sources", "error", err)
+		} else {
+			restart = pending
+			for _, st := range all {
+				if st.Source != "" {
+					bySource[st.Source] = append(bySource[st.Source], st)
+				}
+			}
+		}
+	}
+
+	out := make([]SourceDTO, 0, len(statuses))
+	seen := map[string]bool{}
+	for _, st := range statuses {
+		seen[st.Type] = true
+		out = append(out, SourceDTO{SourceStatus: st, Active: true, Config: bySource[st.Type]})
+	}
+	for _, desc := range source.Descriptors() {
+		if seen[desc.Type] {
+			continue
+		}
+		out = append(out, SourceDTO{
+			SourceStatus: poller.SourceStatus{
+				Type:         desc.Type,
+				Archetype:    string(desc.Archetype),
+				Title:        desc.Title,
+				Credentialed: len(desc.Credentials) > 0,
+				Credentials:  desc.Credentials,
+			},
+			Active: false,
+			Config: bySource[desc.Type],
+		})
+	}
+	return out, restart, nil
 }
 
 // handleSyncSource triggers a sync of a single source by type. Like the global

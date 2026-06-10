@@ -41,6 +41,7 @@ type Querier interface {
 	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
 	DeletePlugin(ctx context.Context, id int64) (int64, error)
 	DeleteRule(ctx context.Context, id int64) (int64, error)
+	DeleteSetting(ctx context.Context, key string) (int64, error)
 	// Deletes one transaction. The API gates this on source = 'manual', and within the
 	// same transaction it also deletes the row's history versions (no FK cascade exists
 	// for transaction_versions) and strips any inbound relationship edges that other
@@ -153,6 +154,7 @@ type Querier interface {
 	// pgstore adapter). ORDER BY makes the row order deterministic.
 	ListRelatedTransactions(ctx context.Context) ([]ListRelatedTransactionsRow, error)
 	ListRules(ctx context.Context) ([]Rule, error)
+	ListSettings(ctx context.Context) ([]Setting, error)
 	ListSyncLogs(ctx context.Context, rowLimit int32) ([]SyncLog, error)
 	// One transaction's full history, oldest first. ORDER BY id is the version order
 	// (id is the monotonic insert sequence), so the caller assigns v1, v2, ... by
@@ -231,6 +233,7 @@ type Querier interface {
 	// never rewrites it.
 	UpsertAccount(ctx context.Context, arg UpsertAccountParams) error
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error
+	UpsertSetting(ctx context.Context, arg UpsertSettingParams) error
 }
 
 var _ Querier = (*Queries)(nil)

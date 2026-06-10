@@ -53,7 +53,9 @@ Base path: `/api/v1`. Source:
 | `GET /api/v1/events/{sequence}` | Get one event by sequence. |
 | `GET /api/v1/events/stream` | Live SSE tail (`?after=` to replay then follow). |
 | `GET /api/v1/sync` · `GET /api/v1/sync/history` | Latest [sync](../features/sync.md) status / recent runs (`?limit=`). |
-| `GET /api/v1/config` | Effective configuration, secrets redacted (powers Settings). |
+| `GET /api/v1/sources` | Every ingestion source — active and inactive — with readiness, credential shape, and its editable config; returns `{enabled, restart_required, sources}`. |
+| `GET /api/v1/config` | Effective bootstrap configuration, secrets redacted (powers Settings). |
+| `GET /api/v1/settings` | Every [editable setting](../getting-started/configuration.md#settings-from-the-dashboard) with its value, override state, and whether a restart is pending. Secrets are never echoed. |
 | `GET /api/v1/update` | [Self-update](../reference/cli.md#self-update) status (when `update.check` is on). |
 
 ## Write tier
@@ -76,13 +78,20 @@ Base path: `/api/v1`. Source:
 | `POST /api/v1/rules/{id}/run` | Apply one rule to existing transactions; returns `{matched, updated}`. |
 | `POST /api/v1/rules/run` | Apply all enabled rules to existing transactions. |
 | `POST /api/v1/sync` | Trigger a [sync](../features/sync.md) (async, returns `202`). |
+| `POST /api/v1/sources/{type}/sync` | Trigger a sync of one source (async, returns `202`). |
 | `POST /api/v1/plugins/pages/{name}/action` | Press a button on a plugin's [dashboard page](../features/plugins.md#dashboard-pages) (`{"id":"<action>","params":{…}}`; runs `OnPageAction`). |
 
 ## Admin tier (dashboard token only)
 
 | Method & path | Description |
 | --- | --- |
-| `PUT /api/v1/simplefin/credential` | Set the SimpleFIN setup token or access URL. |
+| `PUT /api/v1/sources/{type}/credential` | Set (or, for a multi-credential source, add) a source credential — applies live, no restart. |
+| `DELETE /api/v1/sources/{type}/credentials/{id}` | Remove one credential of a multi-credential source (e.g. disconnect one bank). |
+| `GET /api/v1/sources/{type}/oauth/start` | Begin a source's browser OAuth flow (returns the consent URL). |
+| `PUT /api/v1/simplefin/credential` | Back-compat alias for the SimpleFIN credential. |
+| `PUT /api/v1/settings/{key}` | Permanently set one [setting](../getting-started/configuration.md#settings-from-the-dashboard) (`{"value": …}`); validated before storing, `404` unknown key, `400` bad value. |
+| `DELETE /api/v1/settings/{key}` | Reset a setting: remove its stored override so the config file/env value applies after the next restart. |
+| `POST /api/v1/system/restart` | Restart kasas in place (re-exec) so pending setting changes take effect. |
 | `POST /api/v1/security/token` · `DELETE …` | Generate/set or revoke the [dashboard token](authentication.md). |
 | `POST /api/v1/security/api-keys` · `GET …` · `DELETE …/{id}` | Mint / list / revoke [API keys](authentication.md#api-keys). |
 | `GET/POST/PUT/DELETE /api/v1/webhooks` (+ `/{id}/test`, `/{id}/rotate-secret`) | Manage [webhooks](../features/webhooks.md). |

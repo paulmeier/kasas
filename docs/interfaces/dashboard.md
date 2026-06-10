@@ -12,7 +12,7 @@ Toggle with `dashboard.enabled` (default on).
 
 ## Pages
 
-A collapsible left sidebar (the choice is remembered) navigates eight pages:
+A collapsible left sidebar (the choice is remembered) navigates the pages:
 
 | Page | What it does |
 | --- | --- |
@@ -24,7 +24,8 @@ A collapsible left sidebar (the choice is remembered) navigates eight pages:
 | **Webhooks** | Register, edit, toggle, and test [webhook](../features/webhooks.md) endpoints; per-endpoint health. |
 | **Plugins** | [Plugin](../features/plugins.md) status/health, enable/disable, reload, uninstall (runs the plugin's cleanup hook). |
 | **Marketplace** | Browse and install [community plugins](../features/plugins.md#the-community-marketplace) with a capability-tier warning; integrity-verified and installed disabled. |
-| **Settings** | Connect a source (SimpleFIN today), manage the [dashboard token](authentication.md), force a sync, and review the effective config (read-only, secrets redacted). |
+| **Sources** | Every ingestion source — active *and* inactive — in one place: connection status, credentials (paste, add/remove per bank, or browser OAuth), per-source sync, and each source's **editable configuration** (Plaid app credentials, Teller mTLS cert paths, Etherscan key/chain, CSV folder profiles, …). Configure an inactive source here, restart, and it activates. |
+| **Settings** | **Edit how kasas works** — sync schedule, plugins, events & history retention, webhooks, MCP, updates, logging — plus the [dashboard token](authentication.md), API keys, a force-sync, and the read-only bootstrap config (server address, database, secret store). Changes are [permanent](../getting-started/configuration.md#settings-from-the-dashboard): they override the config file/env, and a banner offers the one-click restart that applies them. |
 
 Plugins with a `[ui]` manifest block contribute **their own sidebar entries**
 below the built-ins (at `/ext/<plugin>`): the server renders the plugin's

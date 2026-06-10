@@ -1362,8 +1362,9 @@ func (c *apiClient) revokeToken(ctx context.Context) error {
 	return nil
 }
 
-// sourceStatus mirrors poller.SourceStatus: one ingestion source with its
-// readiness and credential shape, for the Sources page.
+// sourceStatus mirrors api.SourceDTO: one ingestion source with its readiness,
+// credential shape, whether it is active in this run, and its editable
+// persisted configuration, for the Sources page.
 type sourceStatus struct {
 	Type              string            `json:"type"`
 	Archetype         string            `json:"archetype"`
@@ -1374,6 +1375,12 @@ type sourceStatus struct {
 	OAuth             bool              `json:"oauth"`
 	Credentials       []credentialField `json:"credentials"`
 	CredentialEntries []credentialEntry `json:"credential_entries"`
+	// Active reports whether the source was built in this run. An inactive
+	// source is registered but missing its activating config (e.g. Plaid app
+	// credentials); set it below and restart to activate.
+	Active bool `json:"active"`
+	// Config is the source's editable, persisted configuration.
+	Config []settingItem `json:"config"`
 }
 
 // credentialField mirrors source.CredentialField: one secret a source needs.
@@ -1391,17 +1398,23 @@ type credentialEntry struct {
 	Removable bool   `json:"removable"`
 }
 
-// listSources fetches the configured ingestion sources and whether source
-// management is enabled (false leaves the list empty without being an error).
-func (c *apiClient) listSources(ctx context.Context) ([]sourceStatus, bool, error) {
-	var out struct {
-		Enabled bool           `json:"enabled"`
-		Sources []sourceStatus `json:"sources"`
-	}
+// sourcesData is the /sources response: the sources plus whether source
+// management is enabled and whether any setting change awaits a restart.
+type sourcesData struct {
+	Enabled         bool           `json:"enabled"`
+	RestartRequired bool           `json:"restart_required"`
+	Sources         []sourceStatus `json:"sources"`
+}
+
+// listSources fetches every ingestion source (active and inactive) and whether
+// source management is enabled (false leaves the list empty without being an
+// error).
+func (c *apiClient) listSources(ctx context.Context) (sourcesData, error) {
+	var out sourcesData
 	if err := c.get(ctx, "/api/v1/sources", nil, &out); err != nil {
-		return nil, false, err
+		return sourcesData{}, err
 	}
-	return out.Sources, out.Enabled, nil
+	return out, nil
 }
 
 // syncSource triggers a sync of a single source by type. The server runs it
@@ -1487,6 +1500,115 @@ func (c *apiClient) sourceOAuthStartURL(ctx context.Context, typ string) (string
 	return out.URL, nil
 }
 
+// settingItem mirrors settings.Status: one editable setting with its effective
+// value and override/restart state. Secret values are never present.
+type settingItem struct {
+	Key             string   `json:"key"`
+	Title           string   `json:"title"`
+	Help            string   `json:"help"`
+	Kind            string   `json:"kind"` // bool | int | string | duration | json
+	Secret          bool     `json:"secret"`
+	Source          string   `json:"source"`  // owning source type; "" = app setting
+	Section         string   `json:"section"` // Settings page grouping
+	Enum            []string `json:"enum"`
+	Value           string   `json:"value"`
+	Set             bool     `json:"set"`
+	Overridden      bool     `json:"overridden"`
+	RestartRequired bool     `json:"restart_required"`
+}
+
+// settingsData is the /settings response.
+type settingsData struct {
+	Enabled         bool          `json:"enabled"`
+	RestartRequired bool          `json:"restart_required"`
+	Settings        []settingItem `json:"settings"`
+}
+
+// settingResult is the response of a set/reset: the setting's new state plus
+// whether any setting now awaits a restart.
+type settingResult struct {
+	Setting         settingItem `json:"setting"`
+	RestartRequired bool        `json:"restart_required"`
+}
+
+// listSettings fetches every editable setting with its override/restart state.
+func (c *apiClient) listSettings(ctx context.Context) (settingsData, error) {
+	var out settingsData
+	if err := c.get(ctx, "/api/v1/settings", nil, &out); err != nil {
+		return settingsData{}, err
+	}
+	return out, nil
+}
+
+// setSetting permanently stores one setting override; it survives restarts and
+// wins over the config file / environment.
+func (c *apiClient) setSetting(ctx context.Context, key, value string) (settingResult, error) {
+	body, err := json.Marshal(map[string]string{"value": value})
+	if err != nil {
+		return settingResult{}, err
+	}
+	u := c.base + "/api/v1/settings/" + url.PathEscape(key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
+	if err != nil {
+		return settingResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return settingResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return settingResult{}, decodeAPIError(resp, "save setting")
+	}
+	var out settingResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return settingResult{}, err
+	}
+	return out, nil
+}
+
+// resetSetting removes one setting's stored override so the config file /
+// environment value applies again at the next restart.
+func (c *apiClient) resetSetting(ctx context.Context, key string) (settingResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.base+"/api/v1/settings/"+url.PathEscape(key), nil)
+	if err != nil {
+		return settingResult{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return settingResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return settingResult{}, decodeAPIError(resp, "reset setting")
+	}
+	var out settingResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return settingResult{}, err
+	}
+	return out, nil
+}
+
+// restartServer asks kasas to restart in place so pending setting changes take
+// effect. The server responds before re-execing; poll authStatus to detect it
+// coming back.
+func (c *apiClient) restartServer(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/system/restart", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeAPIError(resp, "restart")
+	}
+	return nil
+}
+
 // latestSync fetches the most recent sync run, or nil when no sync has run yet.
 func (c *apiClient) latestSync(ctx context.Context) (*syncRun, error) {
 	var out struct {
@@ -1496,42 +1618,6 @@ func (c *apiClient) latestSync(ctx context.Context) (*syncRun, error) {
 		return nil, err
 	}
 	return out.Latest, nil
-}
-
-// setSimpleFINToken stores a SimpleFIN setup token or access URL and returns the
-// resulting connection state.
-func (c *apiClient) setSimpleFINToken(ctx context.Context, token string) (bool, error) {
-	body, err := json.Marshal(map[string]string{"token": token})
-	if err != nil {
-		return false, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.base+"/api/v1/simplefin/credential", bytes.NewReader(body))
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&e)
-		if e.Error != "" {
-			return false, fmt.Errorf("%s", e.Error)
-		}
-		return false, fmt.Errorf("set credential: status %d", resp.StatusCode)
-	}
-	var out struct {
-		Connected bool `json:"connected"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return false, err
-	}
-	return out.Connected, nil
 }
 
 // triggerSync starts a sync. The server runs it asynchronously and returns 202;

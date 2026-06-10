@@ -14,11 +14,11 @@ func TestSourcesViewRendersCards(t *testing.T) {
 		enabled: true,
 		sources: []sourceStatus{
 			{
-				Type: "simplefin", Archetype: "pull", Title: "SimpleFIN",
+				Type: "simplefin", Archetype: "pull", Title: "SimpleFIN", Active: true,
 				Connected: true, Credentialed: true,
 				Credentials: []credentialField{{Key: "setup_token", Title: "Setup token", Help: "Paste your bridge token."}},
 			},
-			{Type: "csv", Archetype: "file", Title: "CSV files", Connected: false, OAuth: true},
+			{Type: "csv", Archetype: "file", Title: "CSV files", Active: true, Connected: false, OAuth: true},
 		},
 	}
 	html := printUI(t, v.Render())
@@ -48,7 +48,7 @@ func TestSourcesViewRendersMultiCredential(t *testing.T) {
 		loaded:  true,
 		enabled: true,
 		sources: []sourceStatus{{
-			Type: "teller", Archetype: "pull", Title: "Teller",
+			Type: "teller", Archetype: "pull", Title: "Teller", Active: true,
 			Connected: true, Credentialed: true, MultiCredential: true,
 			Credentials: []credentialField{{Key: "access_token", Title: "Access token", Help: "One per bank."}},
 			CredentialEntries: []credentialEntry{
@@ -70,6 +70,54 @@ func TestSourcesViewRendersMultiCredential(t *testing.T) {
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("multi-credential render missing %q\nHTML:\n%s", want, html)
+		}
+	}
+}
+
+// TestSourcesViewRendersConfigAndInactive checks per-source configuration
+// renders as editable rows (with override/restart chips and secret handling),
+// and that an inactive source explains how to activate it while hiding the
+// credential and sync controls that need a running source.
+func TestSourcesViewRendersConfigAndInactive(t *testing.T) {
+	v := &sourcesView{
+		loaded:  true,
+		enabled: true,
+		sources: []sourceStatus{{
+			Type: "plaid", Archetype: "pull", Title: "Plaid", Active: false,
+			Credentialed: true,
+			Credentials:  []credentialField{{Key: "access_token", Title: "Access token"}},
+			Config: []settingItem{
+				{Key: "plaid.client_id", Title: "Client ID", Kind: "string", Source: "plaid", Value: "abc", Overridden: true, RestartRequired: true},
+				{Key: "plaid.secret", Title: "Secret", Kind: "string", Source: "plaid", Secret: true, Set: true},
+				{Key: "plaid.environment", Title: "Environment", Kind: "string", Source: "plaid", Value: "sandbox", Enum: []string{"sandbox", "development", "production"}},
+			},
+		}},
+	}
+	html := printUI(t, v.Render())
+
+	for _, want := range []string{
+		"Plaid",
+		"Inactive",
+		"restart kasas to activate",
+		"Configuration",
+		`id="setting-input-plaid.client_id"`, // editable config input
+		"overridden",                         // override chip
+		"restart pending",                    // restart chip
+		"Reset",                              // reset control for the override
+		"paste to replace",                   // set secret placeholder
+		"sandbox",                            // enum rendered as select options
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("source config render missing %q\nHTML:\n%s", want, html)
+		}
+	}
+
+	for _, bad := range []string{
+		`id="source-cred-plaid"`, // credential input needs an active source
+		"Sync now",               // so does the sync control
+	} {
+		if strings.Contains(html, bad) {
+			t.Fatalf("inactive source must not render %q\nHTML:\n%s", bad, html)
 		}
 	}
 }

@@ -377,6 +377,21 @@ func (a pgQuerier) DeleteWebhook(ctx context.Context, id int64) (int64, error) {
 	return a.q.DeleteWebhook(ctx, id)
 }
 
+// Settings. All columns are string/int64, so Setting rows and the param structs
+// are structurally identical to the pg-generated ones and convert with a cast.
+func (a pgQuerier) ListSettings(ctx context.Context) ([]Setting, error) {
+	rows, err := a.q.ListSettings(ctx)
+	return mapSlice(rows, func(r pg.Setting) Setting { return Setting(r) }), err
+}
+
+func (a pgQuerier) UpsertSetting(ctx context.Context, arg UpsertSettingParams) error {
+	return a.q.UpsertSetting(ctx, pg.UpsertSettingParams(arg))
+}
+
+func (a pgQuerier) DeleteSetting(ctx context.Context, key string) (int64, error) {
+	return a.q.DeleteSetting(ctx, key)
+}
+
 // Plugins. All columns are int64/string, so Plugin rows and the param structs are
 // structurally identical to the pg-generated ones and convert with a cast.
 func (a pgQuerier) InsertPlugin(ctx context.Context, arg InsertPluginParams) (Plugin, error) {

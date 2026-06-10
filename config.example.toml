@@ -4,6 +4,13 @@
 # key, prefix it with KASAS_, and join sections with underscores. For example
 # [server].addr  ->  KASAS_SERVER_ADDR. Environment variables win over the file.
 #
+# Most keys are ALSO editable at runtime from the dashboard Settings/Sources
+# pages (or PUT /api/v1/settings/{key}, or the set_setting MCP tool). A setting
+# changed there is persisted and wins over this file and the environment until
+# it is reset. Only [server].addr, [database], and the secret store ([secrets]/
+# [vault]) stay file/env-only — kasas needs them before it can read its stored
+# settings.
+#
 # Pass this file with:  kasas -config /etc/kasas/config.toml
 
 [server]

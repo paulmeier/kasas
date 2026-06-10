@@ -73,6 +73,12 @@ type Rule struct {
 	Extensions string `json:"extensions"`
 }
 
+type Setting struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 type SyncLog struct {
 	ID          int64          `json:"id"`
 	StartedAt   int64          `json:"started_at"`
