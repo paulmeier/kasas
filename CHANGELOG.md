@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.0](https://github.com/paulmeier/kasas/compare/v2.25.1...v2.26.0) (2026-06-10)
+
+
+### Features
+
+* **settings:** edit kasas settings and source config from the dashboard, persisted permanently ([#101](https://github.com/paulmeier/kasas/issues/101)) ([13facf1](https://github.com/paulmeier/kasas/commit/13facf110fbbc308dd2542afe3d3b62e8b987467))
+
 ## [2.25.1](https://github.com/paulmeier/kasas/compare/v2.25.0...v2.25.1) (2026-06-10)
 
 
