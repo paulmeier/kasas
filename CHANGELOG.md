@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.1](https://github.com/paulmeier/kasas/compare/v2.25.0...v2.25.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* **plugins:** raise marketplace download limits so wasm plugins can install ([#99](https://github.com/paulmeier/kasas/issues/99)) ([6ed81ed](https://github.com/paulmeier/kasas/commit/6ed81ed22b4a7d52f68171f64cd5adae6f78fffe))
+
 ## [2.25.0](https://github.com/paulmeier/kasas/compare/v2.24.1...v2.25.0) (2026-06-09)
 
 
