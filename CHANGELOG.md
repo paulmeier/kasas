@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.26.1](https://github.com/paulmeier/kasas/compare/v2.26.0...v2.26.1) (2026-06-10)
+
+
+### Documentation
+
+* add ADRs for plugin network access and transaction artifacts ([#105](https://github.com/paulmeier/kasas/issues/105)) ([27c7c0a](https://github.com/paulmeier/kasas/commit/27c7c0a4749dcf7d7daaaa51f2fd8f44b511175b))
+* **sources:** make crypto address-watching + Sync now discoverable ([#103](https://github.com/paulmeier/kasas/issues/103)) ([3185d2c](https://github.com/paulmeier/kasas/commit/3185d2c8783703f016957aace8f2fad14800b1fa))
+
 ## [2.26.0](https://github.com/paulmeier/kasas/compare/v2.25.1...v2.26.0) (2026-06-10)
 
 
