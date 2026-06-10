@@ -257,8 +257,11 @@ func (v *sourcesView) renderSource(s sourceStatus) app.UI {
 		app.P().Class("settings-help").Text(sourceArchetypeHelp(s.Archetype)),
 	}
 	if !s.Active {
-		body = append(body, app.P().Class("settings-help").Text(
-			"Not active in this run. Set its configuration below — once the required values are in place, restart kasas to activate it."))
+		msg := "Not active in this run. Set its configuration below — once the required values are in place, restart kasas to activate it."
+		if s.Credentialed {
+			msg += " Once active, add its " + sourceCredentialNoun(s) + " and run a sync from this card."
+		}
+		body = append(body, app.P().Class("settings-help").Text(msg))
 	}
 
 	// Credential and sync controls need a running source instance, so they are
@@ -441,6 +444,19 @@ func sourceTitle(s sourceStatus) string {
 		return s.Title
 	}
 	return s.Type
+}
+
+// sourceCredentialNoun names what an inactive source will let you add once it is
+// activated — "watched addresses" for an address-watching source (Bitcoin,
+// Ethereum), "credentials" otherwise — so the inactive card points at the right
+// next step.
+func sourceCredentialNoun(s sourceStatus) string {
+	for _, c := range s.Credentials {
+		if strings.Contains(strings.ToLower(c.Title), "address") {
+			return "watched addresses"
+		}
+	}
+	return "credentials"
 }
 
 func sourceSyncLabel(syncing bool) string {

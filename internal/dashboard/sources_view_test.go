@@ -99,6 +99,7 @@ func TestSourcesViewRendersConfigAndInactive(t *testing.T) {
 		"Plaid",
 		"Inactive",
 		"restart kasas to activate",
+		"run a sync from this card", // points at the next step once active
 		"Configuration",
 		`id="setting-input-plaid.client_id"`, // editable config input
 		"overridden",                         // override chip
@@ -115,6 +116,43 @@ func TestSourcesViewRendersConfigAndInactive(t *testing.T) {
 	for _, bad := range []string{
 		`id="source-cred-plaid"`, // credential input needs an active source
 		"Sync now",               // so does the sync control
+	} {
+		if strings.Contains(html, bad) {
+			t.Fatalf("inactive source must not render %q\nHTML:\n%s", bad, html)
+		}
+	}
+}
+
+// TestSourcesViewInactiveAddressSourceHint checks that an inactive
+// address-watching source (Bitcoin/Ethereum) tells the user the watched-address
+// form appears here once it is activated, while still hiding the live controls.
+func TestSourcesViewInactiveAddressSourceHint(t *testing.T) {
+	v := &sourcesView{
+		loaded:  true,
+		enabled: true,
+		sources: []sourceStatus{{
+			Type: "bitcoin", Archetype: "pull", Title: "Bitcoin", Active: false,
+			Credentialed: true,
+			Credentials:  []credentialField{{Key: "address", Title: "Bitcoin address"}},
+			Config: []settingItem{
+				{Key: "bitcoin.api_url", Title: "API URL", Kind: "string", Source: "bitcoin"},
+			},
+		}},
+	}
+	html := printUI(t, v.Render())
+
+	for _, want := range []string{
+		"restart kasas to activate",
+		"add its watched addresses", // address-specific phrasing
+		"run a sync from this card",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("inactive address source render missing %q\nHTML:\n%s", want, html)
+		}
+	}
+	for _, bad := range []string{
+		`id="source-cred-bitcoin"`, // address input needs an active source
+		"Sync now",                 // so does the sync control
 	} {
 		if strings.Contains(html, bad) {
 			t.Fatalf("inactive source must not render %q\nHTML:\n%s", bad, html)
