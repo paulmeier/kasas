@@ -271,6 +271,25 @@ Annotate your hook parameters with `KasasTransaction` / `KasasSyncSummary` (don'
 re-`declare` the hook functions — you define them). `console.log/info/warn/error/debug`
 also work and route to kasas's structured logging.
 
+### Bundled dependencies {#bundled-dependencies}
+
+A hand-written plugin is still a single file. But "single file" no longer means
+"no dependencies": per [ADR 0001](../architecture/decisions/0001-plugin-dependency-bundling.md)
+a JS/TS plugin may depend on third-party libraries, provided they are **bundled at
+submission time into the single entrypoint**. The author develops against npm
+packages and ships a pre-bundled `main.js`; the host still sees, hashes, and runs
+exactly one file. esbuild — already the host's loader — is the bundler, so this
+needs no new capability and no change to the build: a bundled `lodash` can sort an
+array but still cannot open a socket, because the sandbox is unchanged.
+
+The host does not bundle at load (it only strips types and downlevels syntax, as
+before); the bundle is produced ahead of time. The
+[community marketplace](#the-community-marketplace) gate verifies a bundled
+submission by **reproducing it from a linked source repository** and comparing
+hashes — so review shifts from "read the artifact" to "the artifact is provably
+this source." WASM plugins already bundle by construction (a compiled module
+statically links its dependencies); Lua remains single-file.
+
 ## Go (WASM) {#go-wasm}
 
 Set `runtime = "wasm"` in the manifest. The entrypoint defaults to `main.wasm` — a
@@ -546,8 +565,9 @@ Installing a plugin by hand means dropping a directory into `plugins.dir`. The
 **marketplace** automates discovery and installation from the
 [kasas-plugins](https://github.com/paulmeier/kasas-plugins) community registry — a
 repository whose submission pipeline gates every plugin (per-language static
-analysis, a single self-contained source file, capability review) before it is
-listed, so a user can install with confidence.
+analysis, a single self-contained entrypoint — hand-written or a
+[verified dependency bundle](#bundled-dependencies), capability review) before it
+is listed, so a user can install with confidence.
 
 kasas reads the registry's published, machine-readable **index** (`index.json`),
 which lists each plugin with its manifest metadata, capability tier, and a
@@ -625,11 +645,15 @@ hand-dropped plugin without it is still removable, just without self-cleanup.
 ## Sandbox & limits (v1)
 
 All three runtimes run with **no filesystem, process, or network access** and a
-single, self-contained file (no `import`/`require`, no `node_modules`) — the Lua VM
-opens only safe libraries, the goja VM exposes none of those globals by default
-(`eval` and the `Function` constructor binding are removed too), and the WASM
-module gets a WASI with no preopens, so every path and socket operation fails by
-construction. Each hook is bounded by `plugins.hook_timeout`.
+single, self-contained entrypoint — the Lua VM opens only safe libraries, the goja
+VM exposes none of those globals by default (`eval` and the `Function` constructor
+binding are removed too), and the WASM module gets a WASI with no preopens, so every
+path and socket operation fails by construction. Each hook is bounded by
+`plugins.hook_timeout`. The "single entrypoint" is about a single *reviewable,
+hashed artifact*, not about forbidding dependencies: a JS/TS plugin may
+[bundle third-party libraries](#bundled-dependencies) into that one file (ADR 0001),
+and the host loads it the same way — there is still no runtime `import`/`require`,
+no `node_modules`, and no module loader inside the sandbox.
 
 WASM is the strongest of the three: isolation is enforced by the WebAssembly
 memory model rather than by withholding APIs, and guest linear memory is **hard
