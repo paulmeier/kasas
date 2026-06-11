@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.1](https://github.com/paulmeier/kasas/compare/v2.27.0...v2.27.1) (2026-06-11)
+
+
+### Documentation
+
+* update egress caps configuration link to point to the correct settings documentation ([#112](https://github.com/paulmeier/kasas/issues/112)) ([f18e718](https://github.com/paulmeier/kasas/commit/f18e7184762180047d81e88d4bfec3f0412eed34))
+
 ## [2.27.0](https://github.com/paulmeier/kasas/compare/v2.26.2...v2.27.0) (2026-06-11)
 
 
