@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.29.0](https://github.com/paulmeier/kasas/compare/v2.28.1...v2.29.0) (2026-06-11)
+
+
+### Features
+
+* add Contributor License Agreement and Commercial License documentation ([#118](https://github.com/paulmeier/kasas/issues/118)) ([479e16d](https://github.com/paulmeier/kasas/commit/479e16d23a69f27b176573a9c604539e6dbe2cb3))
+
+
+### Bug Fixes
+
+* **ci:** store CLA signatures on unprotected branch; exempt bots ([#120](https://github.com/paulmeier/kasas/issues/120)) ([be56952](https://github.com/paulmeier/kasas/commit/be569527c604e21b3364116f9a256edffabb86e6))
+
 ## [2.28.1](https://github.com/paulmeier/kasas/compare/v2.28.0...v2.28.1) (2026-06-11)
 
 
