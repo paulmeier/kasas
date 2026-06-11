@@ -235,7 +235,7 @@ The MCP surface mirrors this: `enable_plugin` takes an optional `net_grants`, an
 
 ### Configuring the egress caps
 
-The ceilings are host config (and runtime-editable [settings](settings.md)), so an
+The ceilings are host config (and runtime-editable [settings](../getting-started/configuration.md)), so an
 operator bounds every plugin's egress regardless of what a manifest asks for:
 
 ```toml
