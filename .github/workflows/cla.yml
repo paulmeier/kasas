@@ -1,7 +1,7 @@
 # CLA Assistant Lite configuration
 # https://github.com/contributor-assistant/github-action
 
-name: 'CLA Assistant'
+name: "CLA Assistant"
 on:
   issue_comment:
     types: [created]
@@ -25,10 +25,10 @@ jobs:
           # Personal access token with repo scope — add to repo secrets
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         with:
-          path-to-signatures: 'signatures/cla.json'
-          path-to-document: 'https://github.com/paulmeier/kasas/blob/main/CLA.md'
-          branch: 'main'
-          allowlist: paulmeier  # maintainer is exempt
+          path-to-signatures: "signatures/cla.json"
+          path-to-document: "https://github.com/paulmeier/kasas/blob/main/CLA.md"
+          branch: "main"
+          allowlist: paulmeier # maintainer is exempt
 
           # Customize the bot message
           signed-commit-message: |

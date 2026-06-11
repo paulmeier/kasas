@@ -12,25 +12,25 @@ A **commercial license** is available for organizations that want to:
 
 ## Who needs a commercial license?
 
-| Use case | License needed |
-|---|---|
-| Personal self-hosting | MIT (free) |
-| Open-source project | MIT (free) |
-| Internal business use (no redistribution) | MIT (free) |
-| Hosted SaaS offering based on kasas | Commercial |
-| Commercial product embedding kasas | Commercial |
-| White-labeled derivative product | Commercial |
+| Use case                                  | License needed |
+| ----------------------------------------- | -------------- |
+| Personal self-hosting                     | MIT (free)     |
+| Open-source project                       | MIT (free)     |
+| Internal business use (no redistribution) | MIT (free)     |
+| Hosted SaaS offering based on kasas       | Commercial     |
+| Commercial product embedding kasas        | Commercial     |
+| White-labeled derivative product          | Commercial     |
 
 ## Pricing
 
 Commercial licensing is not yet formally established. If you are interested,
 reach out early — early commercial adopters will receive favorable terms.
 
-📧 **Contact:** [your-email@example.com]
-🌐 **Website:** [https://kasas.dev] *(placeholder)*
+📧 **Contact:** [dangers_flyer.3p@icloud.com]
+🌐 **Website:** [https://paulmeier.github.io/kasas/]
 
 ---
 
-*This file is a placeholder. Formal commercial license terms will be published
+_This file is a placeholder. Formal commercial license terms will be published
 as kasas grows. The existence of this file signals intent — if you are building
-something commercial on top of kasas, please get in touch before shipping.*
+something commercial on top of kasas, please get in touch before shipping._
