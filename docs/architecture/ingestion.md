@@ -231,7 +231,8 @@ To be precise about the line between *designed* and *shipping*:
   namespacing and per-source credential scoping is still to come.
 - 🚧 **Plugin-provided sources** ride the *same* contract in the future: a
   [plugin](../features/plugins.md) becomes a *producer* that returns an
-  `ImportBatch`, never a direct writer.
+  `ImportBatch`, never a direct writer — the `source:provide` capability designed
+  in [ADR 0005](decisions/0005-plugin-originated-transactions.md).
 
 ## Adding a source
 

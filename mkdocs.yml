@@ -117,6 +117,7 @@ nav:
           - 0002 · Plugin network capability: architecture/decisions/0002-plugin-network-capability.md
           - 0003 · Marketplace trust tiers: architecture/decisions/0003-marketplace-trust-tiers.md
           - 0004 · Document & artifact association: architecture/decisions/0004-transaction-document-artifacts.md
+          - 0005 · Plugin-originated transactions: architecture/decisions/0005-plugin-originated-transactions.md
   - Features:
       - Sync Pipeline: features/sync.md
       - CSV File Import: features/csv-import.md

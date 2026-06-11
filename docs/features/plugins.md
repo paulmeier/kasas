@@ -212,7 +212,7 @@ Every call goes through the capability-checked host facade, then a per-plugin
 ### Enabling collects the private-host grants
 
 Like every plugin, a `net:fetch` plugin is
-[installed disabled and enabled only by an admin](#enabling-is-opt-in--admin-only).
+[installed disabled and enabled only by an admin](#enabling-is-opt-in-admin-only).
 Enabling additionally surfaces its declared egress list; for any host on your
 private network/LAN you tick "allow private/LAN access", and that per-plugin,
 per-host grant is recorded next to the plugin's config (the `net_grants` column)
@@ -751,7 +751,7 @@ from the plugin's declared capabilities (never self-assigned). The Marketplace p
 
 The tier is a *communication and review* construct layered on the capability checks
 the host already enforces — it changes how loudly the risk is shown and how hard the
-gate looks, not the [opt-in, admin-only](#enabling-is-opt-in--admin-only) posture or
+gate looks, not the [opt-in, admin-only](#enabling-is-opt-in-admin-only) posture or
 the per-capability enforcement in the [host facade](#the-host-api). `net:fetch` is the
 capability that distinguishes "labels my transactions" from "reads everything and can
 POST it out," so it gets its own tier rather than hiding inside "write."

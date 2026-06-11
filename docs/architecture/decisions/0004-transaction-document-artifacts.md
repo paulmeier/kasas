@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-06-10
-- **Related:** [Schema Extensions](../../features/schema-extensions.md), [Transaction Relationships](../../features/transaction-relationships.md), [Philosophy](../philosophy.md), [ADR 0002](0002-plugin-network-capability.md)
+- **Related:** [Schema Extensions](../../features/schema-extensions.md), [Transaction Relationships](../../features/transaction-relationships.md), [Philosophy](../philosophy.md), [ADR 0002](0002-plugin-network-capability.md), [ADR 0005](0005-plugin-originated-transactions.md)
 
 ## Context
 
