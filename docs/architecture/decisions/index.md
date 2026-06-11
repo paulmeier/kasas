@@ -25,8 +25,12 @@ history, its status updated to point forward.
 | [0002](0002-plugin-network-capability.md) | Host-mediated plugin network access (`net:fetch`) | Accepted |
 | [0003](0003-marketplace-trust-tiers.md) | Marketplace trust tiers | Accepted |
 | [0004](0004-transaction-document-artifacts.md) | Document & artifact association for transactions | Proposed |
+| [0005](0005-plugin-originated-transactions.md) | Plugin-originated transactions (`source:provide`) | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
 use case that motivated the arc — associating a receipt with a transaction —
 and shows how the new seams (plus the existing ones) compose to serve it.
+ADR 0005 takes the last step the arc deliberately deferred — letting a plugin
+*originate* a transaction — and resolves it through the existing ingestion seam
+(a plugin produces a batch; the engine writes it) rather than a raw write.
