@@ -153,3 +153,29 @@ func TestPluginsListWhenDisabled(t *testing.T) {
 	assert.False(t, list.Enabled)
 	assert.Empty(t, list.Plugins)
 }
+
+// TestMarketplaceBrowseWhenDisabled checks that with no plugin manager wired, the
+// marketplace catalog endpoint responds 200 {available:false} rather than falling
+// through to /plugins/{id} (which 400s on the non-numeric "registry"). Before the
+// read route was registered unconditionally, the dashboard's Marketplace page
+// surfaced that 400 as an error instead of a clean "unavailable" state.
+func TestMarketplaceBrowseWhenDisabled(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	testutil.Seed(t, store)
+	s := api.New(api.Options{
+		Store:   store,
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Version: "test",
+		// No PluginManager: the plugin system is disabled.
+	})
+	srv := httptest.NewServer(s.Router())
+	t.Cleanup(srv.Close)
+
+	var cat struct {
+		Available bool                    `json:"available"`
+		Plugins   []api.RegistryPluginDTO `json:"plugins"`
+	}
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/plugins/registry", &cat))
+	assert.False(t, cat.Available)
+	assert.Empty(t, cat.Plugins)
+}

@@ -236,9 +236,17 @@ func TestLoadErrors(t *testing.T) {
 		assert.Contains(t, err.Error(), "log.format")
 	})
 
-	t.Run("missing config file", func(t *testing.T) {
-		_, err := Load("/no/such/config.toml")
+	// A missing config file is no longer fatal: Load seeds the annotated example at a
+	// writable path (TestLoadSeedsMissingConfigFile) and otherwise falls back to
+	// defaults + environment (TestLoadFallsBackWhenConfigUnseedable). Both live in
+	// example_test.go alongside the seeding logic they exercise.
+
+	t.Run("malformed config file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		require.NoError(t, os.WriteFile(path, []byte("this is = not [valid toml"), 0o644))
+		_, err := Load(path)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read config")
 	})
 }
 

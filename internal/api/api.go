@@ -234,6 +234,16 @@ func (s *Server) Router() http.Handler {
 				// mutations and live in the write tier below.
 				r.Get("/plugins/pages", s.handleListPluginPages)
 				r.Get("/plugins/pages/{name}", s.handleRenderPluginPage)
+				// Marketplace catalog browse is a read, and like /plugins it must be
+				// registered even when the plugin system is disabled (pluginMgr is nil)
+				// so the dashboard's Marketplace page gets a clean {available:false}
+				// response. If it were gated on the manager, GET /plugins/registry would
+				// fall through to /plugins/{id} below and 400 on the non-numeric
+				// "registry" — surfacing as a scary error instead of the empty state. The
+				// handler is nil-safe (Catalog returns ErrDisabled on a nil manager).
+				// Installing a plugin downloads and registers third-party code, so it
+				// stays admin-only in the admin tier below.
+				r.Get("/plugins/registry", s.handleListPluginRegistry)
 				r.Get("/plugins/{id}", s.handleGetPlugin)
 
 				// Canonical event stream (poll/cursor). The live SSE tail is the
@@ -357,12 +367,11 @@ func (s *Server) Router() http.Handler {
 					// files and DB row. Destructive + runs code, so admin-only.
 					r.Delete("/plugins/{id}", s.handleUninstallPlugin)
 
-					// Community marketplace: browse the registry catalog and install
-					// (download + integrity-verify) a plugin into plugins.dir. Installing
-					// third-party code is admin-only; the installed plugin starts disabled.
-					// Static /plugins/registry is registered before /plugins/{id}/* above,
-					// but chi prefers static segments regardless.
-					r.Get("/plugins/registry", s.handleListPluginRegistry)
+					// Community marketplace install (download + integrity-verify a plugin
+					// into plugins.dir): runs third-party code, so it is admin-only and the
+					// installed plugin starts disabled. Browsing the catalog (GET
+					// /plugins/registry) is a read, registered in the read tier above so it
+					// stays reachable when the plugin system is disabled.
 					r.Post("/plugins/registry/{name}/install", s.handleInstallPlugin)
 				}
 

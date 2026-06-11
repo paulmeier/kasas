@@ -1,0 +1,307 @@
+# kasas configuration.
+#
+# Every key below can also be set via an environment variable: uppercase the
+# key, prefix it with KASAS_, and join sections with underscores. For example
+# [server].addr  ->  KASAS_SERVER_ADDR. Environment variables win over the file.
+#
+# Most keys are ALSO editable at runtime from the dashboard Settings/Sources
+# pages (or PUT /api/v1/settings/{key}, or the set_setting MCP tool). A setting
+# changed there is persisted and wins over this file and the environment until
+# it is reset. Only [server].addr, [database], and the secret store ([secrets]/
+# [vault]) stay file/env-only — kasas needs them before it can read its stored
+# settings.
+#
+# Pass this file with:  kasas -config /etc/kasas/config.toml
+
+[server]
+# Address the HTTP API (and MCP server) listens on.
+addr = ":8080"
+
+[log]
+level  = "info"  # debug | info | warn | error
+format = "json"  # json | text
+
+[database]
+# Storage backend: "sqlite" (default, zero-dependency) or "postgres".
+driver = "sqlite"
+# SQLite: path to the database file. The parent directory is created if needed.
+path = "/data/kasas.db"
+# Postgres: connection string (used only when driver = "postgres").
+# dsn = "postgres://user:pass@host:5432/kasas?sslmode=disable"
+
+[simplefin]
+# Provide ONE of these on first run. You can also set the credential at runtime
+# from the dashboard's Settings page (no restart) instead of using these keys.
+#
+# setup_token: the one-time base64 token from your SimpleFIN bridge. It is
+# claimed for an access URL on first sync, and the access URL is persisted to
+# the secret store (so the token is consumed only once).
+setup_token = ""
+#
+# access_url: a previously claimed access URL with embedded credentials, e.g.
+# "https://user:pass@bridge.simplefin.org/simplefin". Stored to the secret
+# store on first use.
+access_url = ""
+
+[csv]
+# CSV file-import source: ingest transactions from CSV files in a folder — a local
+# directory or a Google Drive folder — alongside SimpleFIN. Add one [[csv.folders]]
+# entry per account; the source starts only when at least one folder is configured.
+# Files are re-scanned each sync; rows get a content-hash id so re-imports dedup.
+# Full guide (column mapping + Google OAuth): docs/features/csv-import.md
+#
+# Google Drive OAuth app credentials (needed only for "gdrive" folders). Create an
+# OAuth 2.0 Client ID (Web application) in Google Cloud, enable the Drive API, and
+# register the redirect URL below. These may also come from the environment
+# (KASAS_CSV_GDRIVE_CLIENT_ID, KASAS_CSV_GDRIVE_CLIENT_SECRET).
+gdrive_client_id     = ""
+gdrive_client_secret = ""
+# The exact redirect URI registered with Google, pointing at this instance:
+gdrive_redirect_url  = ""  # e.g. "https://your-kasas-host/api/v1/sources/csv/oauth/callback"
+
+# A local-folder example. Each row in the folder belongs to `account`.
+# [[csv.folders]]
+# name     = "Chase Checking"        # display name + basis for the account id
+# backend  = "local"                 # "local" (default) or "gdrive"
+# path     = "/data/imports/chase"   # directory to scan (local backend)
+# account  = "Chase Checking"        # the account these rows belong to
+# org      = "Chase"                 # institution name (optional)
+# currency = "USD"                   # ISO code (optional; defaults to USD)
+#
+# Column mapping is optional — omitted columns are auto-detected from the header.
+# Give a column by header name or 0-based index. Use a single signed amount_column,
+# OR a debit_column/credit_column pair. Amounts assume "." as the decimal separator.
+#   [csv.folders.mapping]
+#   date_column        = "Transaction Date"
+#   date_format        = "01/02/2006"   # Go layout; omit to try common formats
+#   amount_column      = "Amount"
+#   description_column = "Description"
+
+# A Google Drive example (connect it from the dashboard Sources page, or paste a
+# refresh token, after setting the gdrive_* keys above).
+# [[csv.folders]]
+# name      = "Amex (Drive)"
+# backend   = "gdrive"
+# folder_id = "1AbCdEf..."            # the Drive folder id (from its URL)
+# account   = "Amex Gold"
+# currency  = "USD"
+
+[teller]
+# Teller (https://teller.io) pull source, alongside SimpleFIN. Each access token is
+# ONE linked bank; the source fans out over all of them. It starts only when an
+# access token or a client certificate is configured below.
+# Full guide: docs/features/teller.md
+#
+# access_token: a single per-enrollment token from Teller Connect (one linked bank).
+# The env-friendly form (KASAS_TELLER_ACCESS_TOKEN).
+access_token = ""
+#
+# access_tokens: several tokens, one per bank. Config tokens and tokens added at
+# runtime from the dashboard's Sources page (no restart) are unioned/deduplicated.
+# access_tokens = ["token_chase_…", "token_amex_…"]
+#
+# certificate / private_key: filesystem paths to the mutual-TLS client certificate
+# Teller requires for its `development` and `production` environments (download it
+# from the Teller dashboard). Leave both empty for the `sandbox` environment, which
+# needs no certificate. Both must be set together.
+certificate = ""  # e.g. "/data/teller/certificate.pem"
+private_key = ""  # e.g. "/data/teller/private_key.pem"
+
+[plaid]
+# Plaid (https://plaid.com) pull source, alongside SimpleFIN. Each access token is
+# ONE linked bank (Item); the source fans out over all of them. It starts only when
+# BOTH client_id and secret are set; it is then idle until an access token is added.
+# Full guide: docs/features/plaid.md
+#
+# client_id / secret: your app-level Plaid credentials from the Plaid Dashboard (the
+# secret is per-environment). Env-friendly: KASAS_PLAID_CLIENT_ID, KASAS_PLAID_SECRET.
+client_id = ""
+secret    = ""
+#
+# environment: which Plaid host to use — "sandbox" (default), "development", or
+# "production". The secret above must match the chosen environment.
+environment = "sandbox"
+#
+# country_codes: ISO-3166-1 alpha-2 codes used to resolve institution names. Optional;
+# defaults to US.
+# country_codes = ["US"]
+#
+# access_token: a single per-Item token from Plaid Link (one linked bank). The
+# env-friendly form (KASAS_PLAID_ACCESS_TOKEN). Obtain it by exchanging a Link
+# public_token via Plaid's /item/public_token/exchange.
+access_token = ""
+#
+# access_tokens: several tokens, one per bank. Config tokens and tokens added at
+# runtime from the dashboard's Sources page (no restart) are unioned/deduplicated.
+# access_tokens = ["access-production-…", "access-production-…"]
+
+[bitcoin]
+# Bitcoin address-watching pull source, alongside the bank sources. No API key:
+# record each on-chain transaction touching a watched address as a ledger entry
+# (received +, sent −). It starts when an address or a custom api_url is set; add
+# more addresses at runtime from the dashboard's Sources page.
+# Full guide: docs/features/bitcoin.md
+#
+# address: a single address to watch — legacy (1…), P2SH (3…), or bech32 (bc1…).
+# The env-friendly form (KASAS_BITCOIN_ADDRESS).
+address = ""
+#
+# addresses: several addresses. Config and runtime-added addresses are unioned/deduped.
+# addresses = ["bc1q…", "1A1z…"]
+#
+# api_url: a mempool.space-compatible (Esplora) API base URL. Defaults to
+# https://mempool.space/api; point it at your own node to self-host.
+# api_url = "https://mempool.mynode.lan/api"
+
+[ethereum]
+# Ethereum address-watching pull source via Etherscan, alongside the bank sources.
+# Records each transaction's net ETH change to a watched address (received +, sent −,
+# gas included). It starts only when api_key is set; then idle until an address is added.
+# Full guide: docs/features/ethereum.md
+#
+# api_key: a free Etherscan API key (https://etherscan.io/myapikey), shared across
+# every watched address. Required to enable. Env-friendly: KASAS_ETHEREUM_API_KEY.
+api_key = ""
+#
+# chain_id: the EVM chain via Etherscan V2 (default 1 = Ethereum mainnet; e.g. 8453 =
+# Base, 42161 = Arbitrum — one key serves all).
+chain_id = 1
+#
+# address / addresses: the address(es) to watch (0x…). The singular is env-friendly
+# (KASAS_ETHEREUM_ADDRESS); config and runtime-added addresses are unioned/deduped.
+address = ""
+# addresses = ["0x…", "0x…"]
+#
+# api_url: Etherscan V2 base URL (default https://api.etherscan.io/v2/api). A Blockscout
+# instance's /api endpoint also works for self-hosting.
+# api_url = "https://eth.blockscout.com/api"
+
+[sync]
+enabled       = true
+interval      = "6h"  # any Go duration: "30m", "1h", "12h"
+lookback_days = 90    # how far back to fetch transactions; 0 = all available
+run_on_start  = true  # run one sync immediately at startup
+
+[secrets]
+# Local JSON file used to persist the SimpleFIN access URL when Vault is
+# disabled. Written with 0600 permissions.
+file = "/data/secrets.json"
+
+[vault]
+# Optional: store the SimpleFIN access URL in HashiCorp Vault (KV v2) instead of
+# the local secrets file.
+enabled        = false
+address        = "http://127.0.0.1:8200"  # falls back to VAULT_ADDR
+token          = ""                        # falls back to VAULT_TOKEN
+mount          = "secret"
+path           = "kasas"
+access_url_key = "simplefin_access_url"
+
+[mcp]
+# Mount the built-in Model Context Protocol server at /mcp.
+enabled = true
+
+[dashboard]
+# Serve the read-only web dashboard at the root path (/).
+enabled = true
+# Access token. When set, the REST API, the dashboard, and the MCP-over-HTTP
+# server require it: clients send "Authorization: Bearer <token>". A token set
+# here (or via KASAS_DASHBOARD_TOKEN) is authoritative. Leave it empty to either
+# run unauthenticated (kasas logs a warning) or generate/manage a token from the
+# dashboard's Settings page, which stores it alongside the SimpleFIN credential
+# in the secret store. /healthz, /readyz, and /metrics are never gated.
+token = ""
+
+[update]
+# Periodically (once a day, while `serve` runs) check GitHub for a newer release.
+# When on, kasas logs a notice and the dashboard shows an "update available"
+# banner. The check itself never modifies the binary. Disable for Docker
+# deployments (update by pulling a new image) or to suppress the outbound check.
+check = true
+# Allow the dashboard banner's "Update & restart" button (and POST /api/v1/update)
+# to download, verify, install, and re-exec a new release in place. The API has
+# no auth, so this lets anyone who can reach it replace the running binary — keep
+# kasas on a trusted network (e.g. Tailscale). Set false to keep the informational
+# banner but require the `kasas self-update` CLI to actually upgrade.
+allow_apply = true
+# GitHub repository (owner/name) to check for releases and self-update assets.
+repository = "paulmeier/kasas"
+
+[events]
+# Record a canonical, append-only event stream for every meaningful change
+# (transaction.created/updated, account.created/updated, label.applied/removed,
+# rule.created/updated/deleted/executed, sync.completed). Consumers read it via
+# GET /api/v1/events (cursor poll), the live SSE tail at /api/v1/events/stream,
+# or the list_events MCP tool — to power sync engines, notifications,
+# automations, and CQRS / event-sourcing. Disable to skip recording entirely.
+enabled = true
+# Prune events older than this many days, on a periodic schedule. 0 (the default)
+# keeps every event forever so the stream stays fully replayable from sequence 0;
+# set a positive value to cap the table's growth (a consumer offline longer than
+# the window then loses the pruned history).
+retention_days = 0
+# Recording the immutable transaction history (a full snapshot per change, at
+# GET /api/v1/transactions/{id}/history and the get_transaction_history MCP tool)
+# rides on `enabled` above, but its retention is independent of retention_days:
+# history is meant to be kept far longer than the noisy event log. 0 (the default)
+# keeps every transaction's full history forever; set a positive value to prune
+# snapshots older than that many days on the same schedule.
+history_retention_days = 0
+
+[webhooks]
+# Push the event stream outward: kasas POSTs each matching event to the HTTP
+# endpoints you register (via the dashboard Webhooks page, POST /api/v1/webhooks, or
+# the create_webhook MCP tool), HMAC-signed (X-Kasas-Signature). This turns kasas
+# into an integration hub — budgeting, accounting, tax, fraud detection, and
+# notification apps can react to changes without polling. Effective only when
+# [events].enabled is also true (webhooks ride the event bus).
+enabled = true
+# Per-attempt HTTP timeout for a delivery.
+timeout = "10s"
+# How many times to attempt a delivery (with exponential backoff) before giving up.
+# Delivery is best-effort: a consumer that misses one (its endpoint was down, or
+# kasas restarted) reconciles by replaying from its cursor via GET /api/v1/events.
+max_attempts = 5
+
+[plugins]
+# Plugin runtime: kasas loads plugins from `dir` and runs them in a sandboxed
+# language VM (Lua in v1, via gopher-lua), reacting to committed events off the bus
+# — the async counterpart to rules and webhooks. A plugin declares the lifecycle
+# hooks it implements (OnTransactionCreate, OnTransactionUpdate, OnSyncComplete) and
+# the capabilities it needs (transactions:read, labels:write, extensions:write); a
+# capability-checked host API (kasas.apply_labels, kasas.search, ...) is the only way
+# it can touch your data. Effective only when [events].enabled is also true.
+#
+# Disabled by default: a plugin is third-party code. Enabling the subsystem here
+# only makes plugins discoverable; each plugin must still be enabled individually
+# (dashboard Plugins page, POST /api/v1/plugins/{id}/enable, or the enable_plugin
+# MCP tool) — and enabling one runs its code, so that action is admin-only.
+enabled = false
+# Directory scanned for plugin subdirectories (each a plugin.toml plus its source).
+# Per-plugin configuration overrides live HERE too, as a sibling TOML per plugin
+# (`<dir>/<name>.config.toml`, keys validated against the plugin manifest's
+# [config] defaults). Edit one by hand and reload the plugin to apply, or let the
+# plugin's dashboard page save settings — a dashboard save overwrites the same
+# file, so it is always the single source of truth.
+dir = "/data/plugins"
+# Wall-clock limit for a single hook invocation (a runaway pure-Lua loop is
+# interrupted at this deadline).
+hook_timeout = "5s"
+# Per-plugin job-queue depth. A slow plugin drops jobs rather than stalling the bus;
+# consumers reconcile any gap via the /events cursor.
+queue_size = 256
+
+[plugins.registry]
+# Community plugin marketplace: browse a published registry index and install
+# plugins into `dir` from the dashboard (Marketplace page), the admin REST endpoints
+# (GET /api/v1/plugins/registry, POST /api/v1/plugins/registry/{name}/install), or
+# the browse_plugin_registry / install_plugin MCP tools. Effective only when
+# [plugins].enabled is true. Installing downloads and integrity-verifies (per-file
+# SHA-256) the plugin, then registers it DISABLED — enabling it is still a separate,
+# admin-only action, so turning the marketplace on never runs third-party code by
+# itself.
+enabled = true
+# The registry index.json to fetch. Defaults to the official kasas-plugins registry.
+url = "https://raw.githubusercontent.com/paulmeier/kasas-plugins/main/registry/index.json"
+# Git ref used to build raw file-download URLs from the index's repository field.
+ref = "main"

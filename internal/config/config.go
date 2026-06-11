@@ -343,6 +343,13 @@ func Load(path string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
+	// A configured-but-missing file is seeded with the annotated example so a fresh
+	// deployment gets a real, editable config.toml at a known path (the Docker image
+	// sets KASAS_CONFIG=/data/config.toml). ensureConfigFile returns "" if it cannot
+	// create the file, in which case defaults + environment are used.
+	if path != "" {
+		path = ensureConfigFile(path)
+	}
 	if path != "" {
 		v.SetConfigFile(path)
 		if err := v.ReadInConfig(); err != nil {

@@ -52,7 +52,12 @@ USER 65532:65532
 EXPOSE 8080
 VOLUME ["/data"]
 
-ENV KASAS_DATABASE_PATH=/data/kasas.db \
+# KASAS_CONFIG points at a TOML config file in the persisted /data volume. kasas
+# seeds it with the annotated example on first run if it is missing, so there is a
+# real, editable config.toml at a known location (Unraid: appdata/kasas/config.toml).
+# Environment variables still win over the file, so this never changes behaviour.
+ENV KASAS_CONFIG=/data/config.toml \
+    KASAS_DATABASE_PATH=/data/kasas.db \
     KASAS_SECRETS_FILE=/data/secrets.json \
     KASAS_SERVER_ADDR=:8080
 
