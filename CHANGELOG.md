@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.1](https://github.com/paulmeier/kasas/compare/v2.28.0...v2.28.1) (2026-06-11)
+
+
+### Documentation
+
+* add ADR 0005 — plugin-originated transactions (source:provide) ([#116](https://github.com/paulmeier/kasas/issues/116)) ([18d6463](https://github.com/paulmeier/kasas/commit/18d6463a139e426b88a9c0f70adb0308e3605c9c))
+
 ## [2.28.0](https://github.com/paulmeier/kasas/compare/v2.27.1...v2.28.0) (2026-06-11)
 
 
