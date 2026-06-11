@@ -710,18 +710,18 @@ analysis, a single self-contained entrypoint — hand-written or a
 is listed, so a user can install with confidence.
 
 kasas reads the registry's published, machine-readable **index** (`index.json`),
-which lists each plugin with its manifest metadata, capability tier, and a
-**per-file SHA-256** plus an aggregate content hash. Installing fetches those files,
-**verifies every hash before writing a byte**, and writes the plugin into
-`plugins.dir` — so what lands on disk is exactly what was reviewed in the registry,
-independent of the transport.
+which lists each plugin with its manifest metadata, capability tier, **trust tier**
+(see below), and a **per-file SHA-256** plus an aggregate content hash. Installing
+fetches those files, **verifies every hash before writing a byte**, and writes the
+plugin into `plugins.dir` — so what lands on disk is exactly what was reviewed in the
+registry, independent of the transport.
 
 ```sh
 # Browse the catalog (admin/dashboard token).
 curl -s -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
   http://localhost:8080/api/v1/plugins/registry
 # -> {"available":true,"plugins":[{"name":"coffee-budget","capability_tier":"write",
-#     "installed":false,"update_available":false,...}]}
+#     "tier":"verified","installed":false,"update_available":false,...}]}
 
 # Install (downloads + integrity-verifies, then registers it DISABLED).
 curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
@@ -734,6 +734,27 @@ registered **disabled**, exactly like one dropped in by hand — enabling it (wh
 loads and runs it) stays the separate, deliberate action described above. An install
 over an existing plugin (an update) atomically swaps the files and reloads it only if
 it was already running.
+
+### Trust tiers {#trust-tiers}
+
+Every listed plugin carries an explicit **trust tier**
+([ADR 0003](../architecture/decisions/0003-marketplace-trust-tiers.md)) — a legible,
+escalating signal of how far you are extending trust, computed by the registry gate
+from the plugin's declared capabilities (never self-assigned). The Marketplace page
+**groups and badges** plugins by it:
+
+| Tier | What it may do | What you see |
+| --- | --- | --- |
+| **Verified** | reads, labels, extensions, a dashboard page — capabilities the gate can prove **sealed** (no network, no disk) | The default. "Sealed: cannot reach the network or disk." Auto-listed once the gate's checks pass. |
+| **Connected** | the above **+ [`net:fetch`](#network-access-netfetch)** | The exact hosts it may reach are shown before install; a registry maintainer reviewed that list, and enabling collects any private/LAN grants. |
+| **Unlisted** | a capability outside the reviewed set | Never auto-listed — the registry refuses to publish it, so it appears only if you sideload it by hand. |
+
+The tier is a *communication and review* construct layered on the capability checks
+the host already enforces — it changes how loudly the risk is shown and how hard the
+gate looks, not the [opt-in, admin-only](#enabling-is-opt-in--admin-only) posture or
+the per-capability enforcement in the [host facade](#the-host-api). `net:fetch` is the
+capability that distinguishes "labels my transactions" from "reads everything and can
+POST it out," so it gets its own tier rather than hiding inside "write."
 
 Configure it under `[plugins.registry]` (effective only when `plugins.enabled` is
 true; on by default, pointing at the official registry):
@@ -749,7 +770,7 @@ ref     = "main"   # used to build raw file-download URLs
 | --- | --- |
 | REST | admin `GET /api/v1/plugins/registry`, `POST /api/v1/plugins/registry/{name}/install` |
 | MCP | `browse_plugin_registry`, `install_plugin` |
-| Dashboard | The **Marketplace** page: browse, capability-tier warning, one-click install |
+| Dashboard | The **Marketplace** page: browse grouped by [trust tier](#trust-tiers), capability-tier warning, Connected-tier egress hosts, one-click install |
 
 ## Uninstalling & the cleanup hook
 

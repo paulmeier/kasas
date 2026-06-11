@@ -135,3 +135,58 @@ func TestMarketplacePageBadge(t *testing.T) {
 		t.Fatalf("plain plugin must not carry the badge\nHTML:\n%s", html)
 	}
 }
+
+// TestTrustTierOfDefaults checks an absent tier (an older index predating ADR
+// 0003) is treated as verified, and known tiers pass through.
+func TestTrustTierOfDefaults(t *testing.T) {
+	if got := trustTierOf(registryPlugin{Tier: ""}); got != tierVerified {
+		t.Fatalf("absent tier should default to verified, got %q", got)
+	}
+	if got := trustTierOf(registryPlugin{Tier: "connected"}); got != tierConnected {
+		t.Fatalf("connected tier should pass through, got %q", got)
+	}
+	if got := trustTierOf(registryPlugin{Tier: "bogus"}); got != tierVerified {
+		t.Fatalf("an unknown tier should default to verified, got %q", got)
+	}
+}
+
+// TestMarketplaceTierGrouping checks the catalog renders one labelled section per
+// trust tier (ADR 0003), with the escalating badges and the per-tier risk note.
+func TestMarketplaceTierGrouping(t *testing.T) {
+	v := &marketplaceView{available: true, plugins: []registryPlugin{
+		{Name: "labeler", Runtime: "lua", Tier: "verified", Capabilities: []string{"labels:write"}},
+		{Name: "enricher", Runtime: "lua", Tier: "connected", Capabilities: []string{"transactions:read", "net:fetch"},
+			Net: &registryNet{Allow: []string{"api.merchant.example.com"}}},
+	}}
+
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderTierGroups())
+	html := buf.String()
+	for _, want := range []string{">verified<", ">connected<", "cannot reach the network", "Can reach the network"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("expected %q in the grouped catalog\nHTML:\n%s", want, html)
+		}
+	}
+}
+
+// TestMarketplaceConnectedHostsShown checks a Connected plugin surfaces its exact
+// egress hosts in its row, and a Verified plugin shows none.
+func TestMarketplaceConnectedHostsShown(t *testing.T) {
+	v := &marketplaceView{available: true}
+	connected := registryPlugin{Name: "enricher", Runtime: "lua", Tier: "connected",
+		Capabilities: []string{"net:fetch"}, Net: &registryNet{Allow: []string{"paperless.lan"}}}
+	verified := registryPlugin{Name: "labeler", Runtime: "lua", Tier: "verified",
+		Capabilities: []string{"labels:write"}}
+
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderRow(connected))
+	if html := buf.String(); !strings.Contains(html, "paperless.lan") || !strings.Contains(html, "net-host") {
+		t.Fatalf("expected the connected plugin's egress host badge\nHTML:\n%s", html)
+	}
+
+	buf.Reset()
+	app.PrintHTML(&buf, v.renderRow(verified))
+	if html := buf.String(); strings.Contains(html, "net-host") {
+		t.Fatalf("a verified plugin must show no egress hosts\nHTML:\n%s", html)
+	}
+}

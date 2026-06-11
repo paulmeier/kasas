@@ -1,8 +1,16 @@
 # ADR 0003 — Marketplace trust tiers
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-10
 - **Related:** [Plugins](../../features/plugins.md), [ADR 0002](0002-plugin-network-capability.md), [kasas-plugins SECURITY.md](https://github.com/paulmeier/kasas-plugins/blob/main/SECURITY.md)
+- **Implemented:** the registry gate computes an explicit trust tier
+  (`verified` | `connected` | `unlisted`) from declared capabilities and records it
+  (plus a Connected plugin's reviewed egress hosts) in `index.json`; the gate accepts
+  `net:fetch` + a `[net]` block (Connected), draws a review finding naming the egress
+  hosts, and refuses to list an Unlisted capability surface; the host carries `tier`
+  and `net` through the catalog (REST + MCP), and the dashboard **Marketplace** page
+  groups and badges by tier and surfaces a Connected plugin's exact hosts at install.
+  See [Plugins → Trust tiers](../../features/plugins.md#trust-tiers).
 
 ## Context
 

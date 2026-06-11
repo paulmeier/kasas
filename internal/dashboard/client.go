@@ -1039,12 +1039,24 @@ type registryPlugin struct {
 	Hooks          []string `json:"hooks"`
 	Capabilities   []string `json:"capabilities"`
 	CapabilityTier string   `json:"capability_tier"`
+	// Tier is the explicit trust tier (ADR 0003): "verified" | "connected". The
+	// Marketplace page groups and badges by it.
+	Tier string `json:"tier"`
 	// UI is present when the plugin adds a dashboard page (mirrors
 	// api.RegistryUIDTO), shown as a badge in the catalog.
-	UI               *pluginPage `json:"ui"`
-	Installed        bool        `json:"installed"`
-	InstalledVersion string      `json:"installed_version"`
-	UpdateAvailable  bool        `json:"update_available"`
+	UI *pluginPage `json:"ui"`
+	// Net is present for a Connected plugin: the hosts it may reach (mirrors
+	// api.RegistryNetDTO), shown beneath its capabilities before install.
+	Net              *registryNet `json:"net"`
+	Installed        bool         `json:"installed"`
+	InstalledVersion string       `json:"installed_version"`
+	UpdateAvailable  bool         `json:"update_available"`
+}
+
+// registryNet mirrors api.RegistryNetDTO: a Connected plugin's declared egress
+// allowlist.
+type registryNet struct {
+	Allow []string `json:"allow"`
 }
 
 // listPluginRegistry returns the community catalog and whether the registry is
