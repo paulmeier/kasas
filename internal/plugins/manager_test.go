@@ -3,9 +3,13 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -87,6 +91,96 @@ func TestManagerReconcileRegistersDisabled(t *testing.T) {
 	assert.ElementsMatch(t, []Capability{CapLabelsWrite}, s.Granted, "grant is seeded from the manifest")
 }
 
+func TestManagerNetFetchGrantsAndStatus(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "importer",
+		`name="importer"`+"\n"+`runtime="lua"`+"\n"+`hooks=["OnTransactionCreate"]`+"\n"+
+			`capabilities=["net:fetch"]`+"\n"+`[net]`+"\n"+`allow=["paperless.lan","api.example.com"]`,
+		`function OnTransactionCreate(txn) end`)
+
+	mgr := NewManager(Options{
+		Store: testutil.NewStore(t), Bus: events.NewBus(), Dir: dir,
+		Runtimes: map[string]Runtime{RuntimeLua: NewLuaRuntime()}, Logger: testLogger(),
+	})
+	t.Cleanup(mgr.shutdown)
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	s, ok := findByName(statuses, "importer")
+	require.True(t, ok)
+	assert.ElementsMatch(t, []string{"paperless.lan", "api.example.com"}, s.NetAllow, "declared allowlist is surfaced")
+	assert.Empty(t, s.NetGrants)
+
+	// Granting a host that the manifest does NOT declare is refused.
+	_, err = mgr.SetEnabled(context.Background(), s.ID, true, []string{"evil.example.net"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not in the plugin's declared")
+
+	// Granting a declared host persists it and surfaces it on the status.
+	st, err := mgr.SetEnabled(context.Background(), s.ID, true, []string{"paperless.lan"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"paperless.lan"}, st.NetGrants)
+	assert.True(t, st.Enabled)
+
+	// The grant survives a re-read (it is durable, not just in-memory).
+	again, err := mgr.Get(context.Background(), s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"paperless.lan"}, again.NetGrants)
+}
+
+// TestManagerNetFetchEndToEnd loads a real Lua plugin from disk, enables it with a
+// loopback grant, and dispatches a real transaction.created event — the plugin's
+// hook calls kasas.fetch, which goes through the REAL gate (real DNS + real dial,
+// not injected) to a local server. It proves the whole stack: manifest [net]
+// parse, enable-with-grant persistence, the SSRF rule's private-host grant path,
+// and the egress log. No external network: the target is a loopback test server,
+// reachable only because the operator granted "127.0.0.1".
+func TestManagerNetFetchEndToEnd(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		_, _ = w.Write([]byte("pong"))
+	}))
+	defer srv.Close()
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	writePlugin(t, dir, "pinger",
+		`name="pinger"`+"\n"+`runtime="lua"`+"\n"+`hooks=["OnTransactionCreate"]`+"\n"+
+			`capabilities=["net:fetch"]`+"\n"+`[net]`+"\n"+`allow=["127.0.0.1"]`,
+		`function OnTransactionCreate(txn) kasas.fetch{ url = "`+srv.URL+`/ping" } end`)
+
+	mgr := NewManager(Options{
+		Store: testutil.NewStore(t), Bus: events.NewBus(), Dir: dir,
+		Runtimes: map[string]Runtime{RuntimeLua: NewLuaRuntime()}, Logger: testLogger(),
+	})
+	t.Cleanup(mgr.shutdown)
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	s, ok := findByName(statuses, "pinger")
+	require.True(t, ok)
+
+	// Loopback is a private address, so it is reachable only because we grant it.
+	st, err := mgr.SetEnabled(context.Background(), s.ID, true, []string{"127.0.0.1"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"127.0.0.1"}, st.NetGrants)
+
+	mgr.dispatch(events.Event{Type: events.TypeTransactionCreated, Data: []byte(`{"id":"tx-1"}`)})
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&hits) == 1
+	}, 3*time.Second, 10*time.Millisecond, "the plugin's kasas.fetch should reach the granted loopback host")
+
+	// The egress log recorded the successful request for the operator.
+	entries, err := mgr.EgressLog(context.Background(), s.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, 200, entries[0].Status)
+	assert.Equal(t, u.Hostname(), entries[0].Host)
+}
+
 func TestManagerRoutesOnlyDeclaredHooks(t *testing.T) {
 	dir := t.TempDir()
 	writePlugin(t, dir, "router",
@@ -104,7 +198,7 @@ func TestManagerRoutesOnlyDeclaredHooks(t *testing.T) {
 	require.NoError(t, err)
 	s, ok := findByName(statuses, "router")
 	require.True(t, ok)
-	_, err = mgr.SetEnabled(context.Background(), s.ID, true)
+	_, err = mgr.SetEnabled(context.Background(), s.ID, true, nil)
 	require.NoError(t, err)
 
 	// A declared-hook event is delivered.
@@ -144,7 +238,7 @@ func TestManagerEndToEnd(t *testing.T) {
 	go mgr.Run(ctx)
 	time.Sleep(100 * time.Millisecond) // let Run subscribe to the bus
 
-	_, err = mgr.SetEnabled(ctx, bud.ID, true)
+	_, err = mgr.SetEnabled(ctx, bud.ID, true, nil)
 	require.NoError(t, err)
 
 	// Insert a matching transaction and emit transaction.created for it.
@@ -201,7 +295,7 @@ func TestManagerEnableContextCancelStillRuns(t *testing.T) {
 
 	// Enable on a request-scoped context, then cancel it as if the HTTP request ended.
 	reqCtx, cancelReq := context.WithCancel(context.Background())
-	_, err = mgr.SetEnabled(reqCtx, bud.ID, true)
+	_, err = mgr.SetEnabled(reqCtx, bud.ID, true, nil)
 	require.NoError(t, err)
 	cancelReq()
 
@@ -260,7 +354,7 @@ func TestManagerLoadMergesUserConfigOverrides(t *testing.T) {
 	bud, ok := findByName(statuses, "budgeting")
 	require.True(t, ok)
 
-	_, err = mgr.SetEnabled(context.Background(), bud.ID, true)
+	_, err = mgr.SetEnabled(context.Background(), bud.ID, true, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "tea", rt.got.Config["keyword"], "the override file wins over the manifest default")
 	assert.Equal(t, int64(10), rt.got.Config["limit"], "untouched keys keep their manifest defaults")
@@ -285,7 +379,7 @@ func TestManagerLoadRejectsBrokenUserConfig(t *testing.T) {
 	bud, ok := findByName(statuses, "budgeting")
 	require.True(t, ok)
 
-	_, err = mgr.SetEnabled(context.Background(), bud.ID, true)
+	_, err = mgr.SetEnabled(context.Background(), bud.ID, true, nil)
 	require.Error(t, err, "a mistyped override key must fail the load so the operator notices")
 	assert.Contains(t, err.Error(), "unknown config key")
 }

@@ -186,6 +186,9 @@ type Querier interface {
 	// Refreshes the manifest-derived fields on re-discovery WITHOUT touching operator
 	// state (enabled, granted_capabilities, config).
 	UpdatePluginManifest(ctx context.Context, arg UpdatePluginManifestParams) (int64, error)
+	// Sets the operator's per-plugin net:fetch private-host grants (a JSON array of
+	// hostnames), written at enable time for a net:fetch plugin. See ADR 0002.
+	UpdatePluginNetGrants(ctx context.Context, arg UpdatePluginNetGrantsParams) (int64, error)
 	// Records the outcome of the most recent hook invocation on the plugin row (the
 	// lean alternative to a per-invocation table). last_success_at is only advanced on
 	// a successful run; the caller passes the existing value otherwise.

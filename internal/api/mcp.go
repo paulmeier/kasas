@@ -254,7 +254,7 @@ func (s *Server) MCPServer() *mcp.Server {
 
 		mcp.AddTool(srv, &mcp.Tool{
 			Name:        "enable_plugin",
-			Description: "Enable a plugin by id: load its code and start running its hooks against committed events. Enabling executes third-party code. Returns the updated status.",
+			Description: "Enable a plugin by id: load its code and start running its hooks against committed events. Enabling executes third-party code. For a net:fetch plugin, optionally pass net_grants — the subset of its declared [net].allow hosts to grant private/LAN access to. Returns the updated status.",
 		}, s.mcpEnablePlugin)
 
 		mcp.AddTool(srv, &mcp.Tool{
@@ -271,6 +271,11 @@ func (s *Server) MCPServer() *mcp.Server {
 			Name:        "uninstall_plugin",
 			Description: "Uninstall a plugin by id: run its OnUninstall cleanup hook (best-effort), then remove its files and registration entirely. Reports whether the cleanup hook ran and any error it produced (a hook failure does not prevent removal).",
 		}, s.mcpUninstallPlugin)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "plugin_egress_log",
+			Description: "Read a plugin's recent net:fetch egress log (newest first): every outbound HTTP request it made via kasas.fetch — method, host, URL, status, bytes, duration, and any denial/error. The host records every attempt, allowed or refused, so this is the audit trail of what a network-capable plugin actually reached.",
+		}, s.mcpPluginEgressLog)
 
 		// Community marketplace tools, registered only when a registry is configured.
 		if s.pluginMgr.RegistryEnabled() {

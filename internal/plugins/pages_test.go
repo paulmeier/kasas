@@ -285,7 +285,7 @@ func TestManagerPagesAndRenderPage(t *testing.T) {
 	_, err = mgr.RenderPage(context.Background(), "pager", PageRequest{})
 	assert.ErrorIs(t, err, ErrPluginNotFound)
 
-	_, err = mgr.SetEnabled(context.Background(), pg.ID, true)
+	_, err = mgr.SetEnabled(context.Background(), pg.ID, true, nil)
 	require.NoError(t, err)
 	defer mgr.unload("pager")
 
@@ -326,7 +326,7 @@ func TestManagerRenderPageRequiresUI(t *testing.T) {
 	require.NoError(t, err)
 	pl, ok := findByName(statuses, "plain")
 	require.True(t, ok)
-	_, err = mgr.SetEnabled(context.Background(), pl.ID, true)
+	_, err = mgr.SetEnabled(context.Background(), pl.ID, true, nil)
 	require.NoError(t, err)
 	defer mgr.unload("plain")
 
@@ -352,7 +352,7 @@ function OnPageAction(req) return OnPageRender(req) end`)
 	require.NoError(t, err)
 	pg, ok := findByName(statuses, "pager")
 	require.True(t, ok)
-	_, err = mgr.SetEnabled(context.Background(), pg.ID, true)
+	_, err = mgr.SetEnabled(context.Background(), pg.ID, true, nil)
 	require.NoError(t, err)
 	defer mgr.unload("pager")
 

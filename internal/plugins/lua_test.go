@@ -25,6 +25,9 @@ type fakeHost struct {
 	config     map[string]any
 	searchRes  []Transaction
 	getRes     *Transaction
+	fetched    []FetchRequest
+	fetchResp  FetchResponse
+	fetchErr   error
 }
 
 func newFakeHost() *fakeHost {
@@ -58,6 +61,10 @@ func (f *fakeHost) SetExtension(_ context.Context, id, key string, v json.RawMes
 }
 func (f *fakeHost) RemoveExtension(_ context.Context, _, _ string) error { return nil }
 func (f *fakeHost) Log(_, _ string, _ map[string]any)                    {}
+func (f *fakeHost) Fetch(_ context.Context, req FetchRequest) (FetchResponse, error) {
+	f.fetched = append(f.fetched, req)
+	return f.fetchResp, f.fetchErr
+}
 func (f *fakeHost) SetConfig(_ context.Context, changes map[string]any) (map[string]any, error) {
 	if f.config == nil {
 		f.config = map[string]any{}
@@ -94,6 +101,25 @@ func TestLuaInvokeWiresHostCalls(t *testing.T) {
 		"plugin should have applied the food label via kasas.apply_labels")
 	assert.Equal(t, "true", host.extensions["tx-1"]["budgeting.flagged"],
 		"plugin should have set the extension via kasas.set_extension")
+}
+
+func TestLuaFetchWiresHostCall(t *testing.T) {
+	host := newFakeHost()
+	host.fetchResp = FetchResponse{Status: 201}
+	inst := loadFixture(t, "net-lua", host)
+
+	ev := HookEvent{Type: events.TypeTransactionCreated, Transaction: &Transaction{ID: "tx-1", Description: "x"}}
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate, ev))
+
+	require.Len(t, host.fetched, 1)
+	got := host.fetched[0]
+	assert.Equal(t, "https://api.example.com/x", got.URL)
+	assert.Equal(t, "POST", got.Method)
+	assert.Equal(t, "hi", got.Body)
+	assert.Equal(t, "1", got.Headers["X-Test"])
+	assert.Equal(t, 500, got.TimeoutMS)
+	assert.Equal(t, map[string]string{"status": "201"}, host.applied["tx-1"],
+		"the plugin labelled the txn with the fetched response status")
 }
 
 func TestLuaInvokeNoMatchNoCalls(t *testing.T) {
@@ -185,7 +211,7 @@ end`
 	defaults := map[string]any{"keyword": "coffee", "limit": int64(10)}
 	m := Manifest{Name: "cfg", Runtime: RuntimeLua, Entrypoint: "main.lua",
 		Hooks: []Hook{HookTransactionCreate}, Config: defaults}
-	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults))
+	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults), nil)
 
 	inst, err := NewLuaRuntime().Load(context.Background(), m, codeDir, host)
 	require.NoError(t, err)
@@ -210,7 +236,7 @@ end`
 	defaults := map[string]any{"keyword": "coffee"}
 	m := Manifest{Name: "cfg", Runtime: RuntimeLua, Entrypoint: "main.lua",
 		Hooks: []Hook{HookTransactionCreate}, Config: defaults}
-	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults))
+	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults), nil)
 
 	inst, err := NewLuaRuntime().Load(context.Background(), m, codeDir, host)
 	require.NoError(t, err)

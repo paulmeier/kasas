@@ -205,8 +205,14 @@ func run(command, configPath string) error {
 			},
 			HookTimeout: cfg.Plugins.HookTimeout,
 			QueueSize:   cfg.Plugins.QueueSize,
-			Registry:    pluginRegistry,
-			Logger:      logger,
+			NetLimits: plugins.NetLimits{
+				Timeout:          cfg.Plugins.Net.Timeout,
+				MaxResponseBytes: int64(cfg.Plugins.Net.MaxResponseBytes),
+				RatePerMinute:    cfg.Plugins.Net.RatePerMinute,
+				MaxRedirects:     cfg.Plugins.Net.MaxRedirects,
+			},
+			Registry: pluginRegistry,
+			Logger:   logger,
 		})
 	}
 

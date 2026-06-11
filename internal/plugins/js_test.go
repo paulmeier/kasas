@@ -45,6 +45,24 @@ func TestJSInvokeWiresHostCalls(t *testing.T) {
 		"plugin should have set the extension via kasas.setExtension")
 }
 
+func TestJSFetchWiresHostCall(t *testing.T) {
+	host := newFakeHost()
+	host.fetchResp = FetchResponse{Status: 201}
+	inst := loadJSFixture(t, "net-js", host)
+
+	ev := HookEvent{Type: events.TypeTransactionCreated, Transaction: &Transaction{ID: "tx-1", Description: "x"}}
+	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate, ev))
+
+	require.Len(t, host.fetched, 1)
+	got := host.fetched[0]
+	assert.Equal(t, "https://api.example.com/x", got.URL)
+	assert.Equal(t, "POST", got.Method)
+	assert.Equal(t, "hi", got.Body)
+	assert.Equal(t, "1", got.Headers["X-Test"])
+	assert.Equal(t, 500, got.TimeoutMS)
+	assert.Equal(t, map[string]string{"status": "201"}, host.applied["tx-1"])
+}
+
 func TestJSInvokeNoMatchNoCalls(t *testing.T) {
 	host := newFakeHost()
 	inst := loadJSFixture(t, "js-budgeting", host)
@@ -158,7 +176,7 @@ function OnTransactionCreate(txn) {
 	defaults := map[string]any{"keyword": "coffee", "limit": int64(10)}
 	m := Manifest{Name: "cfg", Runtime: RuntimeJS, Entrypoint: "main.js",
 		Hooks: []Hook{HookTransactionCreate}, Config: defaults}
-	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults))
+	host := newHost(nil, nil, capSet{}, "cfg", 0, testLogger(), newConfigStore(pluginsDir, "cfg", defaults), nil)
 
 	inst, err := NewJSRuntime().Load(context.Background(), m, codeDir, host)
 	require.NoError(t, err)

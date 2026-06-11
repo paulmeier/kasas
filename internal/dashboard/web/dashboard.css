@@ -1185,6 +1185,34 @@ tr:hover .relationships-btn,
 }
 .badge.muted { color: var(--muted); background: var(--surface-2); }
 
+/* --- net:fetch (ADR 0002): declared egress hosts + grant modal --- */
+.net-allow-hosts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.badge.net-host {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px dashed var(--surface-2);
+}
+.badge.net-host.net-host-granted {
+  color: var(--text);
+  border-style: solid;
+  border-color: var(--accent, #6aa);
+}
+.net-grant-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.net-grant-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--surface-2);
+  border-radius: 6px;
+}
+.net-grant-host { font-family: var(--mono, monospace); font-size: 13px; }
+.net-grant-note { color: var(--muted); font-size: 12px; margin-left: auto; }
+
 /* --- Manual entry: add buttons, row edit/delete, editor modal --- */
 
 /* "Add transaction"/"Add account" sit in the controls row, a touch smaller than a default btn. */

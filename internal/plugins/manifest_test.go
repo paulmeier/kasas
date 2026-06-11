@@ -71,3 +71,40 @@ func TestParseManifestMalformedTOML(t *testing.T) {
 	_, err := ParseManifest([]byte(`name = "p"` + "\n" + `runtime = lua`)) // unquoted value
 	assert.Error(t, err)
 }
+
+func TestParseManifestNetFetchValid(t *testing.T) {
+	m, err := ParseManifest([]byte(`
+name = "importer"
+runtime = "lua"
+hooks = ["OnTransactionCreate"]
+capabilities = ["net:fetch"]
+
+[net]
+allow = ["Paperless.LAN", "api.merchant.example.com", "paperless.lan"]
+`))
+	require.NoError(t, err)
+	require.NotNil(t, m.Net)
+	// Hosts are lowercased and de-duplicated, in declared order.
+	assert.Equal(t, []string{"paperless.lan", "api.merchant.example.com"}, m.Net.Allow)
+}
+
+func TestParseManifestNetFetchRejects(t *testing.T) {
+	cases := map[string]string{
+		"net:fetch without [net]": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnTransactionCreate"]` + "\n" + `capabilities = ["net:fetch"]`,
+		"net:fetch with empty allow": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnTransactionCreate"]` + "\n" + `capabilities = ["net:fetch"]` + "\n" + `[net]` + "\n" + `allow = []`,
+		"[net] without net:fetch": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnTransactionCreate"]` + "\n" + `[net]` + "\n" + `allow = ["x.example.com"]`,
+		"host with scheme": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnTransactionCreate"]` + "\n" + `capabilities = ["net:fetch"]` + "\n" + `[net]` + "\n" + `allow = ["https://x.example.com"]`,
+		"host with port": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnTransactionCreate"]` + "\n" + `capabilities = ["net:fetch"]` + "\n" + `[net]` + "\n" + `allow = ["x.example.com:443"]`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseManifest([]byte(src))
+			assert.Error(t, err)
+		})
+	}
+}

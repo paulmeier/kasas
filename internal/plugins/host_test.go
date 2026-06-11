@@ -28,7 +28,7 @@ func newTestHost(t *testing.T, caps ...Capability) (*hostFacade, db.Store) {
 	store := testutil.NewStore(t)
 	testutil.Seed(t, store)
 	emitter := events.NewEmitter(events.NewBus())
-	return newHost(store, emitter, newCapSet(caps), "tester", 0, testLogger(), nil), store
+	return newHost(store, emitter, newCapSet(caps), "tester", 0, testLogger(), nil, nil), store
 }
 
 func labelsOf(t *testing.T, store db.Store, id string) map[string]string {
@@ -140,7 +140,7 @@ func TestHostSetConfigPersistsAndMerges(t *testing.T) {
 	dir := t.TempDir()
 	defaults := map[string]any{"keyword": "coffee", "limit": int64(10), "enabled": false}
 	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(),
-		newConfigStore(dir, "budgeting", defaults))
+		newConfigStore(dir, "budgeting", defaults), nil)
 
 	merged, err := h.SetConfig(context.Background(), map[string]any{"keyword": "tea", "limit": "25"})
 	require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestHostSetConfigPersistsAndMerges(t *testing.T) {
 func TestHostSetConfigRejectsUnknownKeyWithoutWriting(t *testing.T) {
 	dir := t.TempDir()
 	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(),
-		newConfigStore(dir, "budgeting", map[string]any{"keyword": "coffee"}))
+		newConfigStore(dir, "budgeting", map[string]any{"keyword": "coffee"}), nil)
 
 	_, err := h.SetConfig(context.Background(), map[string]any{"nope": "x"})
 	require.Error(t, err)
@@ -172,8 +172,22 @@ func TestHostSetConfigRejectsUnknownKeyWithoutWriting(t *testing.T) {
 	assert.True(t, errors.Is(statErr, fs.ErrNotExist), "a rejected change must not write the file")
 }
 
+func TestHostFetchDeniedWithoutCapability(t *testing.T) {
+	h, _ := newTestHost(t, CapTransactionsRead) // no net:fetch
+	_, err := h.Fetch(context.Background(), FetchRequest{URL: "https://api.example.com/x"})
+	assert.ErrorIs(t, err, ErrCapabilityDenied)
+}
+
+func TestHostFetchUnconfiguredWithCapabilityButNoGate(t *testing.T) {
+	// Granted net:fetch but no gate built (no [net] block) — a clean error, not a
+	// panic or an open socket.
+	h := newHost(nil, nil, newCapSet([]Capability{CapNetFetch}), "p", 0, testLogger(), nil, nil)
+	_, err := h.Fetch(context.Background(), FetchRequest{URL: "https://api.example.com/x"})
+	assert.ErrorIs(t, err, ErrNetUnconfigured)
+}
+
 func TestHostSetConfigUnavailableWithoutPluginsDir(t *testing.T) {
-	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(), nil)
+	h := newHost(nil, nil, capSet{}, "budgeting", 0, testLogger(), nil, nil)
 	_, err := h.SetConfig(context.Background(), map[string]any{"keyword": "tea"})
 	assert.Error(t, err)
 }

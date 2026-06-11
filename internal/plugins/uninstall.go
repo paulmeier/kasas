@@ -92,7 +92,7 @@ func (m *Manager) runUninstallHook(ctx context.Context, row db.Plugin, d Discove
 	}
 	caps := intersectCaps(d.Manifest.Capabilities, decodeCapList(row.GrantedCapabilities))
 	host := newHost(m.store, m.emitter, caps, row.Name, m.searchLimit, m.logger,
-		newConfigStore(m.dir, row.Name, d.Manifest.Config))
+		newConfigStore(m.dir, row.Name, d.Manifest.Config), m.netGateFor(caps, row, d.Manifest))
 
 	// Cleanup should see the same effective config the plugin ran with, but a
 	// broken override file must never make a plugin un-removable: fall back to

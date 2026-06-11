@@ -1,8 +1,12 @@
 # ADR 0002 — Host-mediated plugin network access (`net:fetch`)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-10
 - **Related:** [Plugins](../../features/plugins.md), [ADR 0001](0001-plugin-dependency-bundling.md), [ADR 0003](0003-marketplace-trust-tiers.md), [ADR 0004](0004-transaction-document-artifacts.md)
+- **Implemented:** the `net:fetch` capability, the `[net].allow` manifest block, the
+  `kasas.fetch` host method (Lua / JS / WASM + Go SDK), the SSRF gate with
+  per-host operator grants, the egress log, and the config/settings knobs all
+  ship; see [Plugins → Network access](../../features/plugins.md#network-access-netfetch).
 
 ## Context
 

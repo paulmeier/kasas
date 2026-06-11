@@ -254,6 +254,20 @@ type Plugins struct {
 	HookTimeout time.Duration
 	QueueSize   int
 	Registry    PluginRegistry
+	Net         PluginNet
+}
+
+// PluginNet bounds plugin network egress (the net:fetch capability, ADR 0002).
+// These are host-owned ceilings — a plugin declares WHICH hosts it may reach in
+// its manifest, but never how fast, how long, or how much: Timeout caps a single
+// request (a plugin may ask for less, never more), MaxResponseBytes caps the body
+// read, RatePerMinute throttles requests per plugin, and MaxRedirects bounds the
+// redirect chain (each hop re-validated against the allowlist).
+type PluginNet struct {
+	Timeout          time.Duration
+	MaxResponseBytes int
+	RatePerMinute    int
+	MaxRedirects     int
 }
 
 // PluginRegistry controls the community-plugin marketplace: browsing a published
@@ -338,6 +352,10 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("plugins.registry.enabled", true)
 	v.SetDefault("plugins.registry.url", "https://raw.githubusercontent.com/paulmeier/kasas-plugins/main/registry/index.json")
 	v.SetDefault("plugins.registry.ref", "main")
+	v.SetDefault("plugins.net.timeout", "10s")
+	v.SetDefault("plugins.net.max_response_bytes", 5*1024*1024) // 5 MiB
+	v.SetDefault("plugins.net.rate_per_minute", 60)
+	v.SetDefault("plugins.net.max_redirects", 5)
 
 	v.SetEnvPrefix("KASAS")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -370,6 +388,11 @@ func Load(path string) (*Config, error) {
 	pluginHookTimeout, err := time.ParseDuration(v.GetString("plugins.hook_timeout"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid plugins.hook_timeout %q: %w", v.GetString("plugins.hook_timeout"), err)
+	}
+
+	pluginNetTimeout, err := time.ParseDuration(v.GetString("plugins.net.timeout"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid plugins.net.timeout %q: %w", v.GetString("plugins.net.timeout"), err)
 	}
 
 	cfg := &Config{
@@ -454,6 +477,12 @@ func Load(path string) (*Config, error) {
 				Enabled: v.GetBool("plugins.registry.enabled"),
 				URL:     v.GetString("plugins.registry.url"),
 				Ref:     v.GetString("plugins.registry.ref"),
+			},
+			Net: PluginNet{
+				Timeout:          pluginNetTimeout,
+				MaxResponseBytes: v.GetInt("plugins.net.max_response_bytes"),
+				RatePerMinute:    v.GetInt("plugins.net.rate_per_minute"),
+				MaxRedirects:     v.GetInt("plugins.net.max_redirects"),
 			},
 		},
 	}

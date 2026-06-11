@@ -103,6 +103,7 @@ func (li *luaInstance) inject(m Manifest) {
 	L.SetField(mod, "remove_labels", L.NewFunction(li.removeLabels))
 	L.SetField(mod, "set_extension", L.NewFunction(li.setExtension))
 	L.SetField(mod, "remove_extension", L.NewFunction(li.removeExtension))
+	L.SetField(mod, "fetch", L.NewFunction(li.fetch))
 	L.SetField(mod, "log", L.NewFunction(li.log))
 	L.SetField(mod, "set_config", L.NewFunction(li.setConfig))
 	L.SetField(mod, "config", goToLua(L, m.Config))
@@ -277,6 +278,41 @@ func (li *luaInstance) setConfig(L *lua.LState) int {
 	}
 	L.Push(cfg)
 	return 1
+}
+
+// fetch performs a host-mediated HTTP request: kasas.fetch{ url=..., method=...,
+// headers={...}, body=..., timeout_ms=... } and returns a table
+// { status, headers, body, truncated }. The host enforces the allowlist and SSRF
+// rule; net:fetch.
+func (li *luaInstance) fetch(L *lua.LState) int {
+	arg := L.CheckTable(1)
+	req := FetchRequest{
+		URL:    luaFieldString(arg, "url"),
+		Method: luaFieldString(arg, "method"),
+		Body:   luaFieldString(arg, "body"),
+	}
+	if to, ok := arg.RawGetString("timeout_ms").(lua.LNumber); ok {
+		req.TimeoutMS = int(to)
+	}
+	if h, ok := arg.RawGetString("headers").(*lua.LTable); ok {
+		req.Headers = luaTableToStringMap(h)
+	}
+	resp, err := li.host.Fetch(li.invCtx(), req)
+	if err != nil {
+		L.RaiseError("fetch: %v", err)
+		return 0
+	}
+	t := L.NewTable()
+	L.SetField(t, "status", lua.LNumber(resp.Status))
+	L.SetField(t, "headers", goToLua(L, resp.Headers))
+	L.SetField(t, "body", lua.LString(resp.Body))
+	L.SetField(t, "truncated", lua.LBool(resp.Truncated))
+	L.Push(t)
+	return 1
+}
+
+func luaFieldString(t *lua.LTable, key string) string {
+	return lua.LVAsString(t.RawGetString(key))
 }
 
 func (li *luaInstance) log(L *lua.LState) int {

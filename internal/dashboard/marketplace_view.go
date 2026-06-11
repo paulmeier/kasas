@@ -64,11 +64,12 @@ func (v *marketplaceView) onInstall(ctx app.Context, p registryPlugin) {
 	}
 	msg := verb + " " + p.Name + " v" + p.Version + "?"
 	if isWriteTier(p.CapabilityTier) {
-		msg += "\n\nThis plugin can MODIFY your data (" + joinOrDash(p.Capabilities) +
-			"). It will be installed disabled; you enable it separately on the Plugins page."
-	} else {
-		msg += "\n\nIt will be installed disabled; you enable it separately on the Plugins page."
+		msg += "\n\nThis plugin can MODIFY your data (" + joinOrDash(p.Capabilities) + ")."
 	}
+	if containsString(p.Capabilities, "net:fetch") {
+		msg += "\n\n⚠️ This plugin requests NETWORK ACCESS (net:fetch). It can make outbound requests, but only to the hosts it declares — you review and approve those (and any private/LAN access) when you enable it on the Plugins page."
+	}
+	msg += "\n\nIt will be installed disabled; you enable it separately on the Plugins page."
 	if !app.Window().Call("confirm", msg).Bool() {
 		return
 	}

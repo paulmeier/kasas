@@ -289,6 +289,12 @@ type hostRequest struct {
 	Msg     string            `json:"msg,omitempty"`
 	KV      map[string]any    `json:"kv,omitempty"`
 	Changes map[string]any    `json:"changes,omitempty"`
+	// net:fetch fields (op "fetch").
+	URL       string            `json:"url,omitempty"`
+	Method    string            `json:"method,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Body      string            `json:"body,omitempty"`
+	TimeoutMS int               `json:"timeout_ms,omitempty"`
 }
 
 type hostResponse struct {
@@ -383,6 +389,47 @@ func SetExtension(txnID, key string, value any) error {
 func RemoveExtension(txnID, key string) error {
 	_, err := callHost(hostRequest{Op: "remove_extension", ID: txnID, Key: key})
 	return err
+}
+
+// FetchRequest is an outbound HTTP request for Fetch. TimeoutMS may only SHORTEN
+// the host's configured per-request timeout, never exceed it.
+type FetchRequest struct {
+	URL       string            `json:"url"`
+	Method    string            `json:"method,omitempty"` // default GET
+	Headers   map[string]string `json:"headers,omitempty"`
+	Body      string            `json:"body,omitempty"`
+	TimeoutMS int               `json:"timeout_ms,omitempty"`
+}
+
+// FetchResponse is the host's reply to Fetch. Body is the response body up to the
+// host's size cap; Truncated reports that the body was cut at the cap.
+type FetchResponse struct {
+	Status    int               `json:"status"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Body      string            `json:"body"`
+	Truncated bool              `json:"truncated,omitempty"`
+}
+
+// Fetch performs a host-mediated outbound HTTP request. Requires the net:fetch
+// capability AND that the request URL's host is declared in the manifest's
+// [net].allow list — the host resolves the URL against that allowlist, applies the
+// SSRF rule, and enforces the operator's timeout/size/rate/redirect caps. The
+// plugin never opens a socket; this is the only sanctioned egress (ADR 0002).
+func Fetch(req FetchRequest) (*FetchResponse, error) {
+	data, err := callHost(hostRequest{
+		Op: "fetch", URL: req.URL, Method: req.Method, Headers: req.Headers,
+		Body: req.Body, TimeoutMS: req.TimeoutMS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp FetchResponse
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return nil, fmt.Errorf("kasas: decode fetch response: %w", err)
+		}
+	}
+	return &resp, nil
 }
 
 // Log writes a structured log line attributed to the plugin. level is debug,

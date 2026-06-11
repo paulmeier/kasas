@@ -435,6 +435,10 @@ func (a pgQuerier) UpdatePluginConfig(ctx context.Context, arg UpdatePluginConfi
 	return a.q.UpdatePluginConfig(ctx, pg.UpdatePluginConfigParams(arg))
 }
 
+func (a pgQuerier) UpdatePluginNetGrants(ctx context.Context, arg UpdatePluginNetGrantsParams) (int64, error) {
+	return a.q.UpdatePluginNetGrants(ctx, pg.UpdatePluginNetGrantsParams(arg))
+}
+
 func (a pgQuerier) UpdatePluginRunStatus(ctx context.Context, arg UpdatePluginRunStatusParams) error {
 	return a.q.UpdatePluginRunStatus(ctx, pg.UpdatePluginRunStatusParams(arg))
 }
