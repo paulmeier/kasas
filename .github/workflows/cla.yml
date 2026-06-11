@@ -27,8 +27,13 @@ jobs:
         with:
           path-to-signatures: "signatures/cla.json"
           path-to-document: "https://github.com/paulmeier/kasas/blob/main/CLA.md"
-          branch: "main"
-          allowlist: paulmeier # maintainer is exempt
+          # Signatures are committed to a dedicated UNPROTECTED branch.
+          # The action commits the signature file directly, so it cannot be
+          # `main` (protected: requires PRs + status checks).
+          branch: "cla-signatures"
+          # Maintainer + all bot accounts (release-please, dependabot, etc.)
+          # are exempt. Bot logins all end in "[bot]".
+          allowlist: paulmeier,*[bot]
 
           # Customize the bot message
           signed-commit-message: |
