@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.28.0](https://github.com/paulmeier/kasas/compare/v2.27.1...v2.28.0) (2026-06-11)
+
+
+### Features
+
+* implement ADR 0003 — marketplace trust tiers (host side) ([#114](https://github.com/paulmeier/kasas/issues/114)) ([dcc0350](https://github.com/paulmeier/kasas/commit/dcc035084199e93bfb1db92cd4cff8d11852a715))
+
 ## [2.27.1](https://github.com/paulmeier/kasas/compare/v2.27.0...v2.27.1) (2026-06-11)
 
 
