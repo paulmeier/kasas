@@ -25,9 +25,15 @@ type RegistryPluginDTO struct {
 	Hooks          []string `json:"hooks"`
 	Capabilities   []string `json:"capabilities"`
 	CapabilityTier string   `json:"capability_tier"`
+	// Tier is the explicit trust tier (ADR 0003): "verified" or "connected". The
+	// Marketplace page groups and badges plugins by it.
+	Tier string `json:"tier"`
 	// UI is present when the plugin adds a dashboard page, so the Marketplace
 	// page can badge it before install.
 	UI *RegistryUIDTO `json:"ui,omitempty"`
+	// Net is present for a Connected plugin: the exact hosts it may reach, so the
+	// Marketplace page can surface them before install.
+	Net *RegistryNetDTO `json:"net,omitempty"`
 
 	Installed        bool   `json:"installed"`
 	InstalledVersion string `json:"installed_version,omitempty"`
@@ -40,10 +46,19 @@ type RegistryUIDTO struct {
 	Icon  string `json:"icon"`
 }
 
+// RegistryNetDTO is the declared egress allowlist of a Connected registry plugin.
+type RegistryNetDTO struct {
+	Allow []string `json:"allow"`
+}
+
 func toRegistryPluginDTO(e plugins.CatalogEntry) RegistryPluginDTO {
 	var ui *RegistryUIDTO
 	if e.UI != nil {
 		ui = &RegistryUIDTO{Title: e.UI.Title, Icon: e.UI.Icon}
+	}
+	var net *RegistryNetDTO
+	if e.Net != nil && len(e.Net.Allow) > 0 {
+		net = &RegistryNetDTO{Allow: e.Net.Allow}
 	}
 	return RegistryPluginDTO{
 		Name:             e.Name,
@@ -56,7 +71,9 @@ func toRegistryPluginDTO(e plugins.CatalogEntry) RegistryPluginDTO {
 		Hooks:            e.Hooks,
 		Capabilities:     e.Capabilities,
 		CapabilityTier:   e.CapabilityTier,
+		Tier:             e.Tier,
 		UI:               ui,
+		Net:              net,
 		Installed:        e.Installed,
 		InstalledVersion: e.InstalledVersion,
 		UpdateAvailable:  e.UpdateAvailable,

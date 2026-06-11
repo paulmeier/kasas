@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
@@ -66,8 +67,12 @@ func (v *marketplaceView) onInstall(ctx app.Context, p registryPlugin) {
 	if isWriteTier(p.CapabilityTier) {
 		msg += "\n\nThis plugin can MODIFY your data (" + joinOrDash(p.Capabilities) + ")."
 	}
-	if containsString(p.Capabilities, "net:fetch") {
-		msg += "\n\n⚠️ This plugin requests NETWORK ACCESS (net:fetch). It can make outbound requests, but only to the hosts it declares — you review and approve those (and any private/LAN access) when you enable it on the Plugins page."
+	if isConnectedTier(p) {
+		msg += "\n\n⚠️ CONNECTED-tier plugin: it requests NETWORK ACCESS (net:fetch)."
+		if hosts := registryNetHosts(p); len(hosts) > 0 {
+			msg += " It may reach only these hosts:\n  • " + strings.Join(hosts, "\n  • ")
+		}
+		msg += "\n\nYou review and approve any private/LAN access when you enable it on the Plugins page."
 	}
 	msg += "\n\nIt will be installed disabled; you enable it separately on the Plugins page."
 	if !app.Window().Call("confirm", msg).Bool() {
@@ -149,7 +154,7 @@ func (v *marketplaceView) renderList() app.UI {
 		return app.Div().Class("status").Text("Loading…")
 	}
 	if len(v.plugins) > 0 {
-		return v.renderTable()
+		return v.renderTierGroups()
 	}
 	if v.errMsg != "" {
 		return app.Text("")
@@ -167,7 +172,29 @@ func (v *marketplaceView) renderList() app.UI {
 	)
 }
 
-func (v *marketplaceView) renderTable() app.UI {
+// renderTierGroups groups the catalog by trust tier (ADR 0003) — verified first,
+// then connected, then any unlisted — so the escalating signal is visible at a
+// glance. Each non-empty tier gets a labelled section with a short risk note.
+func (v *marketplaceView) renderTierGroups() app.UI {
+	return app.Div().Body(
+		app.Range(tierOrder).Slice(func(i int) app.UI {
+			tier := tierOrder[i]
+			group := pluginsInTier(v.plugins, tier)
+			if len(group) == 0 {
+				return app.Text("")
+			}
+			return app.Div().Class("tier-group").Body(
+				app.Div().Class("tier-group-header").Body(
+					renderTierBadge(tier),
+					app.Span().Class("tier-group-note").Text(tierNote(tier)),
+				),
+				v.renderTierTable(group),
+			)
+		}),
+	)
+}
+
+func (v *marketplaceView) renderTierTable(group []registryPlugin) app.UI {
 	return app.Table().Class("txns rules-table").Body(
 		app.THead().Body(
 			app.Tr().Body(
@@ -179,8 +206,8 @@ func (v *marketplaceView) renderTable() app.UI {
 			),
 		),
 		app.TBody().Body(
-			app.Range(v.plugins).Slice(func(i int) app.UI {
-				return v.renderRow(v.plugins[i])
+			app.Range(group).Slice(func(i int) app.UI {
+				return v.renderRow(group[i])
 			}),
 		),
 	)
@@ -196,7 +223,10 @@ func (v *marketplaceView) renderRow(p registryPlugin) app.UI {
 			app.Div().Class("plugin-meta").Text(registryMetaText(p)),
 		),
 		app.Td().Text(joinOrDash(p.Hooks)),
-		app.Td().Body(renderCapabilityBadges(p.Capabilities)),
+		app.Td().Body(
+			renderCapabilityBadges(p.Capabilities),
+			renderRegistryNetHosts(p),
+		),
 		app.Td().Body(renderCapabilityTier(p.CapabilityTier)),
 		app.Td().Class("right rule-actions").Body(v.renderInstallButton(p)),
 	)
@@ -249,6 +279,93 @@ func renderCapabilityTier(tier string) app.UI {
 }
 
 func isWriteTier(tier string) bool { return tier == "write" }
+
+// Trust tiers (ADR 0003). tierOrder is the escalating display order; an empty or
+// unknown tier from an older index is normalized to "verified" (the default,
+// statically-sealed posture).
+const (
+	tierVerified  = "verified"
+	tierConnected = "connected"
+	tierUnlisted  = "unlisted"
+)
+
+var tierOrder = []string{tierVerified, tierConnected, tierUnlisted}
+
+// trustTierOf returns the plugin's trust tier, defaulting an absent value (an older
+// registry index predating ADR 0003) to verified.
+func trustTierOf(p registryPlugin) string {
+	switch p.Tier {
+	case tierConnected, tierUnlisted:
+		return p.Tier
+	default:
+		return tierVerified
+	}
+}
+
+func isConnectedTier(p registryPlugin) bool { return trustTierOf(p) == tierConnected }
+
+// pluginsInTier returns the plugins whose trust tier is tier, preserving order.
+func pluginsInTier(ps []registryPlugin, tier string) []registryPlugin {
+	out := make([]registryPlugin, 0, len(ps))
+	for _, p := range ps {
+		if trustTierOf(p) == tier {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// registryNetHosts returns a Connected plugin's declared egress hosts (nil otherwise).
+func registryNetHosts(p registryPlugin) []string {
+	if p.Net == nil {
+		return nil
+	}
+	return p.Net.Allow
+}
+
+// renderTierBadge renders the trust tier as a pill, escalating verified → connected
+// → unlisted, so a user sees how far they are extending trust at a glance.
+func renderTierBadge(tier string) app.UI {
+	switch tier {
+	case tierConnected:
+		return app.Span().Class("status-pill disconnected").
+			Title("Connected: can make outbound network requests (net:fetch) to its declared hosts").Text("connected")
+	case tierUnlisted:
+		return app.Span().Class("status-pill disconnected").
+			Title("Unlisted: requests a capability outside the reviewed set — install only code you trust").Text("unlisted")
+	default:
+		return app.Span().Class("status-pill connected").
+			Title("Verified: sealed — this plugin cannot reach the network or disk").Text("verified")
+	}
+}
+
+// tierNote is the short risk line shown beside a tier group heading.
+func tierNote(tier string) string {
+	switch tier {
+	case tierConnected:
+		return "Can reach the network (net:fetch) — only the hosts it declares, which you review on enable."
+	case tierUnlisted:
+		return "Requests an unreviewed capability surface — install only code you trust."
+	default:
+		return "Sealed: these plugins cannot reach the network or disk."
+	}
+}
+
+// renderRegistryNetHosts shows a Connected plugin's declared egress hosts beneath
+// its capabilities, so the operator sees exactly what it may reach before install
+// (mirrors the Plugins page's net-host badges).
+func renderRegistryNetHosts(p registryPlugin) app.UI {
+	hosts := registryNetHosts(p)
+	if !isConnectedTier(p) || len(hosts) == 0 {
+		return app.Text("")
+	}
+	return app.Div().Class("net-allow-hosts").Body(
+		app.Range(hosts).Slice(func(i int) app.UI {
+			return app.Span().Class("badge net-host").
+				Title("Outbound requests allowed to this host").Text(hosts[i])
+		}),
+	)
+}
 
 // renderPageBadge marks a plugin that adds its own dashboard page (a sidebar
 // entry at /ext/<name> once installed and enabled). nil means no page.

@@ -60,9 +60,18 @@ type Entry struct {
 	Hooks          []string `json:"hooks"`
 	Capabilities   []string `json:"capabilities"`
 	CapabilityTier string   `json:"capability_tier"`
+	// Tier is the explicit trust tier (ADR 0003): "verified" (statically sealed) or
+	// "connected" (declares net:fetch, egress allowlisted + maintainer-reviewed). An
+	// "unlisted" plugin is never published, so it does not appear here in practice.
+	// An older index without this field decodes to "" — treated as verified.
+	Tier string `json:"tier"`
 	// UI is present when the plugin contributes a dashboard page (a [ui] manifest
 	// block), so the marketplace can badge it before install.
-	UI          *UIRef    `json:"ui,omitempty"`
+	UI *UIRef `json:"ui,omitempty"`
+	// Net is present for a Connected plugin: the exact hosts it may reach (its
+	// [net].allow list), so the marketplace can surface them before install — the
+	// same egress claim a registry maintainer reviewed.
+	Net         *NetRef   `json:"net,omitempty"`
 	Path        string    `json:"path"`
 	Files       []FileRef `json:"files"`
 	ContentHash string    `json:"content_hash"`
@@ -74,6 +83,12 @@ type Entry struct {
 type UIRef struct {
 	Title string `json:"title"`
 	Icon  string `json:"icon"`
+}
+
+// NetRef is the registry's egress metadata for a Connected plugin: the declared
+// allowlist of hosts kasas.fetch may reach.
+type NetRef struct {
+	Allow []string `json:"allow"`
 }
 
 // FileRef is one installable file with its integrity hash.

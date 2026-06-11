@@ -51,7 +51,7 @@ func fakeRegistryServer(t *testing.T, name string, files map[string]string) *htt
 				Name: name, Version: "1.0.0", Description: "A demo plugin.", Author: "tester",
 				License: "MIT", Homepage: "https://example.com", Runtime: "lua", Entrypoint: "main.lua",
 				Hooks: []string{"OnTransactionCreate"}, Capabilities: []string{"labels:write"},
-				CapabilityTier: "write", UI: &registry.UIRef{Title: "Demo Page", Icon: "chart"},
+				CapabilityTier: "write", Tier: "verified", UI: &registry.UIRef{Title: "Demo Page", Icon: "chart"},
 				Path: pluginPath, Files: refs, ContentHash: aggHash(refs),
 			}},
 		}
@@ -122,6 +122,8 @@ func TestMarketplaceBrowseAndInstall(t *testing.T) {
 	assert.Equal(t, "demo", cat.Plugins[0].Name)
 	assert.False(t, cat.Plugins[0].Installed)
 	assert.Equal(t, "write", cat.Plugins[0].CapabilityTier)
+	assert.Equal(t, "verified", cat.Plugins[0].Tier, "the index's trust tier reaches the catalog DTO")
+	assert.Nil(t, cat.Plugins[0].Net, "a verified plugin carries no egress hosts")
 	require.NotNil(t, cat.Plugins[0].UI, "the index's ui metadata reaches the catalog DTO")
 	assert.Equal(t, "Demo Page", cat.Plugins[0].UI.Title)
 	assert.Equal(t, "chart", cat.Plugins[0].UI.Icon)
@@ -156,6 +158,51 @@ func TestMarketplaceBrowseAndInstall(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "installed plugin appears in the plugins list")
+}
+
+// TestMarketplaceConnectedTierFlowsThrough checks a Connected-tier plugin's trust
+// tier and declared egress hosts (ADR 0003) reach the catalog DTO, so the
+// Marketplace page can group and surface them before install.
+func TestMarketplaceConnectedTierFlowsThrough(t *testing.T) {
+	idx := registry.Index{
+		SchemaVersion: 1,
+		Repository:    "https://example.com/repo",
+		Plugins: []registry.Entry{{
+			Name: "enricher", Version: "1.0.0", Description: "Enriches transactions.", Author: "tester",
+			License: "MIT", Homepage: "https://example.com", Runtime: "lua", Entrypoint: "main.lua",
+			Hooks: []string{"OnTransactionCreate"}, Capabilities: []string{"transactions:read", "net:fetch"},
+			CapabilityTier: "read-only", Tier: "connected",
+			Net:  &registry.NetRef{Allow: []string{"api.merchant.example.com", "paperless.lan"}},
+			Path: "plugins/enricher", Files: []registry.FileRef{{Path: "main.lua", SHA256: "x", Size: 1}},
+		}},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/index.json", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(idx) })
+	regSrv := httptest.NewServer(mux)
+	t.Cleanup(regSrv.Close)
+
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	testutil.Seed(t, store)
+	bus := events.NewBus()
+	mgr := plugins.NewManager(plugins.Options{
+		Store: store, Emitter: events.NewEmitter(bus), Bus: bus, Dir: t.TempDir(),
+		Runtimes: map[string]plugins.Runtime{plugins.RuntimeLua: plugins.NewLuaRuntime()},
+		Registry: registry.New(regSrv.URL+"/index.json", "main", regSrv.Client(), registry.DefaultLimits()),
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	s := api.New(api.Options{Store: store, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: "test", PluginManager: mgr})
+	srv := httptest.NewServer(s.Router())
+	t.Cleanup(srv.Close)
+
+	var cat struct {
+		Available bool                    `json:"available"`
+		Plugins   []api.RegistryPluginDTO `json:"plugins"`
+	}
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/plugins/registry", &cat))
+	require.Len(t, cat.Plugins, 1)
+	assert.Equal(t, "connected", cat.Plugins[0].Tier)
+	require.NotNil(t, cat.Plugins[0].Net, "a connected plugin's egress hosts reach the DTO")
+	assert.Equal(t, []string{"api.merchant.example.com", "paperless.lan"}, cat.Plugins[0].Net.Allow)
 }
 
 func TestMarketplaceUnavailableWhenNoRegistry(t *testing.T) {

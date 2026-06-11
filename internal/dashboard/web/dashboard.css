@@ -1213,6 +1213,17 @@ tr:hover .relationships-btn,
 .net-grant-host { font-family: var(--mono, monospace); font-size: 13px; }
 .net-grant-note { color: var(--muted); font-size: 12px; margin-left: auto; }
 
+/* --- Marketplace trust tiers (ADR 0003): grouped, escalating sections --- */
+.tier-group { margin-bottom: 22px; }
+.tier-group-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tier-group-note { color: var(--muted); font-size: 12px; }
+
 /* --- Manual entry: add buttons, row edit/delete, editor modal --- */
 
 /* "Add transaction"/"Add account" sit in the controls row, a touch smaller than a default btn. */

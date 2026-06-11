@@ -23,7 +23,7 @@ history, its status updated to point forward.
 | --- | --- | --- |
 | [0001](0001-plugin-dependency-bundling.md) | Allow bundled dependencies in plugins | Accepted |
 | [0002](0002-plugin-network-capability.md) | Host-mediated plugin network access (`net:fetch`) | Accepted |
-| [0003](0003-marketplace-trust-tiers.md) | Marketplace trust tiers | Proposed |
+| [0003](0003-marketplace-trust-tiers.md) | Marketplace trust tiers | Accepted |
 | [0004](0004-transaction-document-artifacts.md) | Document & artifact association for transactions | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
