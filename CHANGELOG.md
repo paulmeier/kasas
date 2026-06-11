@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.0](https://github.com/paulmeier/kasas/compare/v2.26.2...v2.27.0) (2026-06-11)
+
+
+### Features
+
+* implement ADR 0002 — host-mediated plugin network access (net:fetch) ([#110](https://github.com/paulmeier/kasas/issues/110)) ([e99d170](https://github.com/paulmeier/kasas/commit/e99d170dc8765bc4917a0d7bf342cfa5d10f1f8e))
+
 ## [2.26.2](https://github.com/paulmeier/kasas/compare/v2.26.1...v2.26.2) (2026-06-11)
 
 
