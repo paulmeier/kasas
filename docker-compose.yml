@@ -17,6 +17,10 @@ services:
       KASAS_SERVER_ADDR: ":8080"
       KASAS_LOG_LEVEL: "info"
       KASAS_LOG_FORMAT: "json"
+      # Path to a TOML config file in the /data volume. kasas seeds it with the
+      # annotated example on first run if missing, giving you a real config.toml to
+      # edit (./data/config.toml on the host). Env vars below still win over the file.
+      KASAS_CONFIG: "/data/config.toml"
       # --- Storage backend (default: SQLite) ---
       KASAS_DATABASE_DRIVER: "sqlite"
       KASAS_DATABASE_PATH: "/data/kasas.db"

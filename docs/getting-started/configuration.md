@@ -27,6 +27,20 @@ join sections with underscores.**
 The full annotated template is
 [`config.example.toml`](https://github.com/paulmeier/kasas/blob/main/config.example.toml).
 
+### Where the config file lives (Docker / Unraid)
+
+The Docker image sets `KASAS_CONFIG=/data/config.toml` and **seeds that file with
+the annotated example on first run** if it is missing — so there is always a real,
+editable config file inside the persisted data volume. On Unraid that is
+`/mnt/user/appdata/kasas/config.toml`; with the bundled `docker-compose.yml` it is
+`./data/config.toml`. Edit it and restart to apply.
+
+On Unraid the container template also sets most keys as `KASAS_*` environment
+variables, and **environment variables win over the file** (see the precedence
+above), so the seeded `config.toml` mainly serves as an in-place reference there —
+change those values from the Unraid template, the dashboard Settings page, or by
+clearing the corresponding env var so the file (or a dashboard setting) takes over.
+
 ## Settings from the dashboard
 
 A setting changed from the dashboard, the REST API, or MCP is **permanent**: it
