@@ -245,6 +245,10 @@ func (s *Server) Router() http.Handler {
 				// stays admin-only in the admin tier below.
 				r.Get("/plugins/registry", s.handleListPluginRegistry)
 				r.Get("/plugins/{id}", s.handleGetPlugin)
+				// A plugin's net:fetch egress log is observability (read tier), and like
+				// the reads above it is registered even when the plugin system is
+				// disabled so the dashboard gets a clean empty state, not a 404.
+				r.Get("/plugins/{id}/egress", s.handleGetPluginEgress)
 
 				// Canonical event stream (poll/cursor). The live SSE tail is the
 				// separate /events/stream route above; chi prefers the static

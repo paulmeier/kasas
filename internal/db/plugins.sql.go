@@ -22,7 +22,7 @@ func (q *Queries) DeletePlugin(ctx context.Context, id int64) (int64, error) {
 }
 
 const getPlugin = `-- name: GetPlugin :one
-SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at FROM plugins WHERE id = ?1
+SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at, net_grants FROM plugins WHERE id = ?1
 `
 
 func (q *Queries) GetPlugin(ctx context.Context, id int64) (Plugin, error) {
@@ -42,12 +42,13 @@ func (q *Queries) GetPlugin(ctx context.Context, id int64) (Plugin, error) {
 		&i.LastError,
 		&i.LastRunAt,
 		&i.LastSuccessAt,
+		&i.NetGrants,
 	)
 	return i, err
 }
 
 const getPluginByName = `-- name: GetPluginByName :one
-SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at FROM plugins WHERE name = ?1
+SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at, net_grants FROM plugins WHERE name = ?1
 `
 
 func (q *Queries) GetPluginByName(ctx context.Context, name string) (Plugin, error) {
@@ -67,6 +68,7 @@ func (q *Queries) GetPluginByName(ctx context.Context, name string) (Plugin, err
 		&i.LastError,
 		&i.LastRunAt,
 		&i.LastSuccessAt,
+		&i.NetGrants,
 	)
 	return i, err
 }
@@ -77,7 +79,7 @@ VALUES (
     ?1, ?2, ?3, ?4,
     ?5, ?6, ?7, ?8
 )
-RETURNING id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at
+RETURNING id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at, net_grants
 `
 
 type InsertPluginParams struct {
@@ -120,12 +122,13 @@ func (q *Queries) InsertPlugin(ctx context.Context, arg InsertPluginParams) (Plu
 		&i.LastError,
 		&i.LastRunAt,
 		&i.LastSuccessAt,
+		&i.NetGrants,
 	)
 	return i, err
 }
 
 const listEnabledPlugins = `-- name: ListEnabledPlugins :many
-SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at FROM plugins WHERE enabled = 1 ORDER BY name
+SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at, net_grants FROM plugins WHERE enabled = 1 ORDER BY name
 `
 
 func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
@@ -151,6 +154,7 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
 			&i.LastError,
 			&i.LastRunAt,
 			&i.LastSuccessAt,
+			&i.NetGrants,
 		); err != nil {
 			return nil, err
 		}
@@ -166,7 +170,7 @@ func (q *Queries) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
 }
 
 const listPlugins = `-- name: ListPlugins :many
-SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at FROM plugins ORDER BY name
+SELECT id, name, runtime, version, enabled, granted_capabilities, config, created_at, updated_at, last_status, last_error, last_run_at, last_success_at, net_grants FROM plugins ORDER BY name
 `
 
 func (q *Queries) ListPlugins(ctx context.Context) ([]Plugin, error) {
@@ -192,6 +196,7 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]Plugin, error) {
 			&i.LastError,
 			&i.LastRunAt,
 			&i.LastSuccessAt,
+			&i.NetGrants,
 		); err != nil {
 			return nil, err
 		}
@@ -287,6 +292,28 @@ func (q *Queries) UpdatePluginManifest(ctx context.Context, arg UpdatePluginMani
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updatePluginNetGrants = `-- name: UpdatePluginNetGrants :execrows
+UPDATE plugins
+SET net_grants = ?1, updated_at = ?2
+WHERE id = ?3
+`
+
+type UpdatePluginNetGrantsParams struct {
+	NetGrants string `json:"net_grants"`
+	UpdatedAt int64  `json:"updated_at"`
+	ID        int64  `json:"id"`
+}
+
+// Sets the operator's per-plugin net:fetch private-host grants (a JSON array of
+// hostnames), written at enable time for a net:fetch plugin. See ADR 0002.
+func (q *Queries) UpdatePluginNetGrants(ctx context.Context, arg UpdatePluginNetGrantsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updatePluginNetGrants, arg.NetGrants, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

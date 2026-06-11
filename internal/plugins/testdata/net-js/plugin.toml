@@ -1,0 +1,9 @@
+name         = "net-js"
+version      = "0.1.0"
+description  = "Exercises kasas.fetch wiring (JS)"
+runtime      = "js"
+hooks        = ["OnTransactionCreate"]
+capabilities = ["labels:write", "net:fetch"]
+
+[net]
+allow = ["api.example.com"]

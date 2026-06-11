@@ -111,6 +111,11 @@ type Host interface {
 	SetExtension(ctx context.Context, txnID, key string, value json.RawMessage) error // extensions:write
 	RemoveExtension(ctx context.Context, txnID, key string) error                     // extensions:write
 	Log(level, msg string, kv map[string]any)                                         // always allowed
+	// Fetch performs a host-mediated outbound HTTP request (ADR 0002). net:fetch.
+	// The host checks the capability, resolves the URL host against the manifest's
+	// [net].allow list, applies the SSRF rule, and enforces timeout/size/rate/
+	// redirect caps — a plugin never opens a socket itself.
+	Fetch(ctx context.Context, req FetchRequest) (FetchResponse, error) // net:fetch
 	// SetConfig validates changes against the manifest's [config] defaults (the
 	// schema of what is configurable), persists them to the plugin's user config
 	// file (<plugins.dir>/<name>.config.toml), and returns the new effective
@@ -176,4 +181,30 @@ func decodeCapList(stored string) []Capability {
 		out = append(out, Capability(s))
 	}
 	return out
+}
+
+// encodeStringList marshals a string list to the JSON array stored in the DB
+// (e.g. plugins.net_grants), sorted so the stored form is stable. A nil/empty list
+// stores "[]".
+func encodeStringList(ss []string) string {
+	sorted := make([]string, len(ss))
+	copy(sorted, ss)
+	sort.Strings(sorted)
+	b, err := json.Marshal(sorted)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+// decodeStringList parses a DB JSON string array (e.g. plugins.net_grants).
+func decodeStringList(stored string) []string {
+	if stored == "" {
+		return nil
+	}
+	var ss []string
+	if err := json.Unmarshal([]byte(stored), &ss); err != nil {
+		return nil
+	}
+	return ss
 }

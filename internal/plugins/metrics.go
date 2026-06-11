@@ -19,3 +19,8 @@ var pluginJobsDropped = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "kasas_plugin_jobs_dropped_total",
 	Help: "Total plugin hook jobs dropped because the plugin's queue was full.",
 }, []string{"plugin"})
+
+var pluginEgress = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "kasas_plugin_egress_total",
+	Help: "Total plugin net:fetch egress attempts, labelled by plugin and outcome (ok|error).",
+}, []string{"plugin", "outcome"})

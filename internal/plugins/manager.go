@@ -37,6 +37,7 @@ type Options struct {
 	HookTimeout time.Duration      // per-hook invocation timeout
 	QueueSize   int                // per-plugin job-queue depth
 	SearchLimit int                // max results a plugin search may return
+	NetLimits   NetLimits          // net:fetch egress caps (timeout/size/rate/redirects)
 	Logger      *slog.Logger
 	// Registry, when non-nil, enables the community-plugin marketplace: browsing a
 	// published catalog and installing plugins into Dir. Nil leaves the marketplace
@@ -59,8 +60,13 @@ type Manager struct {
 	timeout     time.Duration
 	queueSize   int
 	searchLimit int
+	netLimits   NetLimits
 	logger      *slog.Logger
 	registry    RegistrySource // nil when the marketplace is disabled
+	// egress is the in-memory, bounded record of every plugin net:fetch attempt,
+	// surfaced read-only to the operator (REST/MCP/dashboard). It is process-scoped
+	// observability, deliberately not a DB table (ADR 0002 #2 logging).
+	egress *egressLog
 
 	mu      sync.RWMutex
 	plugins map[string]*plugin
@@ -97,8 +103,10 @@ func NewManager(opts Options) *Manager {
 		timeout:     opts.HookTimeout,
 		queueSize:   opts.QueueSize,
 		searchLimit: opts.SearchLimit,
+		netLimits:   opts.NetLimits.withDefaults(),
 		logger:      opts.Logger,
 		registry:    opts.Registry,
+		egress:      newEgressLog(0),
 		plugins:     map[string]*plugin{},
 	}
 }
@@ -489,7 +497,7 @@ func (m *Manager) load(ctx context.Context, row db.Plugin, d Discovered) error {
 	}
 	caps := intersectCaps(d.Manifest.Capabilities, decodeCapList(row.GrantedCapabilities))
 	host := newHost(m.store, m.emitter, caps, row.Name, m.searchLimit, m.logger,
-		newConfigStore(m.dir, row.Name, d.Manifest.Config))
+		newConfigStore(m.dir, row.Name, d.Manifest.Config), m.netGateFor(caps, row, d.Manifest))
 
 	// The instance sees the EFFECTIVE config: manifest defaults overlaid with the
 	// operator's <name>.config.toml overrides. A broken or mistyped override file
@@ -594,6 +602,8 @@ type Status struct {
 	Hooks         []Hook
 	Requested     []Capability // capabilities the manifest requests
 	Granted       []Capability // capabilities the operator/DB granted
+	NetAllow      []string     // manifest-declared egress hosts ([net].allow)
+	NetGrants     []string     // operator-granted private hosts (net:fetch)
 	LastStatus    int64
 	LastError     string
 	LastRunAt     int64
@@ -645,7 +655,10 @@ func (m *Manager) Get(ctx context.Context, id int64) (Status, error) {
 
 // SetEnabled enables or disables a plugin, loading or stopping it accordingly.
 // Enabling executes the plugin's code, so the API gates this on the admin tier.
-func (m *Manager) SetEnabled(ctx context.Context, id int64, enabled bool) (Status, error) {
+// netGrants, when non-nil, replaces the plugin's net:fetch private-host grants
+// before it loads (each must be a host the manifest declares in [net].allow); a
+// nil slice leaves the stored grants untouched. Grants are ignored when disabling.
+func (m *Manager) SetEnabled(ctx context.Context, id int64, enabled bool, netGrants []string) (Status, error) {
 	if m == nil {
 		return Status{}, ErrDisabled
 	}
@@ -661,6 +674,16 @@ func (m *Manager) SetEnabled(ctx context.Context, id int64, enabled bool) (Statu
 		d, ok := m.discoverByName(row.Name)
 		if !ok || !d.Valid() {
 			return Status{}, fmt.Errorf("plugin %q has no loadable manifest on disk", row.Name)
+		}
+		// Persist operator-supplied private-host grants BEFORE load, so the egress
+		// gate built in load() reads the fresh row. A grant must name a host the
+		// manifest declares; an unknown host is a clear error, not a silent no-op.
+		if netGrants != nil {
+			updated, gerr := m.persistNetGrants(ctx, row, d.Manifest, netGrants)
+			if gerr != nil {
+				return Status{}, gerr
+			}
+			row = updated
 		}
 		if _, err := m.store.SetPluginEnabled(ctx, db.SetPluginEnabledParams{ID: id, Enabled: 1, UpdatedAt: time.Now().Unix()}); err != nil {
 			return Status{}, err
@@ -727,6 +750,7 @@ func statusOf(row db.Plugin, d Discovered, loaded bool) Status {
 		Loaded:        loaded,
 		OnDisk:        d.Valid(),
 		Granted:       decodeCapList(row.GrantedCapabilities),
+		NetGrants:     decodeStringList(row.NetGrants),
 		LastStatus:    row.LastStatus,
 		LastError:     row.LastError,
 		LastRunAt:     row.LastRunAt,
@@ -736,6 +760,9 @@ func statusOf(row db.Plugin, d Discovered, loaded bool) Status {
 		s.Description = d.Manifest.Description
 		s.Hooks = d.Manifest.Hooks
 		s.Requested = d.Manifest.Capabilities
+		if d.Manifest.Net != nil {
+			s.NetAllow = d.Manifest.Net.Allow
+		}
 		if d.Manifest.Runtime != "" {
 			s.Runtime = d.Manifest.Runtime
 		}
@@ -759,6 +786,90 @@ func statusOf(row db.Plugin, d Discovered, loaded bool) Status {
 		s.State = "disabled"
 	}
 	return s
+}
+
+// --- net:fetch egress wiring (ADR 0002) ---
+
+// netGateFor builds the egress gate for a plugin, or nil when the plugin was not
+// granted net:fetch or declares no [net].allow list (so the host facade refuses
+// kasas.fetch by construction). The gate binds the manifest allowlist, the
+// operator's stored private-host grants, the host's egress caps, and the shared
+// egress log.
+func (m *Manager) netGateFor(caps capSet, row db.Plugin, man Manifest) *netGate {
+	if !caps.has(CapNetFetch) || man.Net == nil || len(man.Net.Allow) == 0 {
+		return nil
+	}
+	return newNetGate(row.Name, man.Net.Allow, decodeStringList(row.NetGrants), m.netLimits, m.egress, m.logger)
+}
+
+// persistNetGrants validates operator-supplied private-host grants against the
+// manifest's declared allowlist and writes them to the plugin row, returning the
+// updated row. A grant that names a host the manifest does not declare is rejected.
+func (m *Manager) persistNetGrants(ctx context.Context, row db.Plugin, man Manifest, grants []string) (db.Plugin, error) {
+	clean, err := validateNetGrants(man, grants)
+	if err != nil {
+		return db.Plugin{}, err
+	}
+	encoded := encodeStringList(clean)
+	if encoded == row.NetGrants {
+		return row, nil
+	}
+	if _, err := m.store.UpdatePluginNetGrants(ctx, db.UpdatePluginNetGrantsParams{
+		ID: row.ID, NetGrants: encoded, UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		return db.Plugin{}, err
+	}
+	row.NetGrants = encoded
+	return row, nil
+}
+
+// validateNetGrants normalizes a grant list and checks every host is one the
+// manifest declares in [net].allow. An empty list clears all grants.
+func validateNetGrants(man Manifest, grants []string) ([]string, error) {
+	if len(grants) == 0 {
+		return nil, nil
+	}
+	if man.Net == nil || len(man.Net.Allow) == 0 {
+		return nil, fmt.Errorf("plugin declares no [net].allow list; there are no hosts to grant")
+	}
+	allow := make(map[string]bool, len(man.Net.Allow))
+	for _, h := range man.Net.Allow {
+		allow[h] = true
+	}
+	seen := make(map[string]bool, len(grants))
+	out := make([]string, 0, len(grants))
+	for _, g := range grants {
+		h, err := normalizeNetHost(g)
+		if err != nil {
+			return nil, err
+		}
+		if !allow[h] {
+			return nil, fmt.Errorf("cannot grant host %q: it is not in the plugin's declared [net].allow list", g)
+		}
+		if seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// EgressLog returns the most recent net:fetch egress entries for one plugin
+// (newest first, up to limit). A disabled plugin system returns ErrDisabled; an
+// unknown id returns ErrPluginNotFound.
+func (m *Manager) EgressLog(ctx context.Context, id int64, limit int) ([]EgressEntry, error) {
+	if m == nil {
+		return nil, ErrDisabled
+	}
+	row, err := m.store.GetPlugin(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrPluginNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return m.egress.list(row.Name, limit), nil
 }
 
 // --- event decoding ---

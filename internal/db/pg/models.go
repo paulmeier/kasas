@@ -60,6 +60,7 @@ type Plugin struct {
 	LastError           string `json:"last_error"`
 	LastRunAt           int64  `json:"last_run_at"`
 	LastSuccessAt       int64  `json:"last_success_at"`
+	NetGrants           string `json:"net_grants"`
 }
 
 type Rule struct {

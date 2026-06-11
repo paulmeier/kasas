@@ -142,6 +142,14 @@ func buildDefinitions() []Definition {
 			func(c *config.Config) *string { return &c.Plugins.Registry.URL }),
 		stringSetting("plugins.registry.ref", "", "Plugins", "Registry ref", "Git ref used to build the registry's raw file-download URLs.", nil,
 			func(c *config.Config) *string { return &c.Plugins.Registry.Ref }),
+		durationSetting("plugins.net.timeout", "", "Plugins", "Network timeout", "Cap on a single plugin net:fetch request, e.g. 10s. A plugin may ask for less, never more.",
+			func(c *config.Config) *time.Duration { return &c.Plugins.Net.Timeout }),
+		intSetting("plugins.net.max_response_bytes", "", "Plugins", "Network response cap", "Max bytes a plugin net:fetch may read from one response body.",
+			func(c *config.Config) *int { return &c.Plugins.Net.MaxResponseBytes }),
+		intSetting("plugins.net.rate_per_minute", "", "Plugins", "Network rate limit", "Max plugin net:fetch requests per minute, per plugin.",
+			func(c *config.Config) *int { return &c.Plugins.Net.RatePerMinute }),
+		intSetting("plugins.net.max_redirects", "", "Plugins", "Network max redirects", "Max redirect hops a plugin net:fetch will follow; each hop is re-checked against the allowlist.",
+			func(c *config.Config) *int { return &c.Plugins.Net.MaxRedirects }),
 
 		// Updates.
 		boolSetting("update.check", "", "Updates", "Check for updates", "Periodically check GitHub for a newer release and show the dashboard banner.",

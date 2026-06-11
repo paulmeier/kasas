@@ -140,6 +140,7 @@ func (ji *jsInstance) inject(m Manifest) {
 	_ = kasas.Set("removeLabels", ji.removeLabels)
 	_ = kasas.Set("setExtension", ji.setExtension)
 	_ = kasas.Set("removeExtension", ji.removeExtension)
+	_ = kasas.Set("fetch", ji.fetch)
 	_ = kasas.Set("log", ji.log)
 	_ = kasas.Set("setConfig", ji.setConfig)
 	_ = kasas.Set("config", vm.ToValue(m.Config))
@@ -320,6 +321,54 @@ func (ji *jsInstance) setConfig(call goja.FunctionCall) goja.Value {
 		_ = ji.kasas.Set("config", cfg)
 	}
 	return cfg
+}
+
+// fetch performs a host-mediated HTTP request: kasas.fetch({ url, method, headers,
+// body, timeoutMs }) and returns { status, headers, body, truncated }. The host
+// enforces the allowlist and SSRF rule; net:fetch.
+func (ji *jsInstance) fetch(call goja.FunctionCall) goja.Value {
+	arg, ok := call.Argument(0).Export().(map[string]any)
+	if !ok {
+		panic(ji.throw("fetch: expected a request object with a url"))
+	}
+	req := FetchRequest{
+		URL:       stringifyJS(arg["url"]),
+		Method:    stringifyJS(arg["method"]),
+		Body:      stringifyJS(arg["body"]),
+		TimeoutMS: toInt(arg["timeoutMs"]),
+	}
+	if h, ok := arg["headers"].(map[string]any); ok {
+		req.Headers = map[string]string{}
+		for k, v := range h {
+			req.Headers[k] = stringifyJS(v)
+		}
+	}
+	resp, err := ji.host.Fetch(ji.invCtx(), req)
+	if err != nil {
+		panic(ji.throw("fetch: %v", err))
+	}
+	return ji.vm.ToValue(map[string]any{
+		"status":    resp.Status,
+		"headers":   resp.Headers,
+		"body":      resp.Body,
+		"truncated": resp.Truncated,
+	})
+}
+
+// toInt coerces an exported JS value (int64/float64/string) to an int, returning
+// 0 when it is absent or non-numeric.
+func toInt(v any) int {
+	switch x := v.(type) {
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	case string:
+		n, _ := strconv.Atoi(x)
+		return n
+	default:
+		return 0
+	}
 }
 
 func (ji *jsInstance) log(call goja.FunctionCall) goja.Value {

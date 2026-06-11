@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,6 +32,11 @@ type PluginDTO struct {
 	Hooks        []string `json:"hooks"`
 	Capabilities []string `json:"capabilities"`         // requested by the manifest
 	Granted      []string `json:"granted_capabilities"` // granted by the operator/DB
+	// net:fetch (ADR 0002): NetAllow is the manifest-declared egress allowlist;
+	// NetGrants is the subset of those hosts the operator has granted private/LAN
+	// access to. Both empty/omitted for a plugin without net:fetch.
+	NetAllow  []string `json:"net_allow,omitempty"`
+	NetGrants []string `json:"net_grants,omitempty"`
 
 	LastStatus    int64      `json:"last_status"`
 	LastError     string     `json:"last_error,omitempty"`
@@ -51,6 +58,8 @@ func toPluginDTO(s plugins.Status) PluginDTO {
 		Hooks:        hooksToStrings(s.Hooks),
 		Capabilities: capsToStrings(s.Requested),
 		Granted:      capsToStrings(s.Granted),
+		NetAllow:     s.NetAllow,
+		NetGrants:    s.NetGrants,
 		LastStatus:   s.LastStatus,
 		LastError:    s.LastError,
 	}
@@ -152,13 +161,32 @@ func (s *Server) handleDisablePlugin(w http.ResponseWriter, r *http.Request) {
 	s.setPluginEnabled(w, r, false)
 }
 
+// enablePluginRequest is the OPTIONAL JSON body of POST /plugins/{id}/enable. It
+// carries the operator's net:fetch private-host grants — the subset of the
+// plugin's declared [net].allow hosts it may reach on a private/LAN address.
+// Absent (or on disable) leaves the stored grants untouched.
+type enablePluginRequest struct {
+	NetGrants []string `json:"net_grants"`
+}
+
 func (s *Server) setPluginEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
 	id, err := pluginIDParam(r)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid plugin id")
 		return
 	}
-	st, err := s.pluginMgr.SetEnabled(r.Context(), id, enabled)
+	// Grants only apply when enabling, and the body is optional: a missing/empty body
+	// means "no change" (nil), which is the common case and what older clients send.
+	var grants []string
+	if enabled && r.Body != nil && r.ContentLength != 0 {
+		var req enablePluginRequest
+		if derr := json.NewDecoder(r.Body).Decode(&req); derr != nil && !errors.Is(derr, io.EOF) {
+			s.writeError(w, http.StatusBadRequest, "invalid request body: "+derr.Error())
+			return
+		}
+		grants = req.NetGrants
+	}
+	st, err := s.pluginMgr.SetEnabled(r.Context(), id, enabled, grants)
 	if err != nil {
 		op := "enable plugin"
 		if !enabled {
@@ -223,6 +251,68 @@ func (s *Server) handleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// EgressEntryDTO is one recorded plugin net:fetch attempt (ADR 0002 #2 logging).
+type EgressEntryDTO struct {
+	Time       time.Time `json:"time"`
+	Method     string    `json:"method"`
+	Host       string    `json:"host"`
+	URL        string    `json:"url"`
+	Status     int       `json:"status"`
+	Bytes      int64     `json:"bytes"`
+	DurationMs int64     `json:"duration_ms"`
+	Error      string    `json:"error,omitempty"`
+}
+
+type pluginEgressOutput struct {
+	Enabled bool             `json:"enabled"` // false when the plugin system is disabled
+	Entries []EgressEntryDTO `json:"entries"`
+}
+
+func toEgressDTOs(in []plugins.EgressEntry) []EgressEntryDTO {
+	out := make([]EgressEntryDTO, len(in))
+	for i, e := range in {
+		out[i] = EgressEntryDTO{
+			Time: e.Time, Method: e.Method, Host: e.Host, URL: e.URL,
+			Status: e.Status, Bytes: e.Bytes, DurationMs: e.DurationMs, Error: e.Error,
+		}
+	}
+	return out
+}
+
+// handleGetPluginEgress returns the recent net:fetch egress log for one plugin
+// (read tier — it is observability, not a mutation). Like the other plugin reads
+// it is nil-safe: a disabled plugin system reports an empty, disabled log rather
+// than a routing error, so the dashboard renders a clean state.
+func (s *Server) handleGetPluginEgress(w http.ResponseWriter, r *http.Request) {
+	id, err := pluginIDParam(r)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid plugin id")
+		return
+	}
+	entries, err := s.pluginMgr.EgressLog(r.Context(), id, egressPageLimit(r))
+	switch {
+	case errors.Is(err, plugins.ErrDisabled):
+		s.writeJSON(w, http.StatusOK, pluginEgressOutput{Enabled: false, Entries: []EgressEntryDTO{}})
+	case errors.Is(err, plugins.ErrPluginNotFound):
+		s.writeError(w, http.StatusNotFound, "plugin not found")
+	case err != nil:
+		s.serverError(w, "plugin egress log", err)
+	default:
+		s.writeJSON(w, http.StatusOK, pluginEgressOutput{Enabled: true, Entries: toEgressDTOs(entries)})
+	}
+}
+
+// egressPageLimit reads an optional ?limit= (default 100), bounded by the ring's
+// own cap inside the manager.
+func egressPageLimit(r *http.Request) int {
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 100
+}
+
 // --- MCP tool input/output types + handlers (registered in mcp.go) ---
 
 type listPluginsOutput struct {
@@ -232,6 +322,21 @@ type listPluginsOutput struct {
 
 type pluginIDInput struct {
 	ID int64 `json:"id" jsonschema:"the id of the plugin"`
+}
+
+// enablePluginInput is the input to the enable_plugin MCP tool: a plugin id plus
+// the OPTIONAL net:fetch private-host grants (a subset of the plugin's declared
+// [net].allow hosts the operator approves for private/LAN access). Omitting
+// net_grants leaves the stored grants untouched.
+type enablePluginInput struct {
+	ID        int64    `json:"id" jsonschema:"the id of the plugin"`
+	NetGrants []string `json:"net_grants,omitempty" jsonschema:"optional: for a net:fetch plugin, the subset of its declared [net].allow hosts to grant private/LAN access to (e.g. [\"paperless.lan\"]); omit to leave grants unchanged"`
+}
+
+// pluginEgressInput is the input to the plugin_egress_log MCP tool.
+type pluginEgressInput struct {
+	ID    int64 `json:"id" jsonschema:"the id of the plugin"`
+	Limit int   `json:"limit,omitempty" jsonschema:"maximum number of egress entries to return (default 100, newest first)"`
 }
 
 func (s *Server) mcpListPlugins(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, listPluginsOutput, error) {
@@ -256,16 +361,16 @@ func (s *Server) mcpGetPlugin(ctx context.Context, _ *mcp.CallToolRequest, in pl
 	return &mcp.CallToolResult{}, toPluginDTO(st), nil
 }
 
-func (s *Server) mcpEnablePlugin(ctx context.Context, _ *mcp.CallToolRequest, in pluginIDInput) (*mcp.CallToolResult, PluginDTO, error) {
-	return s.mcpSetPluginEnabled(ctx, in.ID, true)
+func (s *Server) mcpEnablePlugin(ctx context.Context, _ *mcp.CallToolRequest, in enablePluginInput) (*mcp.CallToolResult, PluginDTO, error) {
+	return s.mcpSetPluginEnabled(ctx, in.ID, true, in.NetGrants)
 }
 
 func (s *Server) mcpDisablePlugin(ctx context.Context, _ *mcp.CallToolRequest, in pluginIDInput) (*mcp.CallToolResult, PluginDTO, error) {
-	return s.mcpSetPluginEnabled(ctx, in.ID, false)
+	return s.mcpSetPluginEnabled(ctx, in.ID, false, nil)
 }
 
-func (s *Server) mcpSetPluginEnabled(ctx context.Context, id int64, enabled bool) (*mcp.CallToolResult, PluginDTO, error) {
-	st, err := s.pluginMgr.SetEnabled(ctx, id, enabled)
+func (s *Server) mcpSetPluginEnabled(ctx context.Context, id int64, enabled bool, netGrants []string) (*mcp.CallToolResult, PluginDTO, error) {
+	st, err := s.pluginMgr.SetEnabled(ctx, id, enabled, netGrants)
 	if errors.Is(err, plugins.ErrPluginNotFound) {
 		return nil, PluginDTO{}, fmt.Errorf("plugin %d not found", id)
 	}
@@ -273,6 +378,24 @@ func (s *Server) mcpSetPluginEnabled(ctx context.Context, id int64, enabled bool
 		return nil, PluginDTO{}, err
 	}
 	return &mcp.CallToolResult{}, toPluginDTO(st), nil
+}
+
+func (s *Server) mcpPluginEgressLog(ctx context.Context, _ *mcp.CallToolRequest, in pluginEgressInput) (*mcp.CallToolResult, pluginEgressOutput, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	entries, err := s.pluginMgr.EgressLog(ctx, in.ID, limit)
+	if errors.Is(err, plugins.ErrDisabled) {
+		return &mcp.CallToolResult{}, pluginEgressOutput{Enabled: false, Entries: []EgressEntryDTO{}}, nil
+	}
+	if errors.Is(err, plugins.ErrPluginNotFound) {
+		return nil, pluginEgressOutput{}, fmt.Errorf("plugin %d not found", in.ID)
+	}
+	if err != nil {
+		return nil, pluginEgressOutput{}, err
+	}
+	return &mcp.CallToolResult{}, pluginEgressOutput{Enabled: true, Entries: toEgressDTOs(entries)}, nil
 }
 
 func (s *Server) mcpReloadPlugin(ctx context.Context, _ *mcp.CallToolRequest, in pluginIDInput) (*mcp.CallToolResult, PluginDTO, error) {

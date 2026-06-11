@@ -291,6 +291,22 @@ hook_timeout = "5s"
 # consumers reconcile any gap via the /events cursor.
 queue_size = 256
 
+[plugins.net]
+# Egress ceilings for the net:fetch capability (ADR 0002). A net:fetch plugin
+# declares WHICH hosts it may reach in its own manifest ([net].allow), and the
+# operator grants any private/LAN hosts at enable time; these knobs are the
+# host-owned limits a plugin can never raise. Egress is host-mediated (the plugin
+# calls kasas.fetch, the host makes the request), default-deny, allowlisted, and
+# every attempt is logged on the Plugins page.
+# Cap on a single request (a plugin may ask for a shorter timeout, never longer).
+timeout = "10s"
+# Max bytes read from one response body (the rest is truncated).
+max_response_bytes = 5242880
+# Per-plugin request budget per minute.
+rate_per_minute = 60
+# Max redirect hops followed; each hop is re-checked against the allowlist.
+max_redirects = 5
+
 [plugins.registry]
 # Community plugin marketplace: browse a published registry index and install
 # plugins into `dir` from the dashboard (Marketplace page), the admin REST endpoints

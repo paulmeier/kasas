@@ -719,10 +719,24 @@ type plugin struct {
 	Hooks         []string   `json:"hooks"`
 	Capabilities  []string   `json:"capabilities"`
 	Granted       []string   `json:"granted_capabilities"`
+	NetAllow      []string   `json:"net_allow"`
+	NetGrants     []string   `json:"net_grants"`
 	LastStatus    int64      `json:"last_status"`
 	LastError     string     `json:"last_error"`
 	LastRunAt     *time.Time `json:"last_run_at"`
 	LastSuccessAt *time.Time `json:"last_success_at"`
+}
+
+// egressEntry mirrors api.EgressEntryDTO: one recorded plugin net:fetch attempt.
+type egressEntry struct {
+	Time       time.Time `json:"time"`
+	Method     string    `json:"method"`
+	Host       string    `json:"host"`
+	URL        string    `json:"url"`
+	Status     int       `json:"status"`
+	Bytes      int64     `json:"bytes"`
+	DurationMs int64     `json:"duration_ms"`
+	Error      string    `json:"error"`
 }
 
 // webhookPayload is the create/update request body (mirrors api.webhookInput).
@@ -771,12 +785,58 @@ func (c *apiClient) listPlugins(ctx context.Context) ([]plugin, bool, error) {
 	return out.Plugins, out.Enabled, nil
 }
 
-func (c *apiClient) enablePlugin(ctx context.Context, id int64) (plugin, error) {
-	return c.pluginAction(ctx, id, "enable")
+// enablePlugin enables a plugin. netGrants, when non-nil, carries the operator's
+// net:fetch private-host grants (a subset of the plugin's declared [net].allow
+// hosts) in the request body; nil sends no body (the common case).
+func (c *apiClient) enablePlugin(ctx context.Context, id int64, netGrants []string) (plugin, error) {
+	path := "/api/v1/plugins/" + strconv.FormatInt(id, 10) + "/enable"
+	var body io.Reader
+	if netGrants != nil {
+		b, err := json.Marshal(struct {
+			NetGrants []string `json:"net_grants"`
+		}{NetGrants: netGrants})
+		if err != nil {
+			return plugin{}, err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, body)
+	if err != nil {
+		return plugin{}, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return plugin{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return plugin{}, decodeAPIError(resp, "enable plugin")
+	}
+	var out plugin
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return plugin{}, err
+	}
+	return out, nil
 }
 
 func (c *apiClient) disablePlugin(ctx context.Context, id int64) (plugin, error) {
 	return c.pluginAction(ctx, id, "disable")
+}
+
+// pluginEgress returns a plugin's recent net:fetch egress log (newest first) and
+// whether the plugin system is enabled.
+func (c *apiClient) pluginEgress(ctx context.Context, id int64) ([]egressEntry, bool, error) {
+	var out struct {
+		Enabled bool          `json:"enabled"`
+		Entries []egressEntry `json:"entries"`
+	}
+	if err := c.get(ctx, "/api/v1/plugins/"+strconv.FormatInt(id, 10)+"/egress", nil, &out); err != nil {
+		return nil, false, err
+	}
+	return out.Entries, out.Enabled, nil
 }
 
 func (c *apiClient) reloadPlugin(ctx context.Context, id int64) (plugin, error) {

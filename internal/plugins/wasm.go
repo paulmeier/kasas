@@ -438,6 +438,12 @@ type wasmHostReq struct {
 	Msg     string            `json:"msg,omitempty"`
 	KV      map[string]any    `json:"kv,omitempty"`
 	Changes map[string]any    `json:"changes,omitempty"`
+	// net:fetch fields (op "fetch").
+	URL       string            `json:"url,omitempty"`
+	Method    string            `json:"method,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Body      string            `json:"body,omitempty"`
+	TimeoutMS int               `json:"timeout_ms,omitempty"`
 }
 
 type wasmHostResp struct {
@@ -510,6 +516,14 @@ func (wi *wasmInstance) execHostCall(ctx context.Context, raw []byte) []byte {
 			return wasmErrEnvelope(err)
 		}
 		return wasmOKEnvelope(nil)
+	case "fetch":
+		resp, err := wi.host.Fetch(ctx, FetchRequest{
+			URL: req.URL, Method: req.Method, Headers: req.Headers, Body: req.Body, TimeoutMS: req.TimeoutMS,
+		})
+		if err != nil {
+			return wasmErrEnvelope(err)
+		}
+		return wasmOKEnvelope(resp)
 	case "log":
 		wi.host.Log(req.Level, req.Msg, req.KV)
 		return wasmOKEnvelope(nil)

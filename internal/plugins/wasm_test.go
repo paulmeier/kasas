@@ -247,7 +247,7 @@ func TestWasmSetConfigPersistsViaRealHost(t *testing.T) {
 	// No capabilities granted: the page's search degrades gracefully (the fixture
 	// renders "n/a"), while SetConfig is always allowed, like the JS analogue.
 	host := newHost(nil, nil, capSet{}, "wasm-budgeting", 0, testLogger(),
-		newConfigStore(pluginsDir, "wasm-budgeting", defaults))
+		newConfigStore(pluginsDir, "wasm-budgeting", defaults), nil)
 
 	data, err := os.ReadFile(filepath.Join("testdata", "wasm-budgeting", manifestFile))
 	require.NoError(t, err)

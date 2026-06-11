@@ -119,6 +119,7 @@ runtime (Lua today, JS/WASM later) inherits the same enforcement:
 | `kasas.remove_labels(id, {k,…})` | `labels:write` |
 | `kasas.set_extension(id, key, value)` | `extensions:write` |
 | `kasas.remove_extension(id, key)` | `extensions:write` |
+| `kasas.fetch({url, method, headers, body, timeout_ms})` | `net:fetch` (host-mediated, allowlisted — see [Network access](#network-access-netfetch)) |
 | `kasas.log(level, msg, {k=v,…})` | — (always allowed) |
 | `kasas.config` | — (the effective config: manifest defaults + user overrides) |
 | `kasas.set_config({k=v,…})` | — (always allowed; a plugin only configures itself) |
@@ -129,6 +130,124 @@ idiomatic **camelCase** (`kasas.getTransaction`, `kasas.applyLabels`, …) — s
 [JavaScript & TypeScript](#javascript-typescript) below — and the Go SDK in
 exported **PascalCase** (`kasas.GetTransaction`, `kasas.ApplyLabels`, …) — see
 [Go (WASM)](#go-wasm).
+
+## Network access (`net:fetch`) {#network-access-netfetch}
+
+By default a plugin has **no network access** — that is what makes it safe to
+install. The `net:fetch` capability ([ADR 0002](../architecture/decisions/0002-plugin-network-capability.md))
+unlocks the whole class of integration plugins (importers, enrichers, notifiers,
+mirrors) **in-process**, but it does so the same way every other capability works:
+the plugin never opens a socket — it calls a **host method**, and the host performs
+the request under rules the host owns. Network egress is **declared, narrow,
+enforced, and observable**, never blanket and never raw.
+
+### Declare the allowlist in the manifest
+
+`net:fetch` comes as a unit with a `[net].allow` block: the exact hosts the plugin
+may reach. Declaring the capability without a non-empty allowlist is a manifest
+error, so the install/enable prompt can make a *specific* claim ("this plugin talks
+to: paperless.lan") instead of a generic "uses the network" warning.
+
+```toml
+capabilities = ["transactions:read", "extensions:write", "net:fetch"]
+
+[net]
+# Egress is default-deny. A plugin may only reach hosts it declares here (bare
+# hostnames — no scheme, port, or path), and the gate/dashboard surface this exact
+# list at review and enable time. A request to any other host is refused.
+allow = ["paperless.lan", "api.merchant.example.com"]
+```
+
+### Call `kasas.fetch`
+
+One host method, mirrored across runtimes like the rest of the host API. It returns
+the response `{ status, headers, body, truncated }`; `truncated` is true when the
+body hit the size cap.
+
+```lua
+-- Lua
+local r = kasas.fetch{ url = "https://api.merchant.example.com/receipts/" .. id,
+                       method = "GET", headers = { Authorization = "Bearer …" },
+                       timeout_ms = 5000 }
+if r.status == 200 then kasas.set_extension(id, "merchant.receipt", r.body) end
+```
+
+```typescript
+// JS/TS
+const r = kasas.fetch({ url: `https://api.merchant.example.com/receipts/${id}`,
+                        method: "GET", headers: { Authorization: "Bearer …" },
+                        timeoutMs: 5000 });
+```
+
+```go
+// Go (WASM)
+r, err := kasas.Fetch(kasas.FetchRequest{URL: "https://api.merchant.example.com/x"})
+```
+
+### What the host enforces
+
+Every call goes through the capability-checked host facade, then a per-plugin
+**egress gate**:
+
+- **Allowlist.** The URL host must be on the manifest's `[net].allow` list, or the
+  request is **refused** (not silently dropped). Redirects are re-checked — a
+  permitted host cannot `302` a plugin onto an undeclared one — and the redirect
+  count is bounded.
+- **The SSRF rule, tuned for self-hosting.** A blanket "block all private IPs"
+  guard would break the primary use case (a NAS or `*.lan` API on `192.168.x.x`).
+  Instead: a host that resolves to a **public** address is allowed; a host that
+  resolves to a **private/loopback/link-local/metadata** address (RFC 1918,
+  `127.0.0.0/8`, `::1`, `169.254.169.254`, CGNAT `100.64/10`, …) is **refused
+  unless the operator granted that specific host** for that specific plugin at
+  enable time. The address is **resolved and pinned at request time** and the
+  *resolved IP* is re-validated, so DNS rebinding cannot swap a permitted IP for
+  an internal one.
+- **Caps.** A per-request timeout (a call may ask for less, never more than the
+  host's `plugins.net.timeout`), a response-size cap, a per-plugin request rate
+  limit, and a max redirect count — all host-owned, none plugin-raisable.
+- **Logging.** Every attempt (allowed *or* refused) is recorded — plugin, method,
+  host, status, bytes, duration — to the structured log, a Prometheus counter, and
+  an operator-visible **egress log** on the Plugins page.
+
+### Enabling collects the private-host grants
+
+Like every plugin, a `net:fetch` plugin is
+[installed disabled and enabled only by an admin](#enabling-is-opt-in--admin-only).
+Enabling additionally surfaces its declared egress list; for any host on your
+private network/LAN you tick "allow private/LAN access", and that per-plugin,
+per-host grant is recorded next to the plugin's config (the `net_grants` column)
+and shown on the Plugins page. Public hosts on the allowlist need no grant. The
+same grants can be passed through the API/MCP:
+
+```sh
+# Enable with a private-host grant (admin/dashboard token).
+curl -X POST -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"net_grants":["paperless.lan"]}' \
+  http://localhost:8080/api/v1/plugins/2/enable
+
+# Read a plugin's recent egress log.
+curl -s -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" \
+  http://localhost:8080/api/v1/plugins/2/egress
+```
+
+The MCP surface mirrors this: `enable_plugin` takes an optional `net_grants`, and
+`plugin_egress_log` returns the egress trail.
+
+### Configuring the egress caps
+
+The ceilings are host config (and runtime-editable [settings](settings.md)), so an
+operator bounds every plugin's egress regardless of what a manifest asks for:
+
+```toml
+[plugins.net]
+timeout            = "10s"      # cap on one request (a plugin may ask for less)
+max_response_bytes = 5242880    # 5 MiB body read cap
+rate_per_minute    = 60         # per-plugin request budget
+max_redirects      = 5          # each hop re-checked against the allowlist
+```
+
+This keeps the single static binary and the language-agnostic runtime seam: it is
+*one* new host method, not a new runtime or a raw socket exposed to guest code.
 
 ## Configuring a plugin
 
@@ -255,6 +374,8 @@ interface Kasas {
   removeLabels(id: string, keys: string[]): void;                // labels:write
   setExtension(id: string, key: string, value: unknown): void;   // extensions:write
   removeExtension(id: string, key: string): void;                // extensions:write
+  /** Host-mediated HTTP request, allowlisted to the manifest's [net].allow hosts. */
+  fetch(req: KasasFetchRequest): KasasFetchResponse;             // net:fetch
   log(level: "debug" | "info" | "warn" | "error", message: string,
       fields?: Record<string, unknown>): void;                   // always allowed
   /** Effective config: manifest [config] defaults + the user's overrides. */
@@ -262,6 +383,25 @@ interface Kasas {
   /** Persist config overrides (validated against the [config] defaults),
       overwrite <name>.config.toml, refresh kasas.config, and return it. */
   setConfig(changes: Record<string, unknown>): Record<string, any>; // always allowed
+}
+
+/** An outbound HTTP request for kasas.fetch. timeoutMs may only shorten the host's
+    configured per-request timeout, never exceed it. */
+interface KasasFetchRequest {
+  url: string;
+  method?: string;                 // default "GET"
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}
+
+/** The host's reply. body is the response body up to the size cap; truncated is
+    true when it was cut at the cap. */
+interface KasasFetchResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+  truncated: boolean;
 }
 
 declare const kasas: Kasas;
@@ -344,8 +484,8 @@ The module is a **WASI reactor**: kasas runs your `init` functions once at load
 (that is where hooks are registered — `main` never runs), then invokes exported
 hooks per event. The SDK mirrors the Lua/JS host API one-to-one —
 `GetTransaction`, `Search`, `ApplyLabels`, `RemoveLabels`, `SetExtension`,
-`RemoveExtension`, `Log`, `Config`/`ConfigString`/`SetConfig` — with the same
-capability gates, and ships typed [page builders](#dashboard-pages)
+`RemoveExtension`, `Fetch`, `Log`, `Config`/`ConfigString`/`SetConfig` — with the
+same capability gates, and ships typed [page builders](#dashboard-pages)
 (`kasas.Page`, `kasas.Stat(...)`, `kasas.Form(...)`, …) for dashboard pages.
 `fmt.Println` output lands in the plugin log at info level (stderr at error
 level).
@@ -377,8 +517,8 @@ which must `output` `{"ok":true,"abi":1,"hooks":["OnTransactionCreate",…]}` so
 kasas can verify at load that every declared hook is really implemented — and one
 export per hook, named exactly like the hook, with signature
 `(payload_len: u32)`. Host ops mirror the host API: `get_transaction`, `search`,
-`apply_labels`, `remove_labels`, `set_extension`, `remove_extension`, `log`,
-`get_config`, `set_config`.
+`apply_labels`, `remove_labels`, `set_extension`, `remove_extension`, `fetch`,
+`log`, `get_config`, `set_config`.
 
 ## Dashboard pages
 
@@ -644,11 +784,15 @@ hand-dropped plugin without it is still removable, just without self-cleanup.
 
 ## Sandbox & limits (v1)
 
-All three runtimes run with **no filesystem, process, or network access** and a
-single, self-contained entrypoint — the Lua VM opens only safe libraries, the goja
-VM exposes none of those globals by default (`eval` and the `Function` constructor
-binding are removed too), and the WASM module gets a WASI with no preopens, so every
-path and socket operation fails by construction. Each hook is bounded by
+All three runtimes run with **no filesystem or process access, and no network
+access by default**, plus a single, self-contained entrypoint — the Lua VM opens
+only safe libraries, the goja VM exposes none of those globals by default (`eval`
+and the `Function` constructor binding are removed too), and the WASM module gets a
+WASI with no preopens, so every path and socket operation fails by construction.
+The **one** sanctioned exception is the `net:fetch` capability
+([Network access](#network-access-netfetch)): even then a plugin opens no socket —
+it calls the host, which performs an allowlisted, SSRF-checked, logged request. The
+submission gate keeps rejecting every other network construct. Each hook is bounded by
 `plugins.hook_timeout`. The "single entrypoint" is about a single *reviewable,
 hashed artifact*, not about forbidding dependencies: a JS/TS plugin may
 [bundle third-party libraries](#bundled-dependencies) into that one file (ADR 0001),

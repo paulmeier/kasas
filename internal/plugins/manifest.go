@@ -67,6 +67,12 @@ const (
 	// a host method: revoking it makes the page disappear without touching the
 	// plugin's event hooks.
 	CapUIPage Capability = "ui:page"
+	// CapNetFetch lets a plugin make outbound HTTP(S) requests through the host
+	// (kasas.fetch), but only to the hosts it declares in the manifest's [net].allow
+	// block — egress is host-mediated, default-deny, and allowlisted (ADR 0002). It
+	// is the only sanctioned way out of the sandbox; the runtimes never expose a raw
+	// socket. Declaring it without a non-empty [net].allow is a manifest error.
+	CapNetFetch Capability = "net:fetch"
 )
 
 // Runtime values for the manifest `runtime` field. Each maps to a registered
@@ -131,6 +137,7 @@ var knownCapabilities = map[Capability]bool{
 	CapLabelsWrite:      true,
 	CapExtensionsWrite:  true,
 	CapUIPage:           true,
+	CapNetFetch:         true,
 }
 
 // knownUIIcons is the curated set of sidebar icon names a plugin page may pick
@@ -172,6 +179,22 @@ type Manifest struct {
 	// (title + curated icon) routing to /ext/<name>, rendered by the OnPageRender
 	// hook. Requires the ui:page capability so the operator can revoke the page.
 	UI *UIManifest `toml:"ui"`
+	// Net, when present, declares the plugin's egress allowlist: the exact hosts
+	// kasas.fetch may reach. It comes as a unit with the net:fetch capability (each
+	// requires the other), so the install/enable prompt can surface a specific,
+	// reviewable claim ("this plugin talks to: paperless.lan") rather than a generic
+	// "uses the network" warning. See ADR 0002.
+	Net *NetManifest `toml:"net"`
+}
+
+// NetManifest is the manifest's optional [net] block: the egress allowlist for a
+// net:fetch plugin. Egress is default-deny — a plugin may only reach the hosts
+// listed here, and a redirect onto an undeclared host is refused too.
+type NetManifest struct {
+	// Allow is the set of hostnames the plugin may reach (no scheme, no port,
+	// case-insensitive). A request whose URL host is not on this list is refused by
+	// the host before any connection is made.
+	Allow []string `toml:"allow"`
 }
 
 // UIManifest is the manifest's optional [ui] block.
@@ -236,7 +259,87 @@ func (m *Manifest) normalizeAndValidate() error {
 	if strings.ContainsAny(m.Entrypoint, `/\`) || m.Entrypoint == ".." {
 		return fmt.Errorf("entrypoint %q must be a file name inside the plugin directory", m.Entrypoint)
 	}
-	return m.validateUI()
+	if err := m.validateUI(); err != nil {
+		return err
+	}
+	return m.validateNet()
+}
+
+// requests reports whether the manifest declares capability c.
+func (m *Manifest) requests(c Capability) bool {
+	for _, x := range m.Capabilities {
+		if x == c {
+			return true
+		}
+	}
+	return false
+}
+
+// validateNet enforces the egress contract: the net:fetch capability and a
+// non-empty [net].allow list come as a unit (each requires the other), so a
+// net:fetch plugin always carries a specific, reviewable egress surface and a
+// declared allowlist can never run without the capability that gates it. Host
+// entries are normalized (lowercased, trimmed) and bounded so the list the
+// dashboard surfaces at enable time is the exact list the host enforces.
+func (m *Manifest) validateNet() error {
+	if m.Net == nil {
+		if m.requests(CapNetFetch) {
+			return fmt.Errorf("capability %q requires a [net] block with a non-empty allow list", CapNetFetch)
+		}
+		return nil
+	}
+	if !m.requests(CapNetFetch) {
+		return fmt.Errorf("a [net] block requires the %q capability", CapNetFetch)
+	}
+
+	seen := make(map[string]bool, len(m.Net.Allow))
+	out := make([]string, 0, len(m.Net.Allow))
+	for _, h := range m.Net.Allow {
+		host, err := normalizeNetHost(h)
+		if err != nil {
+			return err
+		}
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		out = append(out, host)
+	}
+	if len(out) == 0 {
+		return fmt.Errorf("capability %q requires a non-empty [net].allow list", CapNetFetch)
+	}
+	if len(out) > maxNetAllowHosts {
+		return fmt.Errorf("[net].allow lists %d hosts, over the limit of %d", len(out), maxNetAllowHosts)
+	}
+	m.Net.Allow = out
+	return nil
+}
+
+// maxNetAllowHosts bounds the declared egress list so the install/enable prompt
+// (which surfaces every host) stays readable and a manifest can't list thousands.
+const maxNetAllowHosts = 32
+
+// normalizeNetHost validates and canonicalizes one [net].allow entry: a bare
+// hostname (or IP), no scheme, port, path, or whitespace, lowercased. Matching at
+// request time is exact on the URL's hostname, so the stored form must be the
+// hostname alone.
+func normalizeNetHost(h string) (string, error) {
+	host := strings.ToLower(strings.TrimSpace(h))
+	if host == "" {
+		return "", fmt.Errorf("[net].allow contains an empty host")
+	}
+	if strings.ContainsAny(host, "/\\ \t") || strings.Contains(host, "://") {
+		return "", fmt.Errorf("[net].allow host %q must be a bare hostname (no scheme, path, or spaces)", h)
+	}
+	if strings.ContainsRune(host, ':') {
+		// A port would never match a hostname-only comparison; reject it explicitly so
+		// "host:443" fails loudly rather than silently never matching. Bracketed IPv6
+		// literals are still allowed (they contain ':' but also '[').
+		if !strings.HasPrefix(host, "[") {
+			return "", fmt.Errorf("[net].allow host %q must not include a port", h)
+		}
+	}
+	return host, nil
 }
 
 // validateUI enforces the dashboard-page contract: the [ui] block, the

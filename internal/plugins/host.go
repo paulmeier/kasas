@@ -36,6 +36,9 @@ type hostFacade struct {
 	// manifest defaults that act as its schema. Nil when no plugins directory is
 	// configured, making SetConfig a clean error instead of writing somewhere odd.
 	cfg *configStore
+	// net is the plugin's egress gate (ADR 0002). Nil unless the plugin was granted
+	// net:fetch and declared a [net].allow list, so Fetch is a clean error otherwise.
+	net *netGate
 }
 
 // configStore is the per-plugin user-config persistence handed to a host.
@@ -56,11 +59,11 @@ func newConfigStore(dir, name string, defaults map[string]any) *configStore {
 	return &configStore{dir: dir, name: name, defaults: defaults}
 }
 
-func newHost(store db.Store, emitter *events.Emitter, caps capSet, name string, searchLimit int, logger *slog.Logger, cfg *configStore) *hostFacade {
+func newHost(store db.Store, emitter *events.Emitter, caps capSet, name string, searchLimit int, logger *slog.Logger, cfg *configStore, net *netGate) *hostFacade {
 	if searchLimit <= 0 {
 		searchLimit = defaultSearchLimit
 	}
-	return &hostFacade{store: store, emitter: emitter, caps: caps, name: name, searchLimit: searchLimit, logger: logger, cfg: cfg}
+	return &hostFacade{store: store, emitter: emitter, caps: caps, name: name, searchLimit: searchLimit, logger: logger, cfg: cfg, net: net}
 }
 
 const defaultSearchLimit = 1000
@@ -344,6 +347,22 @@ func (h *hostFacade) Log(level, msg string, kv map[string]any) {
 	default:
 		h.logger.Info(msg, args...)
 	}
+}
+
+// Fetch performs a host-mediated outbound HTTP request. net:fetch. The capability
+// is checked here, the single facade chokepoint; the actual request — allowlist
+// resolution, the SSRF rule, DNS pinning, redirect re-validation, and the
+// timeout/size/rate caps — is performed by the plugin's egress gate, exactly as a
+// label write routes through the emitter. A plugin without the gate (no [net]
+// block) gets a clean error rather than an open socket.
+func (h *hostFacade) Fetch(ctx context.Context, req FetchRequest) (FetchResponse, error) {
+	if !h.caps.has(CapNetFetch) {
+		return FetchResponse{}, ErrCapabilityDenied
+	}
+	if h.net == nil {
+		return FetchResponse{}, ErrNetUnconfigured
+	}
+	return h.net.do(ctx, req)
 }
 
 // --- adapters (kept local so internal/search stays free of db/labels deps) ---

@@ -42,6 +42,13 @@ WHERE id = sqlc.arg(id);
 -- Sets the operator config overrides (a JSON object merged over the manifest's).
 UPDATE plugins SET config = sqlc.arg(config), updated_at = sqlc.arg(updated_at) WHERE id = sqlc.arg(id);
 
+-- name: UpdatePluginNetGrants :execrows
+-- Sets the operator's per-plugin net:fetch private-host grants (a JSON array of
+-- hostnames), written at enable time for a net:fetch plugin. See ADR 0002.
+UPDATE plugins
+SET net_grants = sqlc.arg(net_grants), updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id);
+
 -- name: UpdatePluginRunStatus :exec
 -- Records the outcome of the most recent hook invocation on the plugin row (the
 -- lean alternative to a per-invocation table). last_success_at is only advanced on
