@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.2](https://github.com/paulmeier/kasas/compare/v2.26.1...v2.26.2) (2026-06-11)
+
+
+### Bug Fixes
+
+* marketplace error when plugins disabled + seed config.toml for Docker ([#108](https://github.com/paulmeier/kasas/issues/108)) ([d526dee](https://github.com/paulmeier/kasas/commit/d526dee20c7924526f5888cd44c1c7ed0dc4e3b6))
+
 ## [2.26.1](https://github.com/paulmeier/kasas/compare/v2.26.0...v2.26.1) (2026-06-10)
 
 
