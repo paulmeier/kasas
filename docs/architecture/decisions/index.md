@@ -26,6 +26,7 @@ history, its status updated to point forward.
 | [0003](0003-marketplace-trust-tiers.md) | Marketplace trust tiers | Accepted |
 | [0004](0004-transaction-document-artifacts.md) | Document & artifact association for transactions | Proposed |
 | [0005](0005-plugin-originated-transactions.md) | Plugin-originated transactions (`source:provide`) | Proposed |
+| [0006](0006-external-market-reference-data.md) | External market & reference data as a first-class source | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
@@ -34,3 +35,7 @@ and shows how the new seams (plus the existing ones) compose to serve it.
 ADR 0005 takes the last step the arc deliberately deferred — letting a plugin
 *originate* a transaction — and resolves it through the existing ingestion seam
 (a plugin produces a batch; the engine writes it) rather than a raw write.
+ADR 0006 opens a different front: world data (benchmarks, quotes, FX) as a
+first-class source with its own archetype and a `market_*` cache namespace —
+the backend half of a decision shared with the sillview dashboard, whose own
+ADR-0004 records the consumption half.
