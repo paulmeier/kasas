@@ -84,15 +84,22 @@ const (
 	TypeRuleExecuted = "rule.executed"
 
 	TypeSyncCompleted = "sync.completed"
+
+	// TypeMarketUpdated fires when a market series' cached points are refreshed
+	// from the provider (a background stale-while-revalidate refresh, or a warm).
+	// EntityID is the series id; clients subscribed to the stream refetch the
+	// series' points. World data, not a ledger change (ADR 0006).
+	TypeMarketUpdated = "market.updated"
 )
 
 // The kinds of subject an event's EntityType can name.
 const (
-	EntityTransaction = "transaction"
-	EntityAccount     = "account"
-	EntityLabel       = "label"
-	EntityRule        = "rule"
-	EntitySync        = "sync"
+	EntityTransaction  = "transaction"
+	EntityAccount      = "account"
+	EntityLabel        = "label"
+	EntityRule         = "rule"
+	EntitySync         = "sync"
+	EntityMarketSeries = "market_series"
 )
 
 // The change kinds stamped on each immutable transaction version (the

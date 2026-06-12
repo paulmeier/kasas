@@ -90,6 +90,7 @@ func (s *Server) sourceStatuses(ctx context.Context) ([]SourceDTO, bool, error) 
 				Archetype:    string(desc.Archetype),
 				Title:        desc.Title,
 				Credentialed: len(desc.Credentials) > 0,
+				Egress:       desc.Egress,
 				Credentials:  desc.Credentials,
 			},
 			Active: false,

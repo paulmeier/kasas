@@ -12,14 +12,17 @@ import (
 // self-describing metadata plus whether it is ready to sync and how its credential
 // (if any) is set.
 type SourceStatus struct {
-	Type            string                   `json:"type"`
-	Archetype       string                   `json:"archetype"`
-	Title           string                   `json:"title"`
-	Connected       bool                     `json:"connected"`        // ready to sync (no credential needed, or one is stored)
-	Credentialed    bool                     `json:"credentialed"`     // accepts a pasted credential
-	MultiCredential bool                     `json:"multi_credential"` // holds several credentials (add/remove individually)
-	OAuth           bool                     `json:"oauth"`            // supports the browser OAuth connect flow
-	Credentials     []source.CredentialField `json:"credentials,omitempty"`
+	Type            string `json:"type"`
+	Archetype       string `json:"archetype"`
+	Title           string `json:"title"`
+	Connected       bool   `json:"connected"`        // ready to sync (no credential needed, or one is stored)
+	Credentialed    bool   `json:"credentialed"`     // accepts a pasted credential
+	MultiCredential bool   `json:"multi_credential"` // holds several credentials (add/remove individually)
+	OAuth           bool   `json:"oauth"`            // supports the browser OAuth connect flow
+	// Egress lists the external hosts this source contacts, surfaced so its network
+	// reach is visible to the operator (ADR 0006). Empty for most sources.
+	Egress      []string                 `json:"egress,omitempty"`
+	Credentials []source.CredentialField `json:"credentials,omitempty"`
 	// CredentialEntries lists the masked, individually-removable credentials of a
 	// multi-credential source (e.g. each Teller bank enrollment). Empty otherwise.
 	CredentialEntries []source.CredentialEntry `json:"credential_entries,omitempty"`
@@ -145,6 +148,7 @@ func (e *Engine) Sources(ctx context.Context) ([]SourceStatus, error) {
 			Credentialed:      len(desc.Credentials) > 0,
 			MultiCredential:   multi,
 			OAuth:             oauth,
+			Egress:            desc.Egress,
 			Credentials:       desc.Credentials,
 			CredentialEntries: entries,
 		})

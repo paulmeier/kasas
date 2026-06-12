@@ -392,6 +392,58 @@ func (a pgQuerier) DeleteSetting(ctx context.Context, key string) (int64, error)
 	return a.q.DeleteSetting(ctx, key)
 }
 
+// Market data (ADR 0006). All columns are string/int64 (and the optional
+// date-window params are interface{} on both backends), so MarketSeries /
+// MarketPoint rows and the param structs are structurally identical to the
+// pg-generated ones and convert with a whole-struct cast.
+func (a pgQuerier) UpsertMarketSeries(ctx context.Context, arg UpsertMarketSeriesParams) error {
+	return a.q.UpsertMarketSeries(ctx, pg.UpsertMarketSeriesParams(arg))
+}
+
+func (a pgQuerier) GetMarketSeries(ctx context.Context, id string) (MarketSeries, error) {
+	row, err := a.q.GetMarketSeries(ctx, id)
+	return MarketSeries(row), err
+}
+
+func (a pgQuerier) ListMarketSeries(ctx context.Context) ([]MarketSeries, error) {
+	rows, err := a.q.ListMarketSeries(ctx)
+	return mapSlice(rows, func(r pg.MarketSeries) MarketSeries { return MarketSeries(r) }), err
+}
+
+func (a pgQuerier) DeleteMarketSeries(ctx context.Context, id string) (int64, error) {
+	return a.q.DeleteMarketSeries(ctx, id)
+}
+
+func (a pgQuerier) UpsertMarketPoint(ctx context.Context, arg UpsertMarketPointParams) error {
+	return a.q.UpsertMarketPoint(ctx, pg.UpsertMarketPointParams(arg))
+}
+
+func (a pgQuerier) ListMarketPoints(ctx context.Context, arg ListMarketPointsParams) ([]MarketPoint, error) {
+	rows, err := a.q.ListMarketPoints(ctx, pg.ListMarketPointsParams(arg))
+	return mapSlice(rows, func(r pg.MarketPoint) MarketPoint { return MarketPoint(r) }), err
+}
+
+func (a pgQuerier) LatestMarketPoint(ctx context.Context, seriesID string) (MarketPoint, error) {
+	row, err := a.q.LatestMarketPoint(ctx, seriesID)
+	return MarketPoint(row), err
+}
+
+func (a pgQuerier) CountMarketPoints(ctx context.Context, seriesID string) (int64, error) {
+	return a.q.CountMarketPoints(ctx, seriesID)
+}
+
+func (a pgQuerier) DeleteMarketSeriesPoints(ctx context.Context, seriesID string) error {
+	return a.q.DeleteMarketSeriesPoints(ctx, seriesID)
+}
+
+func (a pgQuerier) TruncateMarketPoints(ctx context.Context) error {
+	return a.q.TruncateMarketPoints(ctx)
+}
+
+func (a pgQuerier) TruncateMarketSeries(ctx context.Context) error {
+	return a.q.TruncateMarketSeries(ctx)
+}
+
 // Plugins. All columns are int64/string, so Plugin rows and the param structs are
 // structurally identical to the pg-generated ones and convert with a cast.
 func (a pgQuerier) InsertPlugin(ctx context.Context, arg InsertPluginParams) (Plugin, error) {

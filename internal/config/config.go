@@ -24,6 +24,7 @@ type Config struct {
 	Plaid     Plaid
 	Bitcoin   Bitcoin
 	Ethereum  Ethereum
+	Market    Market
 	Sync      Sync
 	Vault     Vault
 	Secrets   Secrets
@@ -167,6 +168,23 @@ type Ethereum struct {
 	ChainID   int      `mapstructure:"chain_id"`
 	Address   string   `mapstructure:"address"`
 	Addresses []string `mapstructure:"addresses"`
+}
+
+// Market configures external market/reference data (ADR 0006): a read-through
+// cache of daily time series fetched from a provider on demand. Provider selects
+// the data provider (default "alphavantage"); the provider API key is NOT here —
+// it is a runtime source credential in the secret store, set from the Sources
+// page. TTL is how long a series stays fresh before a read triggers a refresh
+// (default 24h, daily granularity). RefreshInterval optionally warms the cache on
+// a schedule (0 = on-demand only, the default). APIURL overrides the provider's
+// base URL (proxies/tests). Series is the configured series list as a JSON array
+// (managed from the dashboard/API); empty means none.
+type Market struct {
+	Provider        string        `mapstructure:"provider"`
+	TTL             time.Duration `mapstructure:"ttl"`
+	RefreshInterval time.Duration `mapstructure:"refresh_interval"`
+	APIURL          string        `mapstructure:"api_url"`
+	Series          string        `mapstructure:"series"`
 }
 
 // Sync controls the background polling schedule.
@@ -322,6 +340,11 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("ethereum.api_url", "")
 	v.SetDefault("ethereum.chain_id", 1)
 	v.SetDefault("ethereum.address", "")
+	v.SetDefault("market.provider", "alphavantage")
+	v.SetDefault("market.ttl", "24h")
+	v.SetDefault("market.refresh_interval", "0s")
+	v.SetDefault("market.api_url", "")
+	v.SetDefault("market.series", "")
 	v.SetDefault("sync.enabled", true)
 	v.SetDefault("sync.interval", "6h")
 	v.SetDefault("sync.lookback_days", 90)
@@ -395,6 +418,16 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid plugins.net.timeout %q: %w", v.GetString("plugins.net.timeout"), err)
 	}
 
+	marketTTL, err := time.ParseDuration(v.GetString("market.ttl"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid market.ttl %q: %w", v.GetString("market.ttl"), err)
+	}
+
+	marketRefresh, err := time.ParseDuration(v.GetString("market.refresh_interval"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid market.refresh_interval %q: %w", v.GetString("market.refresh_interval"), err)
+	}
+
 	cfg := &Config{
 		Server: Server{Addr: v.GetString("server.addr")},
 		Log:    Log{Level: v.GetString("log.level"), Format: v.GetString("log.format")},
@@ -432,6 +465,13 @@ func Load(path string) (*Config, error) {
 			APIURL:  v.GetString("ethereum.api_url"),
 			ChainID: v.GetInt("ethereum.chain_id"),
 			Address: v.GetString("ethereum.address"),
+		},
+		Market: Market{
+			Provider:        v.GetString("market.provider"),
+			TTL:             marketTTL,
+			RefreshInterval: marketRefresh,
+			APIURL:          v.GetString("market.api_url"),
+			Series:          v.GetString("market.series"),
 		},
 		Sync: Sync{
 			Enabled:      v.GetBool("sync.enabled"),

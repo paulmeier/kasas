@@ -176,6 +176,39 @@ address = ""
 # instance's /api endpoint also works for self-hosting.
 # api_url = "https://eth.blockscout.com/api"
 
+[market]
+# External market/reference data (ADR 0006): a read-through cache of daily time
+# series (benchmark indices, fund NAVs, FX, crypto) fetched from a provider ON
+# DEMAND when someone views them, cached with a daily TTL. It is NOT a scheduled
+# copy — an unwatched dashboard costs no provider quota. Full guide: docs/features/market.md
+#
+# The provider API key is NOT set here: it is a runtime credential, set from the
+# dashboard Market/Sources page or via PUT /api/v1/sources/market/credential, and
+# stored in the secret store (never config.toml). The market source contacts the
+# provider's host (Alpha Vantage: www.alphavantage.co) — its only external egress.
+#
+# provider: which data provider to use (currently "alphavantage"; a free key has a
+# ~25 req/day limit, which is ample behind the daily cache).
+provider = "alphavantage"
+#
+# ttl: how long a daily series stays fresh before a read refreshes it (stale reads
+# are served instantly and refreshed in the background). Any Go duration.
+ttl = "24h"
+#
+# refresh_interval: optionally warm the configured series on a schedule, e.g. "12h".
+# "0s" (the default) means on-demand only — the recommended setting.
+refresh_interval = "0s"
+#
+# api_url: override the provider's API base URL (proxies/self-hosting/tests). Empty
+# uses the provider default (https://www.alphavantage.co/query).
+# api_url = ""
+#
+# series: the configured series are normally managed at runtime from the dashboard
+# Market page (or POST /api/v1/market/series) and persisted in the database, so this
+# is usually left empty. To seed series declaratively, set a JSON array of specs:
+# series = '''[{"id":"spy","symbol":"SPY","kind":"equity","currency":"USD","name":"S&P 500 ETF"}]'''
+series = ""
+
 [sync]
 enabled       = true
 interval      = "6h"  # any Go duration: "30m", "1h", "12h"

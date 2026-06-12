@@ -15,6 +15,7 @@ import (
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/market"
 	"github.com/paulmeier/kasas/internal/plugins"
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
@@ -73,6 +74,7 @@ type Server struct {
 	restart     func()
 	pluginMgr   *plugins.Manager  // nil when the plugin system is disabled
 	settingsSvc *settings.Service // nil when settings management is unavailable
+	market      *market.Service   // nil when market data is unavailable
 	oauth       *oauthStates      // pending source OAuth flows (anti-CSRF state)
 }
 
@@ -117,6 +119,10 @@ type Options struct {
 	// (GET/PUT/DELETE /api/v1/settings...) and per-source config on /sources,
 	// across REST, MCP, and the dashboard.
 	Settings *settings.Service
+	// Market, when non-nil, enables the market-data read endpoints
+	// (GET /api/v1/market/series, .../points) and series management
+	// (POST/DELETE /api/v1/market/series), across REST, MCP, and the dashboard.
+	Market *market.Service
 }
 
 // New constructs a Server.
@@ -141,6 +147,7 @@ func New(opts Options) *Server {
 		restart:     opts.Restart,
 		pluginMgr:   opts.PluginManager,
 		settingsSvc: opts.Settings,
+		market:      opts.Market,
 		oauth:       newOAuthStates(),
 	}
 }
@@ -264,6 +271,14 @@ func (s *Server) Router() http.Handler {
 				// unavailable so the dashboard gets a clean response, not a 404.
 				r.Get("/sources", s.handleListSources)
 
+				// Market/reference data (ADR 0006): read-tier series + points,
+				// served through the on-demand read-through cache. Static
+				// /market/series is registered before /market/series/{id}/points so
+				// "series" is not captured as an id. Registered even when market data
+				// is unavailable so the dashboard gets a clean {enabled:false} state.
+				r.Get("/market/series", s.handleListMarketSeries)
+				r.Get("/market/series/{id}/points", s.handleGetMarketPoints)
+
 				// Read-only effective configuration (secrets redacted) for the Settings page.
 				r.Get("/config", s.handleGetConfig)
 
@@ -337,6 +352,13 @@ func (s *Server) Router() http.Handler {
 					r.Get("/sources/{type}/oauth/start", s.handleSourceOAuthStart)
 					r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
 				}
+
+				// Market series management: defining/removing series reconfigures what
+				// the server fetches and caches, so it is admin-only (a read-only API
+				// key can chart series, not change them). The provider API key is a
+				// source credential, set via /sources/market/credential above.
+				r.Post("/market/series", s.handleAddMarketSeries)
+				r.Delete("/market/series/{id}", s.handleRemoveMarketSeries)
 
 				// Dashboard token management (generate/set, and revoke). Available only
 				// when an Authenticator is wired; refused when the token is config-managed.
