@@ -121,7 +121,7 @@ managed from the dashboard or the API and persisted in the database; `market.ser
 is the declarative seed for reproducible deployments.
 
 `ttl`, `refresh_interval`, `provider`, and `api_url` are editable from the
-**Settings** page and take effect on the next [restart](../reference/configuration.md);
+**Settings** page and take effect on the next [restart](../getting-started/configuration.md);
 defining and removing series takes effect **immediately**.
 
 ## Interfaces
