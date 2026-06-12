@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.2](https://github.com/paulmeier/kasas/compare/v2.29.1...v2.29.2) (2026-06-12)
+
+
+### Documentation
+
+* add ADR 0006 for external market and reference data ([#125](https://github.com/paulmeier/kasas/issues/125)) ([e5e985d](https://github.com/paulmeier/kasas/commit/e5e985d28b496952fd26c7517c4f12ec23be6fbe))
+
 ## [2.29.1](https://github.com/paulmeier/kasas/compare/v2.29.0...v2.29.1) (2026-06-12)
 
 
