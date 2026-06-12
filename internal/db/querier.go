@@ -10,6 +10,7 @@ import (
 
 type Querier interface {
 	CompleteSyncLog(ctx context.Context, arg CompleteSyncLogParams) error
+	CountMarketPoints(ctx context.Context, seriesID string) (int64, error)
 	// Whether a transaction has any history yet. Backs the lazy baseline: the first
 	// time an existing transaction changes after this feature shipped, the writer
 	// synthesizes a v1 "imported" snapshot from its prior state. COUNT(*) is used (not
@@ -39,6 +40,8 @@ type Querier interface {
 	// Removes the key only from transactions where it holds the given value (one
 	// value per key, so removing the key on a value match drops exactly that pair).
 	DeleteLabelByValue(ctx context.Context, arg DeleteLabelByValueParams) (int64, error)
+	DeleteMarketSeries(ctx context.Context, id string) (int64, error)
+	DeleteMarketSeriesPoints(ctx context.Context, seriesID string) error
 	DeletePlugin(ctx context.Context, id int64) (int64, error)
 	DeleteRule(ctx context.Context, id int64) (int64, error)
 	DeleteSetting(ctx context.Context, key string) (int64, error)
@@ -74,6 +77,7 @@ type Querier interface {
 	// The per-request verification lookup: hash the presented bearer and find its key.
 	GetApiKeyByHash(ctx context.Context, keyHash string) (ApiKey, error)
 	GetEventBySequence(ctx context.Context, id int64) (Event, error)
+	GetMarketSeries(ctx context.Context, id string) (MarketSeries, error)
 	GetOrganization(ctx context.Context, id string) (Organization, error)
 	GetPlugin(ctx context.Context, id int64) (Plugin, error)
 	GetPluginByName(ctx context.Context, name string) (Plugin, error)
@@ -110,6 +114,13 @@ type Querier interface {
 	// Registers a webhook endpoint. `event_types` is a JSON array string of subscribed
 	// types ('[]'/'["*"]' = all). RETURNING * yields the generated id and timestamps.
 	InsertWebhook(ctx context.Context, arg InsertWebhookParams) (Webhook, error)
+	// The newest-dated cached point for a series. Returns sql.ErrNoRows when the
+	// series has never been fetched (cold cache); otherwise its date is the series'
+	// "as of" and its fetched_at is the last refresh time (a refresh upserts the
+	// whole window with one timestamp), which the read path uses for TTL freshness.
+	// Avoids a COALESCE(MAX(...)) aggregate, whose sqlc type inference differs across
+	// SQLite and Postgres and would break the struct-identity pgstore adapter.
+	LatestMarketPoint(ctx context.Context, seriesID string) (MarketPoint, error)
 	LatestSyncLog(ctx context.Context) (SyncLog, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	ListAccountsByOrg(ctx context.Context, orgID string) ([]Account, error)
@@ -144,6 +155,10 @@ type Querier interface {
 	// per-dialect queries/{sqlite,postgres}/labels.sql). ORDER BY makes the row order
 	// deterministic.
 	ListLabeledTransactions(ctx context.Context) ([]ListLabeledTransactionsRow, error)
+	// Points for a series within an optional [since, until] date window. An empty
+	// bound means unbounded on that side; ISO-8601 dates sort lexically.
+	ListMarketPoints(ctx context.Context, arg ListMarketPointsParams) ([]MarketPoint, error)
+	ListMarketSeries(ctx context.Context) ([]MarketSeries, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListPlugins(ctx context.Context) ([]Plugin, error)
 	// The most recent events, newest first. Powers "what just happened" views (the
@@ -173,6 +188,8 @@ type Querier interface {
 	ListWebhooks(ctx context.Context) ([]Webhook, error)
 	// Toggles execution. :execrows lets the caller detect a missing id.
 	SetPluginEnabled(ctx context.Context, arg SetPluginEnabledParams) (int64, error)
+	TruncateMarketPoints(ctx context.Context) error
+	TruncateMarketSeries(ctx context.Context) error
 	// Updates a manual account's user-owned fields (the org and source are immutable
 	// provenance, set once at creation). :execrows lets the caller detect a missing id
 	// (0 rows affected). The manual-only gate is enforced in the API, not here.
@@ -240,6 +257,8 @@ type Querier interface {
 	// transactions.source, provenance is immutable, so a re-sync of an existing account
 	// never rewrites it.
 	UpsertAccount(ctx context.Context, arg UpsertAccountParams) error
+	UpsertMarketPoint(ctx context.Context, arg UpsertMarketPointParams) error
+	UpsertMarketSeries(ctx context.Context, arg UpsertMarketSeriesParams) error
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) error
 	UpsertSetting(ctx context.Context, arg UpsertSettingParams) error
 }

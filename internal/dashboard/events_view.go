@@ -240,6 +240,8 @@ func eventTypeClass(t string) string {
 		return "evt-rule"
 	case strings.HasPrefix(t, "sync."):
 		return "evt-sync"
+	case strings.HasPrefix(t, "market."):
+		return "evt-market"
 	default:
 		return ""
 	}

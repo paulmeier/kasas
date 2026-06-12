@@ -22,6 +22,7 @@ const (
 	navPlugins
 	navMarketplace
 	navSources
+	navMarket
 	navSettings
 	// navExtension marks a plugin-contributed page as active; WHICH page is
 	// identified by chrome.activeExt (the plugin name), since the set is dynamic.
@@ -394,6 +395,7 @@ func (c *chrome) renderSidebar(active navItem) app.UI {
 		navLink("/plugins", "Plugins", iconPlugins(), active == navPlugins),
 		navLink("/marketplace", "Marketplace", iconMarketplace(), active == navMarketplace),
 		navLink("/sources", "Sources", iconSources(), active == navSources),
+		navLink("/market", "Market", iconMarket(), active == navMarket),
 		navLink("/settings", "Settings", iconSettings(), active == navSettings),
 	}
 	// Plugin-contributed pages render below the built-ins, in the API's stable
@@ -494,6 +496,10 @@ func iconMarketplace() app.UI {
 // into the ledger), distinct from the accounts and settings icons.
 func iconSources() app.UI {
 	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`)
+}
+
+func iconMarket() app.UI {
+	return app.Raw(`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>`)
 }
 
 func iconSettings() app.UI {

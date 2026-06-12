@@ -39,6 +39,23 @@ type Event struct {
 	Data       string `json:"data"`
 }
 
+type MarketPoint struct {
+	SeriesID  string `json:"series_id"`
+	Date      string `json:"date"`
+	Value     string `json:"value"`
+	FetchedAt int64  `json:"fetched_at"`
+}
+
+type MarketSeries struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Symbol   string `json:"symbol"`
+	Kind     string `json:"kind"`
+	Currency string `json:"currency"`
+	Adjusted int64  `json:"adjusted"`
+	Meta     string `json:"meta"`
+}
+
 type Organization struct {
 	ID      string `json:"id"`
 	Domain  string `json:"domain"`

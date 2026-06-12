@@ -175,6 +175,30 @@ func (s *Server) MCPServer() *mcp.Server {
 		Description: "Trigger an immediate sync of a single ingestion source by type (e.g. csv) and wait for it to finish. Use trigger_sync to sync every source at once.",
 	}, s.mcpSyncSource)
 
+	// Market/reference data (ADR 0006), registered only when the market source is
+	// wired. Reading points fetches on demand through the server-side cache.
+	if s.market != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "list_market_series",
+			Description: "List the configured external market/reference series (benchmark indices, fund NAVs, FX, crypto) with each one's provider, kind, currency, cached point count, and how fresh the cache is. Whether the provider is configured (has an API key) is also reported.",
+		}, s.mcpListMarketSeries)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "get_market_points",
+			Description: "Get a market series' daily-close points by id (see list_market_series), as { date, value } with value a decimal string. Optionally bound by since/until ISO dates. Fetches on demand through a TTL cache; the first read of a cold series is slower. as_of is the newest close date.",
+		}, s.mcpGetMarketPoints)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "add_market_series",
+			Description: "Define a market series to track: a stable internal id (lowercase), a provider symbol (e.g. SPY, or EUR/USD for fx, BTC for crypto), a kind (equity, fund, index, fx, crypto), the currency, and an optional name. Takes effect immediately; points are fetched on first read. Requires the provider API key to be set.",
+		}, s.mcpAddMarketSeries)
+
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "remove_market_series",
+			Description: "Remove a configured market series by id and clear its cached points.",
+		}, s.mcpRemoveMarketSeries)
+	}
+
 	// Persisted settings are registered only when the settings service is wired.
 	if s.settingsSvc != nil {
 		mcp.AddTool(srv, &mcp.Tool{

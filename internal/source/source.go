@@ -17,6 +17,14 @@
 // File-import, inbound-webhook, and enrichment capabilities will be added as
 // further interfaces here as those archetypes are built; existing sources are
 // unaffected because each capability is independent.
+//
+//   - [Warmer]       warm a read-through cache (reference archetype: market data)
+//
+// A reference source (archetype "reference") does not produce ledger
+// transactions at all. Instead of [Puller] it implements [Warmer], which the
+// engine drives instead of the transactional persist path — so it can be a
+// first-class source (listed in /api/v1/sources, with runtime credentials and a
+// generic per-source sync) without ever touching accounts or transactions.
 package source
 
 import (
@@ -46,6 +54,18 @@ type Source interface {
 // database; it only returns data.
 type Puller interface {
 	Fetch(ctx context.Context, since time.Time, cursor string) (*ImportBatch, error)
+}
+
+// Warmer is implemented by reference sources (archetype "reference") that maintain
+// a server-side read-through cache rather than ingest transactions — e.g. the
+// market-data source backed by an external provider. The engine drives Warm in
+// place of the [Puller] persist path: a scheduled run (when an interval is set) or
+// the generic POST /api/v1/sources/{type}/sync both call it, which here means
+// "refresh the configured series whose cache is cold or stale." Warm must be
+// idempotent and must not block indefinitely; it owns its own storage and event
+// emission (the engine only logs the run to sync_log).
+type Warmer interface {
+	Warm(ctx context.Context) error
 }
 
 // Credentialed is implemented by sources whose connection credential can be set
@@ -117,6 +137,7 @@ const (
 	ArchetypeWebhook    Archetype = "webhook"    // an inbound request is received
 	ArchetypeManual     Archetype = "manual"     // a human/agent writes directly
 	ArchetypeEnrichment Archetype = "enrichment" // annotates existing transactions
+	ArchetypeReference  Archetype = "reference"  // warms a read-through cache (market data)
 )
 
 // Descriptor is a source's static, self-describing metadata.
@@ -126,6 +147,12 @@ type Descriptor struct {
 	Title       string            `json:"title"`     // human-readable name
 	Credentials []CredentialField `json:"credentials,omitempty"`
 	Config      []ConfigField     `json:"config,omitempty"`
+	// Egress lists the external hostnames this source contacts (e.g. a market
+	// provider's API host). It is surfaced to the operator so a source's network
+	// reach is as visible as a plugin's net:fetch allowlist, never silent (ADR
+	// 0006). Empty for sources that talk only to the bank the user already
+	// configured (their host is the credential itself).
+	Egress []string `json:"egress,omitempty"`
 }
 
 // CredentialField declares one secret a source needs to connect. The engine

@@ -84,6 +84,7 @@ in that archetype is a thin adapter. **O(archetypes), not O(providers).**
 | **`file`** | Files in a folder are parsed. | scheduled folder scan | **CSV (local + Google Drive)**, OFX, QIF |
 | **`webhook`** | An inbound request pushes data. | HTTP endpoint | Stripe, payment processors |
 | **`manual`** | A human or agent writes directly. | API / MCP call | hand-entered cash |
+| **`reference`** | A read-through cache of *world* data, not ledger transactions. | API read path + optional warm | [Market data](../features/market.md) (Alpha Vantage) |
 | **`enrichment`** | Annotates transactions that already exist. | post-change hook | categorizers, geocoders |
 
 A source declares its archetype in its [descriptor](#descriptors) and implements
@@ -110,12 +111,17 @@ type OAuthCredentialed interface { // optional: a browser OAuth 2.0 connect flow
     AuthCodeURL(state string) string
     ExchangeCode(ctx context.Context, code string) error
 }
+
+type Warmer interface { // archetype "reference": warms a read-through cache, no transactions
+    Warm(ctx context.Context) error
+}
 ```
 
-`Puller`, `Credentialed`, `MultiCredentialed`, and `OAuthCredentialed` exist today,
-and **two archetypes ship**: `pull` (SimpleFIN, Teller, Plaid, and the on-chain
-[Bitcoin](../features/bitcoin.md) / [Ethereum](../features/ethereum.md) sources) and
-`file` (CSV import). The `file` source
+`Puller`, `Credentialed`, `MultiCredentialed`, `OAuthCredentialed`, and `Warmer`
+exist today, and **three archetypes ship**: `pull` (SimpleFIN, Teller, Plaid, and the
+on-chain [Bitcoin](../features/bitcoin.md) / [Ethereum](../features/ethereum.md)
+sources), `file` (CSV import), and `reference` ([Market data](../features/market.md),
+which warms a read-through cache via `Warmer` instead of producing transactions). The `file` source
 reuses the `pull` trigger — scanning its configured folders on the sync schedule —
 rather than needing a separate file-upload interface, so adding it required **no
 engine change**. The `webhook` and `enrichment` archetypes remain reserved in the

@@ -1,6 +1,7 @@
 # ADR 0006 — External market & reference data as a first-class source
 
-- **Status:** Proposed
+- **Status:** Accepted (implemented — Alpha Vantage provider, `market_*` cache,
+  read-through API/MCP/dashboard; see [Market data](../../features/market.md))
 - **Date:** 2026-06-12
 - **Related:** [Ingestion & Sources](../ingestion.md), [Data Model](../data-model.md),
   [ADR 0002](0002-plugin-network-capability.md),

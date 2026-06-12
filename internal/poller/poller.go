@@ -76,6 +76,7 @@ type Options struct {
 type Poller struct {
 	source       source.Source
 	puller       source.Puller       // source.(Puller); nil if the source cannot be polled
+	warmer       source.Warmer       // source.(Warmer); nil unless it is a reference (cache) source
 	cred         source.Credentialed // source.(Credentialed); nil if it has no runtime credential
 	store        db.Store
 	logger       *slog.Logger
@@ -103,6 +104,7 @@ func New(opts Options) *Poller {
 		lookbackDays: opts.LookbackDays,
 	}
 	p.puller, _ = opts.Source.(source.Puller)
+	p.warmer, _ = opts.Source.(source.Warmer)
 	p.cred, _ = opts.Source.(source.Credentialed)
 	return p
 }
@@ -116,8 +118,15 @@ type SyncResult struct {
 	Duration            time.Duration `json:"duration"`
 }
 
-// Start schedules recurring syncs. Call Stop to release resources.
+// Start schedules recurring syncs. Call Stop to release resources. A
+// non-positive interval disables the schedule entirely (the source is then only
+// synced on demand) — used by the market source, whose primary path is the
+// read-through cache, so it does not warm on a timer unless an operator opts in.
 func (p *Poller) Start(ctx context.Context) error {
+	if p.interval <= 0 {
+		p.logger.Info("poller scheduling disabled (on-demand only)", "source", p.source.Descriptor().Type)
+		return nil
+	}
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return fmt.Errorf("create scheduler: %w", err)
@@ -197,7 +206,19 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 		}
 	}()
 
+	// A reference source (e.g. market data) warms a read-through cache instead of
+	// ingesting transactions: it never produces accounts/transactions, so it skips
+	// the whole persist path. The run is still recorded to sync_log (via the defer
+	// above); the source owns its own storage and event emission.
 	if p.puller == nil {
+		if p.warmer != nil {
+			if err = p.warmer.Warm(ctx); err != nil {
+				return SyncResult{}, err
+			}
+			result.Duration = time.Since(start)
+			p.logger.Info("cache warm complete", "source", p.source.Descriptor().Type, "duration", result.Duration.String())
+			return result, nil
+		}
 		return SyncResult{}, errors.New("configured ingestion source does not support polling")
 	}
 

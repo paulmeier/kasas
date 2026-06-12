@@ -126,6 +126,7 @@ nav:
       - Plaid: features/plaid.md
       - Bitcoin: features/bitcoin.md
       - Ethereum: features/ethereum.md
+      - Market Data: features/market.md
       - Manual Entry: features/manual-entry.md
       - Event Stream: features/event-stream.md
       - Transaction History: features/transaction-history.md

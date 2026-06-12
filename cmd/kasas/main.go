@@ -43,6 +43,8 @@ import (
 	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/market"
+	_ "github.com/paulmeier/kasas/internal/market/alphavantage" // registers the alphavantage provider
 	"github.com/paulmeier/kasas/internal/plugins"
 	"github.com/paulmeier/kasas/internal/plugins/registry"
 	"github.com/paulmeier/kasas/internal/poller"
@@ -162,7 +164,7 @@ func run(command, configPath string) error {
 	// then drives one poller per source. SimpleFIN is always built (it surfaces its
 	// own "not configured" error on sync); CSV is built only when folders are
 	// configured. Additional sources plug in here by registering under their type.
-	engine, err := buildEngine(cfg, store, secrets, emitter, logger)
+	engine, marketSvc, err := buildEngine(cfg, store, secrets, emitter, logger)
 	if err != nil {
 		return err
 	}
@@ -229,6 +231,8 @@ func run(command, configPath string) error {
 		Dashboard:  dashboardHandler,
 		// Persisted setting overrides, editable across REST/MCP/dashboard.
 		Settings: settingsSvc,
+		// External market/reference data read-through cache (ADR 0006).
+		Market: marketSvc,
 		// Restart re-execs the binary in place: it applies pending setting changes
 		// and finishes a dashboard-triggered self-update.
 		Restart: restartIntoNewBinary(logger),
@@ -252,6 +256,17 @@ func run(command, configPath string) error {
 	case "sync":
 		_, err := engine.Sync(context.Background())
 		return err
+	case "market":
+		// "kasas market reset" wipes the market cache (every series and point).
+		// Definitions survive in the market.series setting and rebuild on next read.
+		if flag.Arg(1) != "reset" {
+			return fmt.Errorf("unknown market subcommand %q (want: reset)", flag.Arg(1))
+		}
+		if err := marketSvc.Reset(context.Background()); err != nil {
+			return fmt.Errorf("reset market cache: %w", err)
+		}
+		logger.Info("market cache reset")
+		return nil
 	case "mcp":
 		return srv.RunMCPStdio(context.Background())
 	default:
@@ -571,7 +586,7 @@ func openPostgres(dsn string) (*sql.DB, error) {
 // when an address or custom api_url is set, and Ethereum when its Etherscan API key is
 // set. Each source is constructed by type through the registry, resolving its
 // credentials/config from the secret store and config via the env.
-func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, emitter *events.Emitter, logger *slog.Logger) (*poller.Engine, error) {
+func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, emitter *events.Emitter, logger *slog.Logger) (*poller.Engine, *market.Service, error) {
 	newPoller := func(typ string, opts map[string]string) (*poller.Poller, error) {
 		src, err := source.New(typ, source.Env{Logger: logger, Secrets: secrets, Options: opts})
 		if err != nil {
@@ -592,7 +607,7 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 		"setup_token": cfg.SimpleFIN.SetupToken,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pollers := []*poller.Poller{sfin}
 
@@ -601,11 +616,11 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 	if len(cfg.CSV.Folders) > 0 {
 		raw, err := json.Marshal(cfg.CSV)
 		if err != nil {
-			return nil, fmt.Errorf("encode csv config: %w", err)
+			return nil, nil, fmt.Errorf("encode csv config: %w", err)
 		}
 		csvPoller, err := newPoller(csv.SourceType, map[string]string{"config": string(raw)})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pollers = append(pollers, csvPoller)
 		logger.Info("csv file-import source enabled", "folders", len(cfg.CSV.Folders))
@@ -628,7 +643,7 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 			"private_key":   cfg.Teller.PrivateKey,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pollers = append(pollers, tellerPoller)
 		logger.Info("teller source enabled", "enrollments", len(tellerTokens))
@@ -652,7 +667,7 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 			"access_tokens": strings.Join(plaidTokens, "\n"),
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pollers = append(pollers, plaidPoller)
 		logger.Info("plaid source enabled", "environment", cfg.Plaid.Environment, "items", len(plaidTokens))
@@ -673,7 +688,7 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 			"api_url":   cfg.Bitcoin.APIURL,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pollers = append(pollers, btcPoller)
 		logger.Info("bitcoin source enabled", "addresses", len(btcAddrs))
@@ -695,13 +710,57 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 			"addresses": strings.Join(ethAddrs, "\n"),
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pollers = append(pollers, ethPoller)
 		logger.Info("ethereum source enabled", "chain_id", cfg.Ethereum.ChainID, "addresses", len(ethAddrs))
 	}
 
-	return poller.NewEngine(pollers...), nil
+	// Market/reference data (ADR 0006): a reference source that warms a
+	// read-through cache instead of ingesting transactions. Always built; it
+	// reports "not connected" until a provider API key is set, and its scheduler is
+	// driven by market.refresh_interval (0 = on-demand only, the default). The
+	// configured series live in the market.series setting (managed at runtime),
+	// falling back to the config-file value when none is stored.
+	provider, err := market.NewProvider(cfg.Market.Provider, market.ProviderEnv{
+		Logger:  logger,
+		Secrets: secrets,
+		BaseURL: cfg.Market.APIURL,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("init market provider: %w", err)
+	}
+	seriesJSON := cfg.Market.Series
+	if rows, lerr := store.ListSettings(context.Background()); lerr == nil {
+		for _, row := range rows {
+			if row.Key == market.SeriesSettingKey {
+				seriesJSON = row.Value
+			}
+		}
+	}
+	specs, perr := market.ParseSpecs(seriesJSON)
+	if perr != nil {
+		logger.Warn("invalid market.series; starting with no configured series", "error", perr)
+		specs = nil
+	}
+	marketSvc := market.NewService(market.Options{
+		Store:    store,
+		Provider: provider,
+		Emitter:  emitter,
+		TTL:      cfg.Market.TTL,
+		Logger:   logger,
+		Specs:    specs,
+	})
+	pollers = append(pollers, poller.New(poller.Options{
+		Store:    store,
+		Source:   market.NewSource(marketSvc),
+		Logger:   logger,
+		Emitter:  emitter,
+		Interval: cfg.Market.RefreshInterval, // 0 => no scheduled warm; read-through is primary
+	}))
+	logger.Info("market data source enabled", "provider", provider.Name(), "series", len(specs))
+
+	return poller.NewEngine(pollers...), marketSvc, nil
 }
 
 // newStore wraps the open database in the matching Store implementation.

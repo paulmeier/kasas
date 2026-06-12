@@ -24,6 +24,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/market"
 	"github.com/paulmeier/kasas/internal/sources/bitcoin"
 	"github.com/paulmeier/kasas/internal/sources/csv"
 	"github.com/paulmeier/kasas/internal/sources/ethereum"
@@ -196,6 +197,20 @@ func buildDefinitions() []Definition {
 			func(c *config.Config) *string { return &c.Ethereum.APIURL }),
 		intSetting("ethereum.chain_id", ethereum.SourceType, "", "Chain ID", "EVM chain id (default 1 = Ethereum mainnet), e.g. 8453 = Base, 42161 = Arbitrum.",
 			func(c *config.Config) *int { return &c.Ethereum.ChainID }),
+
+		// Market data (ADR 0006). The provider API key is a source CREDENTIAL (set
+		// from the Sources page), not a setting. The configured series list is
+		// managed live via /api/v1/market/series (persisted under the market.series
+		// settings key directly), so it is not a restart-tracked Definition here.
+		stringSetting("market.provider", market.SourceType, "", "Provider", "Which market-data provider series are fetched from.",
+			[]string{"alphavantage"},
+			func(c *config.Config) *string { return &c.Market.Provider }),
+		durationSetting("market.ttl", market.SourceType, "", "Freshness TTL", "How long a series stays fresh before a read refreshes it, e.g. 24h. Daily granularity.",
+			func(c *config.Config) *time.Duration { return &c.Market.TTL }),
+		durationSetting("market.refresh_interval", market.SourceType, "", "Scheduled warm interval", "Warm the cache on a schedule, e.g. 12h. 0s means on-demand only (recommended) so an unwatched dashboard costs no provider quota.",
+			func(c *config.Config) *time.Duration { return &c.Market.RefreshInterval }),
+		stringSetting("market.api_url", market.SourceType, "", "API URL", "Override the provider's API base URL (proxies/self-hosting). Empty uses the provider default.", nil,
+			func(c *config.Config) *string { return &c.Market.APIURL }),
 	)
 	return defs
 }

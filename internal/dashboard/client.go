@@ -1536,6 +1536,95 @@ func (c *apiClient) setSourceCredential(ctx context.Context, typ, token string) 
 	return out.Connected, nil
 }
 
+// marketSeries mirrors api.MarketSeriesDTO: one configured market series with its
+// cache freshness.
+type marketSeries struct {
+	ID        string `json:"id"`
+	Symbol    string `json:"symbol"`
+	Kind      string `json:"kind"`
+	Currency  string `json:"currency"`
+	Adjusted  bool   `json:"adjusted"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	AsOf      string `json:"as_of"`
+	Points    int    `json:"points"`
+	FetchedAt int64  `json:"fetched_at"`
+	Fresh     bool   `json:"fresh"`
+}
+
+// marketPoint mirrors api.MarketPointDTO: one daily close.
+type marketPoint struct {
+	Date  string `json:"date"`
+	Value string `json:"value"`
+}
+
+// marketSeriesList is the GET /market/series response.
+type marketSeriesList struct {
+	Enabled    bool           `json:"enabled"`
+	Provider   string         `json:"provider"`
+	Configured bool           `json:"configured"`
+	Series     []marketSeries `json:"series"`
+}
+
+// marketPointsResp is the GET /market/series/{id}/points response.
+type marketPointsResp struct {
+	Provider string        `json:"provider"`
+	AsOf     string        `json:"as_of"`
+	Fresh    bool          `json:"fresh"`
+	Points   []marketPoint `json:"points"`
+}
+
+// marketSeriesPayload is the body to define a series.
+type marketSeriesPayload struct {
+	ID       string `json:"id"`
+	Symbol   string `json:"symbol"`
+	Kind     string `json:"kind"`
+	Currency string `json:"currency"`
+	Adjusted bool   `json:"adjusted"`
+	Name     string `json:"name,omitempty"`
+}
+
+func (c *apiClient) listMarketSeries(ctx context.Context) (marketSeriesList, error) {
+	var out marketSeriesList
+	err := c.get(ctx, "/api/v1/market/series", nil, &out)
+	return out, err
+}
+
+func (c *apiClient) marketPoints(ctx context.Context, id string) (marketPointsResp, error) {
+	var out marketPointsResp
+	err := c.get(ctx, "/api/v1/market/series/"+url.PathEscape(id)+"/points", nil, &out)
+	return out, err
+}
+
+func (c *apiClient) addMarketSeries(ctx context.Context, p marketSeriesPayload) (marketSeries, error) {
+	body, err := json.Marshal(p)
+	if err != nil {
+		return marketSeries{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/market/series", bytes.NewReader(body))
+	if err != nil {
+		return marketSeries{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return marketSeries{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return marketSeries{}, decodeAPIError(resp, "add series")
+	}
+	var out marketSeries
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return marketSeries{}, err
+	}
+	return out, nil
+}
+
+func (c *apiClient) removeMarketSeries(ctx context.Context, id string) error {
+	return c.sendDelete(ctx, "/api/v1/market/series/"+url.PathEscape(id), "remove series")
+}
+
 // removeSourceCredential removes one credential (by id) from a multi-credential
 // source and returns the resulting connection state.
 func (c *apiClient) removeSourceCredential(ctx context.Context, typ, id string) (bool, error) {

@@ -159,6 +159,16 @@ type SyncCompletedPayload struct {
 	Duration            string `json:"duration"`
 }
 
+// MarketUpdatedPayload is the data for a market.updated event: which series was
+// refreshed, the newest cached date ("as of"), and how many points the series now
+// holds. Self-contained so a consumer can decide to refetch without a follow-up.
+type MarketUpdatedPayload struct {
+	SeriesID string `json:"series_id"`
+	Provider string `json:"provider"`
+	AsOf     string `json:"as_of"`
+	Points   int    `json:"points"`
+}
+
 // EntityID renders an integer entity id (a rule or sync-log id) as the string the
 // event stores in EntityID.
 func EntityID(id int64) string { return strconv.FormatInt(id, 10) }
