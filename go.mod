@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/dop251/goja v0.0.0-20260607120635-348e6bea910d
-	github.com/evanw/esbuild v0.28.0
+	github.com/evanw/esbuild v0.28.1
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-co-op/gocron/v2 v2.21.2
 	github.com/google/uuid v1.6.0
@@ -12,15 +12,15 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/maxence-charriere/go-app/v10 v10.1.11
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tetratelabs/wazero v1.12.0
 	github.com/yuin/gopher-lua v1.1.2
-	golang.org/x/oauth2 v0.35.0
-	modernc.org/sqlite v1.51.0
+	golang.org/x/oauth2 v0.36.0
+	modernc.org/sqlite v1.52.0
 )
 
 require (
