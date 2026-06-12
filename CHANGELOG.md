@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.1](https://github.com/paulmeier/kasas/compare/v2.29.0...v2.29.1) (2026-06-12)
+
+
+### Dependencies
+
+* bump the go-modules group with 4 updates ([#123](https://github.com/paulmeier/kasas/issues/123)) ([5a50744](https://github.com/paulmeier/kasas/commit/5a5074494b52759ee0138eeccedfdde09b7405fa))
+
 ## [2.29.0](https://github.com/paulmeier/kasas/compare/v2.28.1...v2.29.0) (2026-06-11)
 
 
