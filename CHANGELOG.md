@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.30.0](https://github.com/paulmeier/kasas/compare/v2.29.2...v2.30.0) (2026-06-12)
+
+
+### Features
+
+* external market & reference data source (ADR 0006, Alpha Vantage) ([#127](https://github.com/paulmeier/kasas/issues/127)) ([caf15d2](https://github.com/paulmeier/kasas/commit/caf15d27fb551cc34c19e825fea282449a49e65c))
+
+
+### Documentation
+
+* fix broken market.md config link breaking the strict build ([#129](https://github.com/paulmeier/kasas/issues/129)) ([cb34349](https://github.com/paulmeier/kasas/commit/cb34349fe9bdc131a79055c86a84e13ac7e7c617))
+
 ## [2.29.2](https://github.com/paulmeier/kasas/compare/v2.29.1...v2.29.2) (2026-06-12)
 
 
