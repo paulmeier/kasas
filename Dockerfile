@@ -34,7 +34,7 @@ RUN CGO_ENABLED=0 go build \
 # detects and uses apk) to pull tailscale/tailscaled at startup. scratch and
 # distroless lack both a shell and a package manager, so the hook bails and the
 # app starts without Tailscale. Alpine adds ~8 MB and is otherwise unused at runtime.
-FROM alpine:3.22
+FROM alpine:3.24
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/kasas /kasas
