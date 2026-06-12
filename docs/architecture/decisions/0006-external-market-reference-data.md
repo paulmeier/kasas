@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-06-12
 - **Related:** [Ingestion & Sources](../ingestion.md), [Data Model](../data-model.md),
-  [ADR 0002](0002-plugin-network-capability.md), [ADR 0003](0003-marketplace-trust-tiers.md),
+  [ADR 0002](0002-plugin-network-capability.md),
   [ADR 0005](0005-plugin-originated-transactions.md), and sillview's
   [ADR-0004](https://paulmeier.github.io/sillview/architecture/decisions/0004-external-market-data-ownership-and-storage/)
   (the dashboard-side half of this decision; lands with sillview PR #18 —
@@ -197,10 +197,7 @@ The remote deployment is what settles *where* the cache lives:
   highest-value follow-up this ADR queues.
 - **No data redistribution.** Transient caching for the user's own display is
   within typical provider terms; *redistribution* is not — index levels are
-  themselves licensed. A "datashare marketplace" stays reframed as sharing
-  **connectors** through the existing
-  [marketplace trust tiers](0003-marketplace-trust-tiers.md) — datasets as
-  code, never as data. Per-provider attribution requirements live in
+  themselves licensed. Per-provider attribution requirements live in
   `market_series.meta`.
 
 ## Consequences
