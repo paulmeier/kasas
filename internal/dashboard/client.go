@@ -473,6 +473,34 @@ func (c *apiClient) transactionHistory(ctx context.Context, id string) ([]versio
 	return out.Versions, nil
 }
 
+// getTransaction fetches a single transaction by id. found is false with a nil
+// error when the id is unknown (HTTP 404), so callers can distinguish a genuinely
+// missing transaction from a transient failure (used to validate a manually-entered
+// relationship target before submitting).
+func (c *apiClient) getTransaction(ctx context.Context, id string) (transaction, bool, error) {
+	u := c.base + "/api/v1/transactions/" + url.PathEscape(id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return transaction{}, false, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return transaction{}, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return transaction{}, false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return transaction{}, false, fmt.Errorf("get transaction: status %d", resp.StatusCode)
+	}
+	var t transaction
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+		return transaction{}, false, err
+	}
+	return t, true, nil
+}
+
 // transactionRelationships fetches one transaction's full relationship
 // neighborhood: its outbound edges plus the inbound edges of others targeting it.
 func (c *apiClient) transactionRelationships(ctx context.Context, id string) ([]relationshipEdge, error) {

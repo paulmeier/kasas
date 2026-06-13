@@ -118,6 +118,7 @@ func (v *searchView) initRelationshipsViewing() {
 	v.fetchRelationships = v.client.transactionRelationships
 	v.createRelationship = v.client.createTransactionRelationship
 	v.deleteRelationship = v.client.deleteTransactionRelationship
+	v.relFetchTxn = v.client.getTransaction
 	v.relAllTxns = func() []transaction { return v.allTxns }
 	v.relTxnByID = v.txnByID
 	v.relReportError = func(msg string) { v.errMsg = msg }
