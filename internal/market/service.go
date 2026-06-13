@@ -187,6 +187,7 @@ func (s *Service) Points(ctx context.Context, id, since, until string) (PointsRe
 	}
 	cutoff := time.Now().Unix() - int64(s.ttl.Seconds())
 
+	servedStale := false
 	switch {
 	case cold:
 		// Cold cache: one synchronous fetch (single-flighted, on its own bounded
@@ -198,6 +199,7 @@ func (s *Service) Points(ctx context.Context, id, since, until string) (PointsRe
 	case latest.FetchedAt < cutoff:
 		// Stale cache: serve immediately, refresh in the background (SWR).
 		s.backgroundRefresh(spec)
+		servedStale = true
 	}
 
 	pts, err := s.readPoints(ctx, id, since, until)
@@ -207,7 +209,11 @@ func (s *Service) Points(ctx context.Context, id, since, until string) (PointsRe
 	res := PointsResult{Provider: s.provider.Name(), Points: pts}
 	if l, err := s.store.LatestMarketPoint(ctx, id); err == nil {
 		res.AsOf = l.Date
-		res.Fresh = l.FetchedAt >= cutoff
+		// A stale read reports Fresh=false deterministically: it served stale data and
+		// kicked a background refresh, so re-deriving freshness from a re-read here would
+		// race that refresh — which may already have upserted a fresh point (the source of
+		// the flaky TestServiceStaleRefresh). The next read sees the refreshed point.
+		res.Fresh = !servedStale && l.FetchedAt >= cutoff
 	}
 	return res, nil
 }
