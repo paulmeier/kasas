@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.31.0](https://github.com/paulmeier/kasas/compare/v2.30.2...v2.31.0) (2026-06-13)
+
+
+### Features
+
+* **dashboard:** enter relationship target by ID with live validation ([#134](https://github.com/paulmeier/kasas/issues/134)) ([5ed921c](https://github.com/paulmeier/kasas/commit/5ed921cfbfd9267d8dbfbef6d79132d436ffd856))
+
 ## [2.30.2](https://github.com/paulmeier/kasas/compare/v2.30.1...v2.30.2) (2026-06-13)
 
 
