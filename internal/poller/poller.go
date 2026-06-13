@@ -156,6 +156,17 @@ func (p *Poller) Stop(ctx context.Context) error {
 	return p.sched.Shutdown()
 }
 
+// onDemandCache reports whether this source is a read-through cache that warms on
+// access rather than on a bulk sync: a Warmer with no Puller and no schedule
+// (interval <= 0). [Engine.Sync] ("sync all") skips such sources so the dashboard's
+// "Sync all" and the global /sync trigger never eagerly pull data nothing is
+// displaying — the market source serves through its read-through cache instead.
+// They stay warmable explicitly via [Engine.SyncSource] ("Sync now"), or on a timer
+// if an operator sets a refresh interval (interval > 0, opting back in).
+func (p *Poller) onDemandCache() bool {
+	return p.puller == nil && p.warmer != nil && p.interval <= 0
+}
+
 // Sync performs a single sync. It is safe for concurrent callers; runs are
 // serialized so the background schedule and on-demand API triggers never
 // overlap.

@@ -181,3 +181,37 @@ func TestEngineSkipsUnconfiguredSource(t *testing.T) {
 	_, err = store.LatestSyncLog(ctx)
 	require.ErrorIs(t, err, sql.ErrNoRows, "a skipped sync writes no sync-log entry")
 }
+
+// warmerSource is a Warmer (read-through cache) with no Puller — the shape of the
+// market source. It counts warms so a test can assert when it is and isn't synced.
+type warmerSource struct {
+	typ    string
+	warmed int
+}
+
+func (s *warmerSource) Descriptor() source.Descriptor {
+	return source.Descriptor{Type: s.typ, Archetype: source.ArchetypeReference, Title: s.typ}
+}
+func (s *warmerSource) Warm(context.Context) error { s.warmed++; return nil }
+
+// TestEngineSyncSkipsOnDemandCache verifies that a read-through cache source (a
+// Warmer with no schedule) is skipped by Sync ("sync all") — so a bulk sync never
+// eagerly warms market data nothing is displaying — yet is still warmable by an
+// explicit per-source SyncSource ("Sync now").
+func TestEngineSyncSkipsOnDemandCache(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	cache := &warmerSource{typ: "market"}
+	e := NewEngine(
+		enginePoller(store, typedSource{typ: "a", batch: miniBatch("a", "a-acct", "a-1")}),
+		New(Options{Store: store, Source: cache, Interval: 0}), // on-demand: no schedule
+	)
+
+	res, err := e.Sync(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.NewTransactions, "the pull source still syncs")
+	assert.Equal(t, 0, cache.warmed, "sync-all does not warm an on-demand cache")
+
+	_, err = e.SyncSource(context.Background(), "market")
+	require.NoError(t, err)
+	assert.Equal(t, 1, cache.warmed, "an explicit per-source sync warms it")
+}
