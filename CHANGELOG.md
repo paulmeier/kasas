@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.32.0](https://github.com/paulmeier/kasas/compare/v2.31.0...v2.32.0) (2026-06-13)
+
+
+### Features
+
+* publish windows/amd64 release binaries ([#136](https://github.com/paulmeier/kasas/issues/136)) ([763de68](https://github.com/paulmeier/kasas/commit/763de68eac1b445ec973b3938e41b8becd5d1a33))
+
 ## [2.31.0](https://github.com/paulmeier/kasas/compare/v2.30.2...v2.31.0) (2026-06-13)
 
 
