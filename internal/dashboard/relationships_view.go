@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 
@@ -18,7 +19,7 @@ import (
 //
 // Unlike the read-only history/provenance modals, this one EDITS: it lists a
 // transaction's inbound + outbound edges and lets the user assert a new outbound
-// edge (pick a target transaction via a typeahead, give it a kind) or remove one.
+// edge (enter a target transaction id and give it a kind) or remove one.
 // Like the other shared mixins it holds no *apiClient field (the views already
 // promote chrome.client); the calls are injected as hooks, and the render path
 // reads only embedded state so it works before the hooks are set (keeping the
@@ -33,14 +34,20 @@ type relationshipsViewing struct {
 	// deleteRelationship removes the edge ownerID --kind--> target. Wire to
 	// apiClient.deleteTransactionRelationship.
 	deleteRelationship func(ctx context.Context, ownerID, kind, target string) error
-	// relAllTxns returns every loaded transaction, for the target typeahead and to
-	// render a related transaction's description/amount instead of a bare id.
+	// relAllTxns returns every loaded transaction, used to render a related
+	// transaction's description/amount instead of a bare id (in the edge lists and
+	// as a confirmation of a manually-entered target id) and to collect known kinds.
 	relAllTxns func() []transaction
 	// relTxnByID returns the addressable row for a transaction (or nil), so a
 	// successful edit can refresh that row's outbound indicator in place.
 	relTxnByID func(id string) *transaction
 	// relReportError surfaces a load/save failure in the host view.
 	relReportError func(msg string)
+	// relFetchTxn fetches a single transaction by id, to validate a manually-entered
+	// target that isn't in the loaded set. found is false (with a nil error) when the
+	// id is unknown (404); a non-nil error is a transient lookup failure. Wire to
+	// apiClient.getTransaction.
+	relFetchTxn func(ctx context.Context, id string) (transaction, bool, error)
 
 	relOpen    bool               // the modal is showing
 	relTxnID   string             // focal transaction whose neighborhood is shown
@@ -49,14 +56,22 @@ type relationshipsViewing struct {
 	relLoading bool
 	relErr     string // load error (distinct from the add-form error)
 
-	// Add-form state. The kind input is free text; the target input is a typeahead
-	// over loaded transactions. relTargetID is the picked target's id ("" until a
-	// suggestion is chosen, which is what gates the Add button). Both inputs are
-	// uncontrolled (their DOM value is the source of truth, set imperatively on
-	// pick), so the drafts only drive suggestion filtering and the enabled state.
+	// Add-form state. Both the kind and the target are free-text inputs: the target
+	// is entered manually as a transaction id (no picker — mirroring how the REST and
+	// MCP APIs take a raw target id), so relTargetID holds the typed id and a
+	// non-empty value is what gates the Add button. Both inputs are uncontrolled
+	// (their DOM value is the source of truth), so the state only drives the enabled
+	// state and the target-status line.
+	//
+	// relTargetState is the live validation of the typed id: "" (none), "found" (in
+	// the loaded set or confirmed by relFetchTxn — relTargetFound holds it),
+	// "checking" (a backend existence check is in flight), or "missing" (the id does
+	// not exist). relTargetGen tags each check so a stale/superseded result is dropped.
 	relKindDraft   string
-	relTargetDraft string
 	relTargetID    string
+	relTargetState string
+	relTargetFound transaction
+	relTargetGen   int
 	relAddErr      string
 	relSubmitting  bool
 }
@@ -65,6 +80,10 @@ const (
 	relKindInputID   = "rel-kind-input"
 	relTargetInputID = "rel-target-input"
 )
+
+// relTargetCheckDelay debounces the backend existence check so typing an id does
+// not fire a request per keystroke; only the last id in a burst is looked up.
+const relTargetCheckDelay = 300 * time.Millisecond
 
 // openRelationships shows the modal for a transaction and fetches its neighborhood.
 // A response for a transaction other than the currently-open one is dropped.
@@ -135,8 +154,10 @@ func (v *relationshipsViewing) closeRelationships(ctx app.Context) {
 
 func (v *relationshipsViewing) resetRelForm() {
 	v.relKindDraft = ""
-	v.relTargetDraft = ""
 	v.relTargetID = ""
+	v.relTargetState = ""
+	v.relTargetFound = transaction{}
+	v.relTargetGen++ // invalidate any in-flight existence check
 	v.relAddErr = ""
 	v.relSubmitting = false
 }
@@ -230,10 +251,16 @@ func (v *relationshipsViewing) renderEdgeSection(heading string, edges []relatio
 }
 
 // renderAddForm renders the "add an outbound edge" form: a kind input (with quick
-// chips for kinds already in use), a target typeahead over loaded transactions, and
-// an Add button enabled once both a kind and a target are chosen.
+// chips for kinds already in use), a target transaction-id field the user fills in
+// manually, and an Add button enabled once a kind is set and the target id has been
+// confirmed to exist. Beneath the row, renderTargetStatus confirms a recognised id
+// (its summary) or flags one that does not exist.
 func (v *relationshipsViewing) renderAddForm() app.UI {
-	canAdd := relationships.NormalizeKind(v.relKindDraft) != "" && v.relTargetID != "" && !v.relSubmitting
+	// A known-missing OR still-checking id blocks Add — don't let the user submit
+	// before the target is confirmed. A transient lookup error (state "") falls
+	// through and lets the backend's own validation be the authority on submit.
+	canAdd := relationships.NormalizeKind(v.relKindDraft) != "" && strings.TrimSpace(v.relTargetID) != "" &&
+		v.relTargetState != "missing" && v.relTargetState != "checking" && !v.relSubmitting
 
 	body := []app.UI{
 		app.Div().Class("rel-section-head").Text("Add relationship"),
@@ -241,16 +268,16 @@ func (v *relationshipsViewing) renderAddForm() app.UI {
 			app.Input().ID(relKindInputID).Class("rel-kind-field").Type("text").
 				Placeholder("kind, e.g. refund_of").
 				OnInput(func(ctx app.Context, _ app.Event) { v.onRelKindInput(ctx) }),
-			app.Div().Class("rel-target-wrap").Body(
-				app.Input().ID(relTargetInputID).Class("rel-target-field").Type("text").
-					Placeholder("find target transaction…").
-					OnInput(func(ctx app.Context, _ app.Event) { v.onRelTargetInput(ctx) }),
-				v.renderTargetSuggestions(),
-			),
+			app.Input().ID(relTargetInputID).Class("rel-target-field").Type("text").
+				Placeholder("target transaction id").
+				OnInput(func(ctx app.Context, _ app.Event) { v.onRelTargetInput(ctx) }),
 			app.Button().Type("button").Class("btn-primary rel-add-btn").
 				Disabled(!canAdd).Text("Add").
 				OnClick(func(ctx app.Context, _ app.Event) { v.submitAdd(ctx) }),
 		),
+	}
+	if status := v.renderTargetStatus(); status != nil {
+		body = append(body, status)
 	}
 	if chips := v.renderKindChips(); chips != nil {
 		body = append(body, chips)
@@ -281,21 +308,32 @@ func (v *relationshipsViewing) renderKindChips() app.UI {
 	)
 }
 
-func (v *relationshipsViewing) renderTargetSuggestions() app.UI {
-	matches := v.filterTargets()
-	if len(matches) == 0 {
+// renderTargetStatus shows the live validation of the manually-entered target id:
+// a confirmation (the matching transaction's summary) when the id is recognised, a
+// neutral note while a backend existence check is in flight, or an error when the
+// id does not exist. It renders nothing for an empty field. A typed id that is not
+// in the loaded set is only flagged "missing" after the backend confirms it (it may
+// be a valid id outside the current view), never client-side.
+func (v *relationshipsViewing) renderTargetStatus() app.UI {
+	id := strings.TrimSpace(v.relTargetID)
+	if id == "" {
 		return nil
 	}
-	return app.Div().Class("label-suggestions rel-suggestions").Body(
-		app.Range(matches).Slice(func(i int) app.UI {
-			t := matches[i]
-			return app.Button().Type("button").Class("label-suggestion").Text(relTxnSummary(t)).
-				OnMouseDown(func(ctx app.Context, ev app.Event) {
-					ev.PreventDefault()
-					v.pickTarget(ctx, t)
-				})
-		}),
-	)
+	switch v.relTargetState {
+	case "found":
+		return app.Div().Class("rel-target-status rel-target-found").Body(
+			app.Span().Class("rel-arrow").Text("↳"),
+			app.Span().Text(relTxnSummary(v.relTargetFound)),
+		)
+	case "checking":
+		return app.Div().Class("rel-target-status rel-target-checking").Text("Checking id…")
+	case "missing":
+		return app.Div().Class("rel-target-status rel-target-missing").Body(
+			app.Span().Class("rel-target-x").Text("✕"),
+			app.Span().Text("No transaction with id "+id),
+		)
+	}
+	return nil
 }
 
 func (v *relationshipsViewing) onRelKindInput(ctx app.Context) {
@@ -303,21 +341,63 @@ func (v *relationshipsViewing) onRelKindInput(ctx app.Context) {
 	ctx.Update()
 }
 
-// onRelTargetInput mirrors the target draft and clears any prior pick, so editing
-// the text after choosing reopens the search.
+// onRelTargetInput records the manually-entered target transaction id and kicks off
+// its validation. There is no picker: the user types or pastes the id directly, so
+// the typed value IS the target. An id already in the loaded set is confirmed
+// instantly; an id we don't have loaded is checked against the backend (it may be a
+// valid id outside the current view, so we never call it missing without asking).
 func (v *relationshipsViewing) onRelTargetInput(ctx app.Context) {
-	v.relTargetDraft = ctx.JSSrc().Get("value").String()
-	v.relTargetID = ""
+	id := strings.TrimSpace(ctx.JSSrc().Get("value").String())
+	v.relTargetID = id
+	v.relTargetGen++ // supersede any in-flight check
+	v.relTargetFound = transaction{}
+	if id == "" {
+		v.relTargetState = ""
+	} else if t, ok := v.lookupTxn(id); ok {
+		v.relTargetState = "found"
+		v.relTargetFound = t
+	} else {
+		v.relTargetState = "checking"
+		v.checkTargetExists(ctx, id, v.relTargetGen)
+	}
 	ctx.Update()
 }
 
-// pickTarget selects a target transaction from the typeahead, filling the input
-// imperatively (an uncontrolled field) and recording its id.
-func (v *relationshipsViewing) pickTarget(ctx app.Context, t transaction) {
-	v.relTargetID = t.ID
-	v.relTargetDraft = relTxnSummary(t)
-	setElementValue(relTargetInputID, v.relTargetDraft)
-	ctx.Update()
+// checkTargetExists asynchronously verifies a target id that is not in the loaded
+// set, so the user learns it is unknown before submitting rather than only on the
+// failed POST. It debounces (only the last id in a typing burst is fetched) and
+// drops a result whose input has since changed, both keyed off the gen token.
+func (v *relationshipsViewing) checkTargetExists(ctx app.Context, id string, gen int) {
+	if v.relFetchTxn == nil {
+		return
+	}
+	ctx.Async(func() {
+		time.Sleep(relTargetCheckDelay)
+		// After the debounce window, skip the request if newer input superseded us.
+		current := make(chan bool, 1)
+		ctx.Dispatch(func(app.Context) { current <- v.relTargetGen == gen && v.relTargetID == id })
+		if !<-current {
+			return
+		}
+		t, found, err := v.relFetchTxn(context.Background(), id)
+		ctx.Dispatch(func(ctx app.Context) {
+			if v.relTargetGen != gen || v.relTargetID != id {
+				return // superseded while the request was in flight
+			}
+			switch {
+			case err != nil:
+				// Transient failure: don't block the user — the backend re-validates
+				// on submit, surfacing any real "does not exist" there.
+				v.relTargetState = ""
+			case found:
+				v.relTargetState = "found"
+				v.relTargetFound = t
+			default:
+				v.relTargetState = "missing"
+			}
+			ctx.Update()
+		})
+	})
 }
 
 func (v *relationshipsViewing) submitAdd(ctx app.Context) {
@@ -406,40 +486,6 @@ func (v *relationshipsViewing) lookupTxn(id string) (transaction, bool) {
 		}
 	}
 	return transaction{}, false
-}
-
-// filterTargets returns up to 8 loaded transactions matching the target draft
-// (case-insensitive over description/payee/amount/id), excluding the focal
-// transaction and targets it already links to.
-func (v *relationshipsViewing) filterTargets() []transaction {
-	const maxSuggestions = 8
-	if v.relAllTxns == nil || v.relTargetID != "" {
-		return nil
-	}
-	d := strings.ToLower(strings.TrimSpace(v.relTargetDraft))
-	if d == "" {
-		return nil
-	}
-	existing := make(map[string]bool)
-	for _, e := range v.relEdges {
-		if e.Direction == relationships.DirectionOutbound {
-			existing[e.OtherTransactionID] = true
-		}
-	}
-	var out []transaction
-	for _, t := range v.relAllTxns() {
-		if t.ID == v.relTxnID || existing[t.ID] {
-			continue
-		}
-		hay := strings.ToLower(t.Description + " " + t.Payee + " " + t.Amount + " " + t.ID)
-		if strings.Contains(hay, d) {
-			out = append(out, t)
-			if len(out) >= maxSuggestions {
-				break
-			}
-		}
-	}
-	return out
 }
 
 // knownKinds collects the distinct relationship kinds in use across loaded

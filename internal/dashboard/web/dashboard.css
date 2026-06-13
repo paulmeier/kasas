@@ -1097,8 +1097,8 @@ tr:hover .relationships-btn,
   color: var(--text);
 }
 
-/* Relationships modal: outbound + inbound edge lists and an add form (kind +
-   target typeahead). Reuses the shared modal chrome and the label suggestions. */
+/* Relationships modal: outbound + inbound edge lists and an add form (kind + a
+   manually-entered target transaction id). Reuses the shared modal chrome. */
 .modal.relationships-modal { max-width: 640px; }
 .rel-sections { display: flex; flex-direction: column; gap: 18px; }
 .rel-section { display: flex; flex-direction: column; gap: 6px; }
@@ -1126,10 +1126,21 @@ tr:hover .relationships-btn,
 }
 .rel-kind-field { flex: 0 0 38%; }
 .rel-kind-field:focus, .rel-target-field:focus { outline: none; border-color: var(--accent); }
-.rel-target-wrap { position: relative; flex: 1 1 auto; }
-.rel-target-field { width: 100%; box-sizing: border-box; }
-.rel-suggestions { left: 0; right: 0; min-width: 0; }
+.rel-target-field { flex: 1 1 auto; min-width: 0; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .rel-add-btn { flex: 0 0 auto; }
+/* Live validation line under the manually-entered target id: a confirmation when
+   the id is recognised, a neutral note while it is being checked, or an error when
+   it does not exist. */
+.rel-target-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.rel-target-found, .rel-target-checking { color: var(--muted); }
+.rel-target-missing { color: var(--neg); }
+.rel-target-x { font-weight: 600; }
 .rel-add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .rel-kind-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .rel-kind-chip {
