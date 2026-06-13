@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.2](https://github.com/paulmeier/kasas/compare/v2.30.1...v2.30.2) (2026-06-13)
+
+
+### Bug Fixes
+
+* report Fresh=false deterministically for a stale market read ([#132](https://github.com/paulmeier/kasas/issues/132)) ([9ab175a](https://github.com/paulmeier/kasas/commit/9ab175ae248e8571bb6a1c35ef8a80e3369d149b))
+
 ## [2.30.1](https://github.com/paulmeier/kasas/compare/v2.30.0...v2.30.1) (2026-06-13)
 
 
