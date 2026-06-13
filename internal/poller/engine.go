@@ -76,13 +76,20 @@ func (e *Engine) Stop(ctx context.Context) error {
 
 // Sync runs every source sequentially (SQLite has a single writer) and returns the
 // aggregate result. It satisfies api.Syncer, so the global /sync trigger and the
-// trigger_sync MCP tool sync all sources. A source that fails is recorded; the
-// others still run, and the joined error is returned (nil when all succeed).
+// trigger_sync MCP tool sync all sources — except on-demand cache sources (the
+// market read-through cache), which warm on access, not on a bulk sync, so a
+// "Sync all" never eagerly pulls data nothing is displaying. A source that fails is
+// recorded; the others still run, and the joined error is returned (nil when all
+// succeed).
 func (e *Engine) Sync(ctx context.Context) (SyncResult, error) {
 	var agg SyncResult
 	var errs []error
 	for _, typ := range e.order {
-		res, err := e.pollers[typ].Sync(ctx)
+		p := e.pollers[typ]
+		if p.onDemandCache() {
+			continue // read-through cache: warmed on access or via an explicit per-source sync
+		}
+		res, err := p.Sync(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", typ, err))
 			continue

@@ -140,6 +140,12 @@ provider key is **admin-tier**.
 | `PUT /api/v1/sources/market/credential` | admin | Set the provider API key. |
 | `POST /api/v1/sources/market/sync` | write | Warm the cache for every configured series (optional). |
 
+A global sync (`POST /api/v1/sync`, the dashboard's "Sync all") **skips** the market
+source: it is a read-through cache, not a pull source, so a bulk sync never fetches
+series nothing is displaying. Market data warms only on access (a widget reading
+points), on its `refresh_interval` if one is set, or via the explicit per-source sync
+above.
+
 Values are **decimal strings**, the same discipline as money (a price is money per
 unit).
 
