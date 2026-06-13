@@ -37,10 +37,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
+          - { goos: linux, goarch: amd64, ext: "" }
+          - { goos: linux, goarch: arm64, ext: "" }
+          - { goos: darwin, goarch: amd64, ext: "" }
+          - { goos: darwin, goarch: arm64, ext: "" }
+          - { goos: windows, goarch: amd64, ext: ".exe" }
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -57,11 +58,12 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          EXT: ${{ matrix.ext }}
           VERSION: ${{ needs.release-please.outputs.tag_name }}
         run: |
           name="kasas_${VERSION}_${GOOS}_${GOARCH}"
           mkdir -p "dist/${name}"
-          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "dist/${name}/kasas" ./cmd/kasas
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "dist/${name}/kasas${EXT}" ./cmd/kasas
           cp README.md LICENSE config.example.toml "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
           ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
