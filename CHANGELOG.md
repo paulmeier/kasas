@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.1](https://github.com/paulmeier/kasas/compare/v2.30.0...v2.30.1) (2026-06-13)
+
+
+### Bug Fixes
+
+* don't warm the market cache on "sync all" ([#130](https://github.com/paulmeier/kasas/issues/130)) ([6508343](https://github.com/paulmeier/kasas/commit/6508343352605b4520baec856f4095e289108cfe))
+
 ## [2.30.0](https://github.com/paulmeier/kasas/compare/v2.29.2...v2.30.0) (2026-06-12)
 
 
