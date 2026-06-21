@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.35.1](https://github.com/paulmeier/kasas/compare/v2.35.0...v2.35.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* **deps:** bump Go 1.25.11 + x/net + go-jose to clear 11 reachable CVEs ([#146](https://github.com/paulmeier/kasas/issues/146)) ([05a90af](https://github.com/paulmeier/kasas/commit/05a90af20b24ae58688c8e599c89b430b84248a6))
+
 ## [2.35.0](https://github.com/paulmeier/kasas/compare/v2.34.0...v2.35.0) (2026-06-21)
 
 
