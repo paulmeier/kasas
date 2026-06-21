@@ -1481,6 +1481,9 @@ type sourceStatus struct {
 	Active bool `json:"active"`
 	// Config is the source's editable, persisted configuration.
 	Config []settingItem `json:"config"`
+	// Egress lists the external hosts this source contacts (e.g. a market
+	// provider's API host), shown read-only on its detail page.
+	Egress []string `json:"egress"`
 }
 
 // credentialField mirrors source.CredentialField: one secret a source needs.
@@ -1807,6 +1810,22 @@ func (c *apiClient) latestSync(ctx context.Context) (*syncRun, error) {
 		return nil, err
 	}
 	return out.Latest, nil
+}
+
+// syncHistory fetches the most recent sync runs (newest first), up to limit, for
+// the Sources page's "Recent syncs" list.
+func (c *apiClient) syncHistory(ctx context.Context, limit int) ([]syncRun, error) {
+	var out struct {
+		History []syncRun `json:"history"`
+	}
+	var q url.Values
+	if limit > 0 {
+		q = url.Values{"limit": {strconv.Itoa(limit)}}
+	}
+	if err := c.get(ctx, "/api/v1/sync/history", q, &out); err != nil {
+		return nil, err
+	}
+	return out.History, nil
 }
 
 // triggerSync starts a sync. The server runs it asynchronously and returns 202;

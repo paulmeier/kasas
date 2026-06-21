@@ -134,6 +134,7 @@ var (
 	_ app.AppUpdater = (*webhooksView)(nil)
 	_ app.AppUpdater = (*pluginsView)(nil)
 	_ app.AppUpdater = (*sourcesView)(nil)
+	_ app.AppUpdater = (*sourceDetailView)(nil)
 	_ app.AppUpdater = (*settingsView)(nil)
 	_ app.AppUpdater = (*pluginPageView)(nil)
 )

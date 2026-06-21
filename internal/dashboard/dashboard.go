@@ -56,6 +56,11 @@ func Routes() {
 	app.Route("/sources", func() app.Composer { return &sourcesView{} })
 	app.Route("/market", func() app.Composer { return &marketView{} })
 	app.Route("/settings", func() app.Composer { return &settingsView{} })
+	// Per-source detail pages: one regexp route serves every /sources/<type> path
+	// with the detail view (the source type is read from the URL on mount),
+	// mirroring the /ext/<plugin> pattern. Registered after the exact /sources
+	// route, which it does not overlap.
+	app.RouteWithRegexp("^/sources/[a-z0-9][a-z0-9_-]*$", func() app.Composer { return &sourceDetailView{} })
 	// Plugin dashboard pages: one regexp route serves every /ext/<plugin> path
 	// with the generic declarative-page view (the plugin name is read from the
 	// URL on mount). The pattern mirrors the plugin-name slug rule.

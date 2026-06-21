@@ -7,65 +7,39 @@ import (
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
 
-// sourcesView is the Sources page: one card per ingestion source — active AND
-// inactive — with its connection status, editable configuration (persisted
-// settings), a per-source "Sync now" control, a credential form for sources
-// that take a pasted secret, and a "Connect" button for sources that use a
-// browser OAuth flow (e.g. Google Drive). It manages every source uniformly —
-// SimpleFIN, CSV, and any future source. An inactive source (registered but
-// missing its activating config, like Plaid without app credentials) is shown
-// so it can be configured here and activated by a restart.
+// sourcesView is the Sources page: a compact list of every ingestion source —
+// active AND inactive — each shown as a row (type icon, title, blurb, connection
+// status) that opens a per-source detail page at /sources/<type>. A "Sync all"
+// control triggers a full sync, and a "Recent syncs" panel summarises the last
+// few runs. Per-source configuration, credentials, and sync live on the detail
+// page (sourceDetailView). An inactive source (registered but missing its
+// activating config, like Plaid without app credentials) is listed too so it can
+// be configured on its detail page and activated by a restart.
 type sourcesView struct {
 	app.Compo
-	chrome          // shared sidebar + API client + version badge
-	settingsEditing // per-source config save/reset (shared with the Settings page)
-	restartPrompt   // "restart required" banner + in-place restart
+	chrome        // shared sidebar + API client + version badge
+	restartPrompt // "restart required" banner + in-place restart
 
 	sources []sourceStatus
+	history []syncRun
 	enabled bool
 	loaded  bool
 	errMsg  string
 
-	savingType  string // type whose credential save is in flight
-	saveMsg     string
-	removingID  string // credential entry id whose removal is in flight
-	syncingType string // type whose sync is in flight
-	syncMsg     string
+	syncingAll bool
+	syncAllMsg string
 
-	// Post-OAuth banner, read from the callback's redirect query params.
+	// Post-OAuth banner, read from the callback's redirect query params: a
+	// source's OAuth callback redirects the browser back to
+	// /sources?connected=<type> (or ?error=<msg>).
 	oauthMsg string
 	oauthErr string
 }
 
-// credInputID is the stable DOM id of a source's credential input, so its value
-// can be read on save and cleared afterwards (go-app drops empty value attrs).
-func credInputID(typ string) string { return "source-cred-" + typ }
-
 func (v *sourcesView) OnMount(ctx app.Context) {
 	v.loadChrome(ctx)
-	v.initSettingsEditing(
-		func() *apiClient { return v.client },
-		v.adoptSetting,
-	)
 	v.readOAuthResult()
 	v.loadSources(ctx)
-}
-
-// adoptSetting folds a saved/reset setting back into the matching source's
-// config list so the row shows the server-normalized value and state.
-func (v *sourcesView) adoptSetting(_ app.Context, st settingItem, restartRequired bool) {
-	v.restartNeeded = restartRequired
-	for i := range v.sources {
-		if v.sources[i].Type != st.Source {
-			continue
-		}
-		for j := range v.sources[i].Config {
-			if v.sources[i].Config[j].Key == st.Key {
-				v.sources[i].Config[j] = st
-				return
-			}
-		}
-	}
 }
 
 // readOAuthResult surfaces the result of a just-completed OAuth flow, which the
@@ -87,6 +61,9 @@ func (v *sourcesView) readOAuthResult() {
 func (v *sourcesView) loadSources(ctx app.Context) {
 	ctx.Async(func() {
 		data, err := v.client.listSources(context.Background())
+		// Sync history is best-effort: a failure leaves the panel empty rather
+		// than failing the whole page.
+		hist, _ := v.client.syncHistory(context.Background(), 10)
 		ctx.Dispatch(func(ctx app.Context) {
 			v.loaded = true
 			if err != nil {
@@ -97,95 +74,35 @@ func (v *sourcesView) loadSources(ctx app.Context) {
 			v.sources = data.Sources
 			v.enabled = data.Enabled
 			v.restartNeeded = data.RestartRequired
+			v.history = hist
 			ctx.Update()
 		})
 	})
 }
 
-func (v *sourcesView) onSyncSource(ctx app.Context, typ string) {
-	if v.syncingType != "" {
+// onSyncAll triggers a sync of every active source.
+func (v *sourcesView) onSyncAll(ctx app.Context) {
+	if v.syncingAll {
 		return
 	}
-	v.syncingType = typ
-	v.syncMsg = ""
+	v.syncingAll = true
+	v.syncAllMsg = ""
 	v.errMsg = ""
 	ctx.Update()
 
 	ctx.Async(func() {
-		err := v.client.syncSource(context.Background(), typ)
+		err := v.client.triggerSync(context.Background())
 		ctx.Dispatch(func(ctx app.Context) {
-			v.syncingType = ""
+			v.syncingAll = false
 			if err != nil {
 				v.errMsg = "Sync failed: " + err.Error()
 				ctx.Update()
 				return
 			}
-			v.syncMsg = "Sync started for " + typ + ". Watch the Transactions page for new data."
+			v.syncAllMsg = "Sync started. Watch the Transactions page for new data."
 			ctx.Update()
 		})
 	})
-}
-
-func (v *sourcesView) onSaveCredential(ctx app.Context, typ string) {
-	if v.savingType != "" {
-		return
-	}
-	token := domInputValue(credInputID(typ))
-	if token == "" {
-		v.errMsg = "Enter a credential first."
-		ctx.Update()
-		return
-	}
-	v.savingType = typ
-	v.saveMsg = ""
-	v.errMsg = ""
-	ctx.Update()
-
-	ctx.Async(func() {
-		connected, err := v.client.setSourceCredential(context.Background(), typ, token)
-		ctx.Dispatch(func(ctx app.Context) {
-			v.savingType = ""
-			if err != nil {
-				v.errMsg = "Could not save credential: " + err.Error()
-				ctx.Update()
-				return
-			}
-			v.saveMsg = "Credential saved for " + typ + "."
-			clearDomInput(credInputID(typ))
-			v.setConnected(typ, connected)
-			v.loadSources(ctx) // refresh connection + (for multi-credential) the entry list
-			ctx.Update()
-		})
-	})
-}
-
-// onConnect begins a source's browser OAuth flow: it fetches the consent URL
-// (an authenticated request, since a full-page navigation cannot send the token)
-// then navigates the browser there.
-func (v *sourcesView) onConnect(ctx app.Context, typ string) {
-	v.errMsg = ""
-	ctx.Update()
-	ctx.Async(func() {
-		authURL, err := v.client.sourceOAuthStartURL(context.Background(), typ)
-		ctx.Dispatch(func(ctx app.Context) {
-			if err != nil {
-				v.errMsg = "Could not start sign-in: " + err.Error()
-				ctx.Update()
-				return
-			}
-			app.Window().Get("location").Set("href", authURL)
-		})
-	})
-}
-
-// setConnected updates a source's connected flag in place after a credential save.
-func (v *sourcesView) setConnected(typ string, connected bool) {
-	for i := range v.sources {
-		if v.sources[i].Type == typ {
-			v.sources[i].Connected = connected
-			return
-		}
-	}
 }
 
 func (v *sourcesView) Render() app.UI {
@@ -193,11 +110,11 @@ func (v *sourcesView) Render() app.UI {
 		v.renderRestartBanner(func() *apiClient { return v.client }),
 		app.Header().Class("page-header").Body(
 			app.H1().Class("page-title").Text("Sources"),
-			app.Span().Class("page-subtitle").Text("Connect, configure, and sync where your transactions come from"),
+			app.Span().Class("page-subtitle").Text("Connect and configure where your data comes from"),
 		),
 		v.renderError(),
-		v.renderSettingMessages(),
 		v.renderOAuthBanner(),
+		v.renderControls(),
 		v.renderBody(),
 	)
 }
@@ -220,9 +137,28 @@ func (v *sourcesView) renderOAuthBanner() app.UI {
 	}
 }
 
+// renderControls is the "Sync all" toolbar above the source list, hidden when
+// source management is disabled.
+func (v *sourcesView) renderControls() app.UI {
+	if v.loaded && !v.enabled {
+		return app.Text("")
+	}
+	body := []app.UI{
+		app.Button().
+			Class("btn btn-primary").
+			Text(syncAllLabel(v.syncingAll)).
+			Disabled(v.syncingAll).
+			OnClick(func(ctx app.Context, _ app.Event) { v.onSyncAll(ctx) }),
+	}
+	if v.syncAllMsg != "" {
+		body = append(body, app.Span().Class("sync-status ok").Text(v.syncAllMsg))
+	}
+	return app.Div().Class("controls").Body(body...)
+}
+
 // renderBody shows, in order: a loading state, then a disabled state, then the
-// source cards (or an empty note) — rows-first so a real error never reads as
-// "no sources".
+// source rows + recent syncs (or an empty note) — rows-first so a real error
+// never reads as "no sources".
 func (v *sourcesView) renderBody() app.UI {
 	if !v.loaded {
 		return app.Div().Class("status").Text("Loading…")
@@ -234,209 +170,90 @@ func (v *sourcesView) renderBody() app.UI {
 		return app.Div().Class("settings-note").Text("No ingestion sources are configured.")
 	}
 	return app.Div().Body(
-		app.Range(v.sources).Slice(func(i int) app.UI {
-			return v.renderSource(v.sources[i])
-		}),
+		app.Div().Class("source-list").Body(
+			app.Range(v.sources).Slice(func(i int) app.UI {
+				return v.renderSourceRow(v.sources[i])
+			}),
+		),
+		v.renderRecentSyncs(),
 	)
 }
 
-func (v *sourcesView) renderSource(s sourceStatus) app.UI {
-	pillClass, pillText := "status-pill disconnected", "Not connected"
+// renderSourceRow is one clickable list row linking to the source's detail page.
+func (v *sourcesView) renderSourceRow(s sourceStatus) app.UI {
+	pillClass, pillText := sourceStatusPill(s)
+	return app.A().Class("source-row").Href("/sources/"+s.Type).Body(
+		app.Span().Class("source-row-icon").Body(sourceTypeIcon(s.Type)),
+		app.Span().Class("source-row-main").Body(
+			app.Span().Class("source-row-title").Text(sourceTitle(s)),
+			app.Span().Class("source-row-blurb").Text(sourceBlurb(s)),
+		),
+		app.Span().Class("source-row-status").Body(
+			app.Span().Class(pillClass).Text(pillText),
+			app.Span().Class("source-chevron").Body(iconChevronRight()),
+		),
+	)
+}
+
+// renderRecentSyncs lists the last few sync runs with a status pill and time,
+// mirroring the desktop dashboard's Sources page.
+func (v *sourcesView) renderRecentSyncs() app.UI {
+	if len(v.history) == 0 {
+		return app.Text("")
+	}
+	rows := make([]app.UI, 0, len(v.history)+1)
+	rows = append(rows, app.Div().Class("recent-syncs-title").Text("Recent syncs"))
+	for _, r := range v.history {
+		rows = append(rows, renderRecentSyncRow(r))
+	}
+	return app.Div().Class("recent-syncs card").Body(rows...)
+}
+
+func renderRecentSyncRow(r syncRun) app.UI {
+	pillClass, pillText := syncStatusPill(r.Status)
+	when := ""
+	if !r.StartedAt.IsZero() {
+		when = r.StartedAt.Format("2006-01-02 15:04") + " UTC"
+	}
+	left := []app.UI{app.Span().Class(pillClass).Text(pillText)}
+	if r.Error != "" {
+		left = append(left, app.Span().Class("recent-sync-error").Title(r.Error).Text(r.Error))
+	}
+	return app.Div().Class("recent-sync-row").Body(
+		app.Div().Class("recent-sync-left").Body(left...),
+		app.Span().Class("recent-sync-when").Text(when),
+	)
+}
+
+// --- shared source presentation (used by the list rows and the detail page) ---
+
+// sourceStatusPill is the four-state connection pill: an inactive source is grey,
+// a connected one green, a credential/OAuth source awaiting its secret amber
+// ("Needs credentials"), and an active source needing no secret blue ("Active").
+func sourceStatusPill(s sourceStatus) (class, text string) {
 	switch {
 	case !s.Active:
-		pillClass, pillText = "status-pill inactive", "Inactive"
+		return "status-pill inactive", "Inactive"
 	case s.Connected:
-		pillClass, pillText = "status-pill connected", "Connected"
+		return "status-pill connected", "Connected"
+	case s.Credentialed || s.OAuth:
+		return "status-pill needs-creds", "Needs credentials"
+	default:
+		return "status-pill active", "Active"
 	}
-
-	body := []app.UI{
-		app.Div().Class("settings-section-head").Body(
-			app.H2().Class("settings-title").Text(sourceTitle(s)),
-			app.Span().Class(pillClass).Text(pillText),
-		),
-		app.P().Class("settings-help").Text(sourceArchetypeHelp(s.Archetype)),
-	}
-	if !s.Active {
-		msg := "Not active in this run. Set its configuration below — once the required values are in place, restart kasas to activate it."
-		if s.Credentialed {
-			msg += " Once active, add its " + sourceCredentialNoun(s) + " and run a sync from this card."
-		}
-		body = append(body, app.P().Class("settings-help").Text(msg))
-	}
-
-	// Credential and sync controls need a running source instance, so they are
-	// offered only for active sources. A multi-credential source (e.g. Teller)
-	// shows its connected credentials with per-entry remove plus an "add another"
-	// form; a single-credential source shows one replace input.
-	if s.Active {
-		switch {
-		case s.MultiCredential:
-			body = append(body, v.renderMultiCredential(s))
-		case s.Credentialed:
-			body = append(body, v.renderCredentialForm(s))
-		}
-		// Browser OAuth connect for sources that support it.
-		if s.OAuth {
-			body = append(body, v.renderConnectButton(s))
-		}
-	}
-
-	// Editable, persisted configuration (applies after a restart).
-	if len(s.Config) > 0 {
-		body = append(body,
-			app.Div().Class("settings-divider"),
-			app.H3().Class("setting-group-title").Text("Configuration"),
-		)
-		for i := range s.Config {
-			body = append(body, v.renderSettingRow(s.Config[i]))
-		}
-	}
-
-	// Per-source sync control.
-	if s.Active {
-		body = append(body,
-			app.Div().Class("settings-divider"),
-			app.Div().Class("form-row").Body(
-				app.Button().
-					Class("btn btn-primary").
-					Text(sourceSyncLabel(v.syncingType == s.Type)).
-					Disabled(v.syncingType == s.Type).
-					OnClick(func(ctx app.Context, _ app.Event) { v.onSyncSource(ctx, s.Type) }),
-				v.renderSyncMsg(s.Type),
-			),
-		)
-	}
-
-	return app.Section().Class("card settings-section").Body(body...)
 }
 
-func (v *sourcesView) renderCredentialForm(s sourceStatus) app.UI {
-	label, help := "Credential", ""
-	if len(s.Credentials) > 0 {
-		label = s.Credentials[0].Title
-		help = s.Credentials[0].Help
+// syncStatusPill maps a sync run's status to a pill: green for a completed run,
+// red for a failure, grey for anything in between (running/pending).
+func syncStatusPill(status string) (class, text string) {
+	switch status {
+	case "success", "completed":
+		return "status-pill connected", status
+	case "error", "failed":
+		return "status-pill failed", status
+	default:
+		return "status-pill disconnected", status
 	}
-	rows := []app.UI{}
-	if help != "" {
-		rows = append(rows, app.P().Class("settings-help").Text(help))
-	}
-	rows = append(rows, app.Div().Class("form-row").Body(
-		app.Input().
-			ID(credInputID(s.Type)).
-			Class("settings-input").
-			Type("password").
-			Placeholder(label).
-			AutoComplete(false),
-		app.Button().
-			Class("btn").
-			Text(saveLabel(v.savingType == s.Type)).
-			Disabled(v.savingType == s.Type).
-			OnClick(func(ctx app.Context, _ app.Event) { v.onSaveCredential(ctx, s.Type) }),
-	))
-	if v.saveMsg != "" && v.savingType == "" {
-		rows = append(rows, app.Div().Class("settings-ok").Text(v.saveMsg))
-	}
-	return app.Div().Body(rows...)
-}
-
-// renderMultiCredential shows a multi-credential source's connected credentials
-// (each masked, with a Remove button when removable) plus a form to add another —
-// e.g. one Teller access token per linked bank.
-func (v *sourcesView) renderMultiCredential(s sourceStatus) app.UI {
-	rows := []app.UI{}
-
-	if len(s.CredentialEntries) > 0 {
-		items := make([]app.UI, 0, len(s.CredentialEntries))
-		for _, e := range s.CredentialEntries {
-			e := e
-			cells := []app.UI{app.Span().Class("cred-label").Text(e.Label)}
-			if e.Removable {
-				cells = append(cells, app.Button().
-					Class("btn btn-sm").
-					Text(removeLabel(v.removingID == e.ID)).
-					Disabled(v.removingID == e.ID).
-					OnClick(func(ctx app.Context, _ app.Event) { v.onRemoveCredential(ctx, s.Type, e.ID) }))
-			} else {
-				cells = append(cells, app.Span().Class("settings-help").Text("from config"))
-			}
-			items = append(items, app.Li().Class("cred-item").Body(cells...))
-		}
-		rows = append(rows, app.Ul().Class("cred-list").Body(items...))
-	} else {
-		rows = append(rows, app.P().Class("settings-help").Text("Nothing connected yet."))
-	}
-
-	// "Add another bank" form — reuses the credential input; the server appends.
-	label, help := "Access token", ""
-	if len(s.Credentials) > 0 {
-		label = s.Credentials[0].Title
-		help = s.Credentials[0].Help
-	}
-	if help != "" {
-		rows = append(rows, app.P().Class("settings-help").Text(help))
-	}
-	rows = append(rows, app.Div().Class("form-row").Body(
-		app.Input().
-			ID(credInputID(s.Type)).
-			Class("settings-input").
-			Type("password").
-			Placeholder(label).
-			AutoComplete(false),
-		app.Button().
-			Class("btn").
-			Text(addBankLabel(v.savingType == s.Type)).
-			Disabled(v.savingType == s.Type).
-			OnClick(func(ctx app.Context, _ app.Event) { v.onSaveCredential(ctx, s.Type) }),
-	))
-	if v.saveMsg != "" && v.savingType == "" {
-		rows = append(rows, app.Div().Class("settings-ok").Text(v.saveMsg))
-	}
-	return app.Div().Body(rows...)
-}
-
-// onRemoveCredential disconnects one credential of a multi-credential source, then
-// reloads the source list so the entry disappears.
-func (v *sourcesView) onRemoveCredential(ctx app.Context, typ, id string) {
-	if v.removingID != "" {
-		return
-	}
-	v.removingID = id
-	v.errMsg = ""
-	ctx.Update()
-
-	ctx.Async(func() {
-		_, err := v.client.removeSourceCredential(context.Background(), typ, id)
-		ctx.Dispatch(func(ctx app.Context) {
-			v.removingID = ""
-			if err != nil {
-				v.errMsg = "Could not remove credential: " + err.Error()
-				ctx.Update()
-				return
-			}
-			v.loadSources(ctx)
-			ctx.Update()
-		})
-	})
-}
-
-func (v *sourcesView) renderConnectButton(s sourceStatus) app.UI {
-	return app.Div().Class("form-row").Body(
-		app.Button().
-			Class("btn btn-primary").
-			Text("Connect "+s.Title).
-			OnClick(func(ctx app.Context, _ app.Event) { v.onConnect(ctx, s.Type) }),
-		app.Span().Class("settings-help").Text("Opens the provider's sign-in to authorize access."),
-	)
-}
-
-func (v *sourcesView) renderSyncMsg(typ string) app.UI {
-	if v.syncingType == typ {
-		return app.Span().Class("sync-status").Text("Starting sync…")
-	}
-	if v.syncMsg != "" && strings.Contains(v.syncMsg, " "+typ+" ") {
-		return app.Span().Class("sync-status ok").Text(v.syncMsg)
-	}
-	return app.Text("")
 }
 
 func sourceTitle(s sourceStatus) string {
@@ -446,17 +263,27 @@ func sourceTitle(s sourceStatus) string {
 	return s.Type
 }
 
-// sourceCredentialNoun names what an inactive source will let you add once it is
-// activated — "watched addresses" for an address-watching source (Bitcoin,
-// Ethereum), "credentials" otherwise — so the inactive card points at the right
-// next step.
-func sourceCredentialNoun(s sourceStatus) string {
-	for _, c := range s.Credentials {
-		if strings.Contains(strings.ToLower(c.Title), "address") {
-			return "watched addresses"
-		}
+// sourceBlurb is the one-line description under a source's title in the list,
+// falling back to the bare archetype word for an unrecognised type.
+func sourceBlurb(s sourceStatus) string {
+	switch s.Type {
+	case "simplefin", "plaid", "teller":
+		return "Bank aggregator"
+	case "bitcoin", "ethereum":
+		return "On-chain wallets"
+	case "csv":
+		return "Manual file import"
+	case "market":
+		return "Market & reference data"
 	}
-	return "credentials"
+	return s.Archetype
+}
+
+func syncAllLabel(busy bool) string {
+	if busy {
+		return "Syncing…"
+	}
+	return "Sync all"
 }
 
 func sourceSyncLabel(syncing bool) string {
@@ -482,6 +309,19 @@ func removeLabel(busy bool) string {
 	return "Remove"
 }
 
+// sourceCredentialNoun names what an inactive source will let you add once it is
+// activated — "watched addresses" for an address-watching source (Bitcoin,
+// Ethereum), "credentials" otherwise — so the inactive detail page points at the
+// right next step.
+func sourceCredentialNoun(s sourceStatus) string {
+	for _, c := range s.Credentials {
+		if strings.Contains(strings.ToLower(c.Title), "address") {
+			return "watched addresses"
+		}
+	}
+	return "credentials"
+}
+
 // sourceArchetypeHelp is a one-line description of how a source delivers data.
 func sourceArchetypeHelp(archetype string) string {
 	switch archetype {
@@ -495,7 +335,46 @@ func sourceArchetypeHelp(archetype string) string {
 		return "Entered by hand."
 	case "enrichment":
 		return "Annotates existing transactions."
+	case "reference":
+		return "External market & reference data, fetched on demand and cached."
 	default:
 		return "An ingestion source."
 	}
+}
+
+// --- source type icons (one per known type, with a neutral fallback) ---
+
+// sourceTypeIcon returns the inline-SVG glyph for a source type, rendered via
+// app.Raw (a single <svg> root). Mirrors the desktop dashboard's per-type icons.
+func sourceTypeIcon(typ string) app.UI {
+	const open = `<svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">`
+	const close = `</svg>`
+	var paths string
+	switch typ {
+	case "simplefin": // landmark / bank building
+		paths = `<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>`
+	case "plaid": // credit card
+		paths = `<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>`
+	case "teller": // key
+		paths = `<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>`
+	case "bitcoin": // coin with a B
+		paths = `<circle cx="12" cy="12" r="10"/><path d="M9.5 8h4a2 2 0 1 1 0 4h-4zm0 4h4.5a2 2 0 1 1 0 4H9.5zM10 6.5v2m0 7v2m3-11v2m0 7v2"/>`
+	case "ethereum": // diamond
+		paths = `<path d="M12 2 6 12l6 3.5L18 12 12 2Z"/><path d="m6 13.5 6 8.5 6-8.5-6 3.5-6-3.5Z"/>`
+	case "csv": // file with lines
+		paths = `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><line x1="8" x2="16" y1="13" y2="13"/><line x1="8" x2="16" y1="17" y2="17"/>`
+	case "market": // line chart trending up
+		paths = `<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>`
+	default: // link / chain
+		paths = `<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>`
+	}
+	return app.Raw(open + paths + close)
+}
+
+func iconChevronRight() app.UI {
+	return app.Raw(`<svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`)
+}
+
+func iconArrowLeft() app.UI {
+	return app.Raw(`<svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`)
 }
