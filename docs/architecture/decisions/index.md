@@ -27,6 +27,7 @@ history, its status updated to point forward.
 | [0004](0004-transaction-document-artifacts.md) | Document & artifact association for transactions | Proposed |
 | [0005](0005-plugin-originated-transactions.md) | Plugin-originated transactions (`source:provide`) | Proposed |
 | [0006](0006-external-market-reference-data.md) | External market & reference data as a first-class source | Proposed |
+| [0007](0007-transaction-soft-delete.md) | Soft-delete: reversible transaction hiding | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
@@ -39,3 +40,8 @@ ADR 0006 opens a different front: world data (benchmarks, quotes, FX) as a
 first-class source with its own archetype and a `market_*` cache namespace —
 the backend half of a decision shared with the sillview dashboard, whose own
 ADR-0004 records the consumption half.
+ADR 0007 turns inward to the ledger's own integrity: it replaces destructive
+hard deletion with a reversible soft-delete (`deleted_at`), so transactions —
+manual *or* synced — can be hidden from views and analysis without erasing the
+record, with hard deletion narrowing to genuine teardown (source uninstall,
+account deletion).
