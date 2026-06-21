@@ -25,8 +25,9 @@ import (
 // --- stub runtime for routing tests (registered under "lua" so manifests validate) ---
 
 type stubInstance struct {
-	mu    sync.Mutex
-	calls []Hook
+	mu      sync.Mutex
+	calls   []Hook
+	produce json.RawMessage // batch returned by Produce; nil => ErrHookNotImpl
 }
 
 func (s *stubInstance) Invoke(_ context.Context, hook Hook, _ HookEvent) error {
@@ -37,6 +38,15 @@ func (s *stubInstance) Invoke(_ context.Context, hook Hook, _ HookEvent) error {
 }
 func (s *stubInstance) Render(_ context.Context, _ Hook, _ PageRequest) (json.RawMessage, error) {
 	return nil, ErrHookNotImpl
+}
+func (s *stubInstance) Produce(_ context.Context, hook Hook, _ json.RawMessage) (json.RawMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, hook)
+	if s.produce == nil {
+		return nil, ErrHookNotImpl
+	}
+	return s.produce, nil
 }
 func (s *stubInstance) Close() error { return nil }
 func (s *stubInstance) seen() []Hook {

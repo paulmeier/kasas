@@ -51,6 +51,13 @@ const (
 	// by a previous render and returns the refreshed page.
 	HookPageRender Hook = "OnPageRender"
 	HookPageAction Hook = "OnPageAction"
+	// HookFetch is a plugin source's scheduled producer (the [source] manifest block
+	// + source:provide capability, ADR 0005). Like the page hooks it is request-driven,
+	// not event-driven (absent from hookTrigger): the ingestion engine calls it on the
+	// sync schedule (and on demand), passing the since/cursor it threads to every
+	// puller, and the hook RETURNS an ImportBatch the engine persists — it never writes
+	// a row itself.
+	HookFetch Hook = "OnFetch"
 )
 
 // Capability is a permission a plugin must declare and be granted before the host
@@ -73,6 +80,15 @@ const (
 	// is the only sanctioned way out of the sandbox; the runtimes never expose a raw
 	// socket. Declaring it without a non-empty [net].allow is a manifest error.
 	CapNetFetch Capability = "net:fetch"
+	// CapSourceProvide lets a plugin originate transactions as a PRODUCER: its OnFetch
+	// hook returns an ImportBatch and the ingestion engine persists it through the same
+	// path as every built-in source — dedup, events, rules, history, and a provenance
+	// stamp of plugin:<name> the plugin cannot forge (ADR 0005). It is the most powerful
+	// capability kasas exposes (it writes to the ledger's core, not just its
+	// annotations), so it is the top trust tier and comes as a unit with a [source]
+	// block. There is no host method that writes a row; creation is only "return a batch
+	// the engine persists". Declaring it without a [source] block is a manifest error.
+	CapSourceProvide Capability = "source:provide"
 )
 
 // Runtime values for the manifest `runtime` field. Each maps to a registered
@@ -130,6 +146,7 @@ var knownHooks = map[Hook]bool{
 	HookUninstall:         true, // accepted and resolved, but never event-dispatched
 	HookPageRender:        true, // request-driven (dashboard page), never event-dispatched
 	HookPageAction:        true, // request-driven (dashboard page), never event-dispatched
+	HookFetch:             true, // request-driven (sync schedule), never event-dispatched
 }
 
 var knownCapabilities = map[Capability]bool{
@@ -138,6 +155,7 @@ var knownCapabilities = map[Capability]bool{
 	CapExtensionsWrite:  true,
 	CapUIPage:           true,
 	CapNetFetch:         true,
+	CapSourceProvide:    true,
 }
 
 // knownUIIcons is the curated set of sidebar icon names a plugin page may pick
@@ -185,6 +203,29 @@ type Manifest struct {
 	// reviewable claim ("this plugin talks to: paperless.lan") rather than a generic
 	// "uses the network" warning. See ADR 0002.
 	Net *NetManifest `toml:"net"`
+	// Source, when present, declares that the plugin provides an ingestion source: it
+	// comes as a unit with the source:provide capability and the OnFetch hook (each
+	// requires the others), so the install/enable prompt can make a specific claim
+	// ("this plugin adds a source: acme-card"). The engine registers it as a first-class
+	// source — it appears on the Sources page, syncs on the schedule, and stamps
+	// plugin:<name> provenance. See ADR 0005.
+	Source *SourceManifest `toml:"source"`
+}
+
+// SourceManifest is the manifest's optional [source] block: it declares a plugin
+// ingestion source (ADR 0005). It comes as a unit with the source:provide capability
+// and the OnFetch hook.
+type SourceManifest struct {
+	// Type is the human-readable source name shown on the Sources page (e.g.
+	// "acme-card"). It is a display label only — the engine keys the source and stamps
+	// provenance by the plugin's own name (plugin:<name>), which the plugin cannot
+	// forge, so Type can never let a plugin masquerade as a built-in source.
+	Type string `toml:"type"`
+	// Archetype is how the source delivers data. Only "pull" (a scheduled producer
+	// whose OnFetch the engine calls on the sync schedule) is supported today; empty
+	// defaults to "pull". A reactive producer (an event hook that returns a batch) is a
+	// planned follow-up and declares no [source] block.
+	Archetype string `toml:"archetype"`
 }
 
 // NetManifest is the manifest's optional [net] block: the egress allowlist for a
@@ -262,7 +303,10 @@ func (m *Manifest) normalizeAndValidate() error {
 	if err := m.validateUI(); err != nil {
 		return err
 	}
-	return m.validateNet()
+	if err := m.validateNet(); err != nil {
+		return err
+	}
+	return m.validateSource()
 }
 
 // requests reports whether the manifest declares capability c.
@@ -340,6 +384,59 @@ func normalizeNetHost(h string) (string, error) {
 		}
 	}
 	return host, nil
+}
+
+// maxSourceTitleLen bounds the [source].type display label so it stays readable on
+// the Sources page.
+const maxSourceTitleLen = 40
+
+// archetypePull is the only [source].archetype supported today (a scheduled
+// producer). Empty defaults to it.
+const archetypePull = "pull"
+
+// validateSource enforces the producer contract (ADR 0005): the [source] block, the
+// source:provide capability, and the OnFetch hook come as a unit, so a plugin can
+// never end up advertising a source it can't actually produce (or a producer hook
+// the operator can't revoke). The archetype is constrained to "pull" — the only
+// shape the engine drives today.
+func (m *Manifest) validateSource() error {
+	declares := func(h Hook) bool {
+		for _, x := range m.Hooks {
+			if x == h {
+				return true
+			}
+		}
+		return false
+	}
+
+	if m.Source == nil {
+		if m.requests(CapSourceProvide) {
+			return fmt.Errorf("capability %q requires a [source] block", CapSourceProvide)
+		}
+		if declares(HookFetch) {
+			return fmt.Errorf("the %s hook requires a [source] block and the %q capability", HookFetch, CapSourceProvide)
+		}
+		return nil
+	}
+	if !m.requests(CapSourceProvide) {
+		return fmt.Errorf("a [source] block requires the %q capability", CapSourceProvide)
+	}
+	if !declares(HookFetch) {
+		return fmt.Errorf("a [source] block requires the %s hook", HookFetch)
+	}
+
+	m.Source.Type = strings.TrimSpace(m.Source.Type)
+	m.Source.Archetype = strings.ToLower(strings.TrimSpace(m.Source.Archetype))
+	if m.Source.Type == "" || len(m.Source.Type) > maxSourceTitleLen {
+		return fmt.Errorf("source.type is required and must be at most %d characters", maxSourceTitleLen)
+	}
+	if m.Source.Archetype == "" {
+		m.Source.Archetype = archetypePull
+	}
+	if m.Source.Archetype != archetypePull {
+		return fmt.Errorf("unsupported source.archetype %q (only %q is supported)", m.Source.Archetype, archetypePull)
+	}
+	return nil
 }
 
 // validateUI enforces the dashboard-page contract: the [ui] block, the

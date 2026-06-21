@@ -108,3 +108,62 @@ func TestParseManifestNetFetchRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestParseManifestSourceProvideValid(t *testing.T) {
+	m, err := ParseManifest([]byte(`
+name = "acme-card"
+runtime = "lua"
+hooks = ["OnFetch"]
+capabilities = ["source:provide"]
+
+[source]
+type = "acme-card"
+`))
+	require.NoError(t, err)
+	require.NotNil(t, m.Source)
+	assert.Equal(t, "acme-card", m.Source.Type)
+	assert.Equal(t, "pull", m.Source.Archetype, "archetype defaults to pull")
+}
+
+func TestParseManifestSourceProvideWithNetFetch(t *testing.T) {
+	// A remote-pulling producer is the canonical net:fetch + source:provide combo.
+	m, err := ParseManifest([]byte(`
+name = "acme-card"
+runtime = "wasm"
+hooks = ["OnFetch"]
+capabilities = ["net:fetch", "source:provide"]
+
+[net]
+allow = ["api.acme.example"]
+
+[source]
+type = "acme-card"
+archetype = "pull"
+`))
+	require.NoError(t, err)
+	require.NotNil(t, m.Source)
+	require.NotNil(t, m.Net)
+}
+
+func TestParseManifestSourceProvideRejects(t *testing.T) {
+	cases := map[string]string{
+		"source:provide without [source]": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnFetch"]` + "\n" + `capabilities = ["source:provide"]`,
+		"[source] without source:provide": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnFetch"]` + "\n" + `[source]` + "\n" + `type = "x"`,
+		"source:provide without OnFetch": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnTransactionCreate"]` + "\n" + `capabilities = ["source:provide"]` + "\n" + `[source]` + "\n" + `type = "x"`,
+		"OnFetch without [source]": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnFetch"]`,
+		"empty source.type": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnFetch"]` + "\n" + `capabilities = ["source:provide"]` + "\n" + `[source]` + "\n" + `type = ""`,
+		"unsupported archetype": `name = "p"` + "\n" + `runtime = "lua"` + "\n" +
+			`hooks = ["OnFetch"]` + "\n" + `capabilities = ["source:provide"]` + "\n" + `[source]` + "\n" + `type = "x"` + "\n" + `archetype = "webhook"`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseManifest([]byte(src))
+			assert.Error(t, err)
+		})
+	}
+}

@@ -1,0 +1,11 @@
+name        = "wasm-source"
+version     = "0.1.0"
+description = "Go/WASM source:provide plugin returning a static batch (ADR 0005)"
+author      = "kasas tests"
+runtime     = "wasm"
+
+hooks        = ["OnFetch"]
+capabilities = ["source:provide"]
+
+[source]
+type = "acme-card"

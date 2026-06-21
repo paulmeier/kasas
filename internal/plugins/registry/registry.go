@@ -62,7 +62,9 @@ type Entry struct {
 	CapabilityTier string   `json:"capability_tier"`
 	// Tier is the explicit trust tier (ADR 0003): "verified" (statically sealed) or
 	// "connected" (declares net:fetch, egress allowlisted + maintainer-reviewed). An
-	// "unlisted" plugin is never published, so it does not appear here in practice.
+	// "unlisted" plugin — one requesting a capability outside the reviewed set, such
+	// as source:provide, which writes to the ledger's core (ADR 0005) — is never
+	// published, so it does not appear here in practice (it is sideload-only).
 	// An older index without this field decodes to "" — treated as verified.
 	Tier string `json:"tier"`
 	// UI is present when the plugin contributes a dashboard page (a [ui] manifest

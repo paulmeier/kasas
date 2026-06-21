@@ -34,9 +34,10 @@ type plugin struct {
 }
 
 // job is one unit of work queued for a plugin's worker: an event-hook invocation
-// (reply == nil) or a synchronous page render/action (req + reply set). Page jobs
-// share the queue so the non-reentrant VM is still only ever touched by the one
-// worker goroutine, serialized with event hooks.
+// (reply == nil, produce == nil), a synchronous page render/action (req + reply
+// set), or a producer fetch (payload + produce set, ADR 0005). The three share the
+// queue so the non-reentrant VM is still only ever touched by the one worker
+// goroutine, serialized with event hooks.
 type job struct {
 	hook Hook
 	ev   HookEvent
@@ -46,6 +47,11 @@ type job struct {
 	// already given up waiting.
 	req   *PageRequest
 	reply chan renderReply
+
+	// Produce request: the OnFetch JSON payload ({since,cursor}) and the channel the
+	// worker answers the ImportBatch on. produce is buffered (cap 1), same as reply.
+	payload json.RawMessage
+	produce chan produceReply
 }
 
 // renderReply is the worker's answer to a page job: the VALIDATED, normalized
@@ -53,6 +59,13 @@ type job struct {
 type renderReply struct {
 	doc json.RawMessage
 	err error
+}
+
+// produceReply is the worker's answer to a produce job: the raw (still untrusted)
+// ImportBatch JSON the OnFetch hook returned, or the error.
+type produceReply struct {
+	batch json.RawMessage
+	err   error
 }
 
 func truncate(s string, n int) string {

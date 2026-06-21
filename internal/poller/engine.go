@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/paulmeier/kasas/internal/source"
 )
@@ -34,7 +35,15 @@ type SourceStatus struct {
 // own schedule and the shared transactional persist path. Syncing with no type
 // (Sync) runs every source, satisfying the api.Syncer the single-source poller
 // used to provide.
+//
+// Sources can be added and removed at runtime (AddPoller/RemovePoller) — a plugin
+// that provides a source (ADR 0005) registers its poller on enable and removes it
+// on disable/uninstall. The mutex guards the pollers map and order slice only;
+// every operation snapshots the relevant poller(s) under the lock and releases it
+// before doing work, so a slow sync never blocks a listing or another source (and
+// SQLite's single-writer serialization is handled by each Poller's own mutex).
 type Engine struct {
+	mu      sync.RWMutex
 	pollers map[string]*Poller // keyed by source type (descriptor Type)
 	order   []string           // registration order, for stable iteration
 }
@@ -53,11 +62,73 @@ func NewEngine(pollers ...*Poller) *Engine {
 	return e
 }
 
+// snapshot returns the pollers in registration order, copied under the read lock
+// so callers can iterate (and call slow methods like Sync) without holding it.
+func (e *Engine) snapshot() []*Poller {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]*Poller, 0, len(e.order))
+	for _, typ := range e.order {
+		out = append(out, e.pollers[typ])
+	}
+	return out
+}
+
+// get returns the poller for a type under the read lock.
+func (e *Engine) get(typ string) (*Poller, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	p, ok := e.pollers[typ]
+	return p, ok
+}
+
+// AddPoller registers a poller at runtime and starts its schedule. If a poller of
+// the same source type is already registered it is replaced (its schedule stopped),
+// keeping its position in the iteration order — this supports a plugin source being
+// reloaded. The schedule is started outside the lock so spinning up a scheduler
+// never blocks an in-flight Sync or listing.
+func (e *Engine) AddPoller(ctx context.Context, p *Poller) error {
+	typ := p.source.Descriptor().Type
+	e.mu.Lock()
+	old, existed := e.pollers[typ]
+	e.pollers[typ] = p
+	if !existed {
+		e.order = append(e.order, typ)
+	}
+	e.mu.Unlock()
+
+	if existed && old != nil {
+		_ = old.Stop(ctx) // best-effort: release the replaced poller's scheduler
+	}
+	return p.Start(ctx)
+}
+
+// RemovePoller deregisters a source by type and stops its schedule. Removing an
+// unknown type is an error. The schedule is stopped outside the lock.
+func (e *Engine) RemovePoller(ctx context.Context, typ string) error {
+	e.mu.Lock()
+	p, ok := e.pollers[typ]
+	if !ok {
+		e.mu.Unlock()
+		return fmt.Errorf("unknown source %q", typ)
+	}
+	delete(e.pollers, typ)
+	for i, t := range e.order {
+		if t == typ {
+			e.order = append(e.order[:i], e.order[i+1:]...)
+			break
+		}
+	}
+	e.mu.Unlock()
+
+	return p.Stop(ctx)
+}
+
 // Start schedules every source's recurring sync.
 func (e *Engine) Start(ctx context.Context) error {
-	for _, typ := range e.order {
-		if err := e.pollers[typ].Start(ctx); err != nil {
-			return fmt.Errorf("start %s poller: %w", typ, err)
+	for _, p := range e.snapshot() {
+		if err := p.Start(ctx); err != nil {
+			return fmt.Errorf("start %s poller: %w", p.source.Descriptor().Type, err)
 		}
 	}
 	return nil
@@ -66,8 +137,8 @@ func (e *Engine) Start(ctx context.Context) error {
 // Stop halts every source's scheduler.
 func (e *Engine) Stop(ctx context.Context) error {
 	var errs []error
-	for _, typ := range e.order {
-		if err := e.pollers[typ].Stop(ctx); err != nil {
+	for _, p := range e.snapshot() {
+		if err := p.Stop(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -84,14 +155,13 @@ func (e *Engine) Stop(ctx context.Context) error {
 func (e *Engine) Sync(ctx context.Context) (SyncResult, error) {
 	var agg SyncResult
 	var errs []error
-	for _, typ := range e.order {
-		p := e.pollers[typ]
+	for _, p := range e.snapshot() {
 		if p.onDemandCache() {
 			continue // read-through cache: warmed on access or via an explicit per-source sync
 		}
 		res, err := p.Sync(ctx)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", typ, err))
+			errs = append(errs, fmt.Errorf("%s: %w", p.source.Descriptor().Type, err))
 			continue
 		}
 		agg.Accounts += res.Accounts
@@ -108,7 +178,7 @@ func (e *Engine) Sync(ctx context.Context) (SyncResult, error) {
 
 // SyncSource runs a single source by type.
 func (e *Engine) SyncSource(ctx context.Context, typ string) (SyncResult, error) {
-	p, ok := e.pollers[typ]
+	p, ok := e.get(typ)
 	if !ok {
 		return SyncResult{}, fmt.Errorf("unknown source %q", typ)
 	}
@@ -119,15 +189,15 @@ func (e *Engine) SyncSource(ctx context.Context, typ string) (SyncResult, error)
 // Reading a source's credential status is best-effort: an error leaves that source
 // reported as not connected rather than failing the whole listing.
 func (e *Engine) Sources(ctx context.Context) ([]SourceStatus, error) {
-	out := make([]SourceStatus, 0, len(e.order))
-	for _, typ := range e.order {
-		p := e.pollers[typ]
+	pollers := e.snapshot()
+	out := make([]SourceStatus, 0, len(pollers))
+	for _, p := range pollers {
 		desc := p.source.Descriptor()
 		connected := true
 		if p.cred != nil {
 			ok, err := p.cred.CredentialConfigured(ctx)
 			if err != nil {
-				p.logger.Warn("read source credential status", "source", typ, "error", err)
+				p.logger.Warn("read source credential status", "source", desc.Type, "error", err)
 				ok = false
 			}
 			connected = ok
@@ -142,7 +212,7 @@ func (e *Engine) Sources(ctx context.Context) ([]SourceStatus, error) {
 			multi = true
 			es, err := mc.ListCredentials(ctx)
 			if err != nil {
-				p.logger.Warn("list source credentials", "source", typ, "error", err)
+				p.logger.Warn("list source credentials", "source", desc.Type, "error", err)
 			} else {
 				entries = es
 			}
@@ -166,7 +236,7 @@ func (e *Engine) Sources(ctx context.Context) ([]SourceStatus, error) {
 // CredentialConfigured reports whether a source is ready to sync. A source with no
 // runtime credential is always ready.
 func (e *Engine) CredentialConfigured(ctx context.Context, typ string) (bool, error) {
-	p, ok := e.pollers[typ]
+	p, ok := e.get(typ)
 	if !ok {
 		return false, fmt.Errorf("unknown source %q", typ)
 	}
@@ -178,7 +248,7 @@ func (e *Engine) CredentialConfigured(ctx context.Context, typ string) (bool, er
 
 // SetCredential stores a pasted credential for a source.
 func (e *Engine) SetCredential(ctx context.Context, typ, input string) error {
-	p, ok := e.pollers[typ]
+	p, ok := e.get(typ)
 	if !ok {
 		return fmt.Errorf("unknown source %q", typ)
 	}
@@ -191,7 +261,7 @@ func (e *Engine) SetCredential(ctx context.Context, typ, input string) error {
 // RemoveSourceCredential removes one credential (by id) from a multi-credential
 // source — e.g. disconnecting a single Teller bank enrollment.
 func (e *Engine) RemoveSourceCredential(ctx context.Context, typ, id string) error {
-	p, ok := e.pollers[typ]
+	p, ok := e.get(typ)
 	if !ok {
 		return fmt.Errorf("unknown source %q", typ)
 	}
@@ -205,7 +275,7 @@ func (e *Engine) RemoveSourceCredential(ctx context.Context, typ, id string) err
 // OAuthStart returns the provider consent URL for a source that supports the
 // browser OAuth flow, or an error when it does not.
 func (e *Engine) OAuthStart(typ, state string) (string, error) {
-	p, ok := e.pollers[typ]
+	p, ok := e.get(typ)
 	if !ok {
 		return "", fmt.Errorf("unknown source %q", typ)
 	}
@@ -219,7 +289,7 @@ func (e *Engine) OAuthStart(typ, state string) (string, error) {
 // OAuthExchange completes the browser OAuth flow for a source, exchanging the
 // callback's authorization code for a stored credential.
 func (e *Engine) OAuthExchange(ctx context.Context, typ, code string) error {
-	p, ok := e.pollers[typ]
+	p, ok := e.get(typ)
 	if !ok {
 		return fmt.Errorf("unknown source %q", typ)
 	}

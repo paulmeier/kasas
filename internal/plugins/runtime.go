@@ -41,6 +41,13 @@ type Instance interface {
 	// The result is UNTRUSTED until ValidatePageDoc accepts it. Same contract as
 	// Invoke otherwise: honor ctx, never panic out, ErrHookNotImpl when absent.
 	Render(ctx context.Context, hook Hook, req PageRequest) (json.RawMessage, error)
+	// Produce runs a value-returning producer hook (HookFetch) with the given JSON
+	// request payload ({"since":<unix>,"cursor":"..."}) and returns the ImportBatch
+	// the handler produced, as raw JSON. Like Render the result is UNTRUSTED — the
+	// host adapter namespaces ids and stamps provenance before the engine persists it
+	// (ADR 0005). Same contract as Invoke otherwise: honor ctx, never panic out,
+	// ErrHookNotImpl when absent.
+	Produce(ctx context.Context, hook Hook, payload json.RawMessage) (json.RawMessage, error)
 	// Close releases the VM and any resources. It is called once.
 	Close() error
 }

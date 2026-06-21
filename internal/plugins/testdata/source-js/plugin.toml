@@ -1,0 +1,10 @@
+name = "source-js"
+version = "1.0.0"
+description = "A JS plugin source that returns a static batch (ADR 0005 test fixture)."
+runtime = "js"
+hooks = ["OnFetch"]
+capabilities = ["source:provide"]
+
+[source]
+type = "acme-card"
+archetype = "pull"

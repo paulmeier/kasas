@@ -246,3 +246,37 @@ end`
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown config key")
 }
+
+func TestLuaProduceReturnsBatch(t *testing.T) {
+	inst := loadFixture(t, "source-lua", newFakeHost())
+	raw, err := inst.Produce(context.Background(), HookFetch, json.RawMessage(`{"since":0,"cursor":""}`))
+	require.NoError(t, err)
+
+	// gopher-lua serializes numbers in exponential 'g' form (1.7e+09), so date is
+	// decoded as a float here; the pluginSource adapter (ADR 0005) decodes the batch
+	// leniently and rounds it to the int64 ImportTxn.Date.
+	var batch struct {
+		Source   string `json:"source"`
+		Accounts []struct {
+			ExternalID   string `json:"external_id"`
+			Transactions []struct {
+				ExternalID string  `json:"external_id"`
+				Amount     string  `json:"amount"`
+				Date       float64 `json:"date"`
+			} `json:"transactions"`
+		} `json:"accounts"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &batch))
+	require.Len(t, batch.Accounts, 1)
+	require.Len(t, batch.Accounts[0].Transactions, 1)
+	assert.Equal(t, "acct-1", batch.Accounts[0].ExternalID)
+	assert.Equal(t, "tx-1", batch.Accounts[0].Transactions[0].ExternalID)
+	assert.Equal(t, "-12.50", batch.Accounts[0].Transactions[0].Amount)
+	assert.Equal(t, float64(1700000000), batch.Accounts[0].Transactions[0].Date)
+}
+
+func TestLuaProduceHookNotImplemented(t *testing.T) {
+	inst := loadFixture(t, "budgeting", newFakeHost())
+	_, err := inst.Produce(context.Background(), HookFetch, json.RawMessage(`{"since":0,"cursor":""}`))
+	assert.ErrorIs(t, err, ErrHookNotImpl)
+}

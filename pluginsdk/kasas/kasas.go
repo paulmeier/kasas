@@ -53,6 +53,7 @@ const (
 	hookUninstall         = "OnUninstall"
 	hookPageRender        = "OnPageRender"
 	hookPageAction        = "OnPageAction"
+	hookFetch             = "OnFetch"
 )
 
 // Transaction is the plugin-facing view of a transaction, identical to what Lua
@@ -89,6 +90,55 @@ type PageRequest struct {
 	Params map[string]string `json:"params,omitempty"`
 }
 
+// SourceRequest is the payload handed to an OnFetch handler (a source:provide
+// plugin, ADR 0005). Since is the lookback boundary in unix seconds (0 means
+// "everything"); Cursor is the opaque resume token returned by the prior fetch
+// (empty on the first run).
+type SourceRequest struct {
+	Since  int64  `json:"since"`
+	Cursor string `json:"cursor"`
+}
+
+// Batch is what an OnFetch handler returns: the accounts and transactions to
+// ingest. The host stamps provenance plugin:<name> and namespaces every id, so the
+// Source field below is a human label only and ids need not be globally unique.
+type Batch struct {
+	Source   string          `json:"source,omitempty"`
+	Cursor   string          `json:"cursor,omitempty"`
+	Accounts []ImportAccount `json:"accounts"`
+}
+
+// ImportOrg is the institution an account belongs to.
+type ImportOrg struct {
+	ID     string `json:"id,omitempty"`
+	Domain string `json:"domain,omitempty"`
+	Name   string `json:"name,omitempty"`
+	URL    string `json:"url,omitempty"`
+}
+
+// ImportAccount is one account in a Batch, with its transactions.
+type ImportAccount struct {
+	ExternalID   string              `json:"external_id"`
+	Org          ImportOrg           `json:"org,omitempty"`
+	Name         string              `json:"name,omitempty"`
+	Currency     string              `json:"currency,omitempty"`
+	Balance      string              `json:"balance,omitempty"`
+	BalanceDate  int64               `json:"balance_date,omitempty"`
+	Transactions []ImportTransaction `json:"transactions"`
+}
+
+// ImportTransaction is one transaction in a Batch. Amount is a decimal string (so
+// cents are never lost); Date is unix seconds.
+type ImportTransaction struct {
+	ExternalID  string `json:"external_id"`
+	Amount      string `json:"amount"`
+	Date        int64  `json:"date"`
+	Description string `json:"description,omitempty"`
+	Payee       string `json:"payee,omitempty"`
+	Memo        string `json:"memo,omitempty"`
+	Pending     bool   `json:"pending,omitempty"`
+}
+
 // --- hook registration ---
 
 var handlers = struct {
@@ -96,6 +146,7 @@ var handlers = struct {
 	sync      func(*SyncSummary) error
 	uninstall func() error
 	page      map[string]func(*PageRequest) (*Page, error)
+	fetch     func(*SourceRequest) (*Batch, error)
 }{
 	txn:  map[string]func(*Transaction) error{},
 	page: map[string]func(*PageRequest) (*Page, error){},
@@ -126,6 +177,14 @@ func OnPageRender(fn func(*PageRequest) (*Page, error)) { handlers.page[hookPage
 // page.
 func OnPageAction(fn func(*PageRequest) (*Page, error)) { handlers.page[hookPageAction] = fn }
 
+// OnFetch registers the scheduled producer for a source:provide plugin (ADR 0005):
+// the host calls it on the sync schedule with the since/cursor, and it returns the
+// Batch to ingest. The plugin returns data; the host persists it (dedup, events,
+// rules, history) and stamps plugin:<name> provenance — there is no host method
+// that writes a row. Requires the source:provide capability and a [source] manifest
+// block; pulling a remote provider also needs net:fetch.
+func OnFetch(fn func(*SourceRequest) (*Batch, error)) { handlers.fetch = fn }
+
 // registeredHooks lists every hook with a registered handler, sorted for a
 // stable describe payload.
 func registeredHooks() []string {
@@ -146,6 +205,9 @@ func registeredHooks() []string {
 			out = append(out, name)
 		}
 	}
+	if handlers.fetch != nil {
+		out = append(out, hookFetch)
+	}
 	sort.Strings(out)
 	return out
 }
@@ -158,6 +220,7 @@ type resultEnvelope struct {
 	OK    bool            `json:"ok"`
 	Error string          `json:"error,omitempty"`
 	Page  json.RawMessage `json:"page,omitempty"`
+	Batch json.RawMessage `json:"batch,omitempty"` // OnFetch producer result (ADR 0005)
 	ABI   int             `json:"abi,omitempty"`
 	SDK   string          `json:"sdk,omitempty"`
 	Hooks []string        `json:"hooks,omitempty"`
@@ -174,7 +237,9 @@ func emit(env resultEnvelope) {
 // runHook executes one handler under the SDK safety envelope: a handler panic is
 // recovered into an error envelope, so the module instance survives plugin bugs
 // (a panic that escaped to the Go runtime would exit and reset the whole module).
-func runHook(fn func() (json.RawMessage, error)) {
+// assign places the handler's raw result into the right envelope field (page vs
+// batch); a nil assign is for hooks that return no value (transaction/sync/uninstall).
+func runHook(fn func() (json.RawMessage, error), assign func(*resultEnvelope, json.RawMessage)) {
 	var env resultEnvelope
 	func() {
 		defer func() {
@@ -182,16 +247,22 @@ func runHook(fn func() (json.RawMessage, error)) {
 				env = resultEnvelope{Error: fmt.Sprintf("panic: %v", r)}
 			}
 		}()
-		page, err := fn()
-		switch {
-		case err != nil:
+		raw, err := fn()
+		if err != nil {
 			env = resultEnvelope{Error: err.Error()}
-		default:
-			env = resultEnvelope{OK: true, Page: page}
+			return
+		}
+		env = resultEnvelope{OK: true}
+		if assign != nil {
+			assign(&env, raw)
 		}
 	}()
 	emit(env)
 }
+
+// envPage and envBatch route a hook result into the matching envelope field.
+func envPage(e *resultEnvelope, raw json.RawMessage)  { e.Page = raw }
+func envBatch(e *resultEnvelope, raw json.RawMessage) { e.Batch = raw }
 
 func dispatchDescribe() {
 	emit(resultEnvelope{OK: true, ABI: abiVersion, SDK: sdkVersion, Hooks: registeredHooks()})
@@ -208,7 +279,7 @@ func dispatchTransaction(name string, payloadLen uint32) {
 			return nil, err
 		}
 		return nil, fn(t)
-	})
+	}, nil)
 }
 
 func dispatchSync(payloadLen uint32) {
@@ -224,7 +295,7 @@ func dispatchSync(payloadLen uint32) {
 			s = &SyncSummary{}
 		}
 		return nil, handlers.sync(s)
-	})
+	}, nil)
 }
 
 func dispatchUninstall() {
@@ -233,7 +304,7 @@ func dispatchUninstall() {
 			return nil, fmt.Errorf("no handler registered for %s", hookUninstall)
 		}
 		return nil, handlers.uninstall()
-	})
+	}, nil)
 }
 
 func dispatchPage(name string, payloadLen uint32) {
@@ -258,7 +329,31 @@ func dispatchPage(name string, payloadLen uint32) {
 			return nil, fmt.Errorf("encode page: %w", err)
 		}
 		return raw, nil
-	})
+	}, envPage)
+}
+
+func dispatchFetch(payloadLen uint32) {
+	runHook(func() (json.RawMessage, error) {
+		if handlers.fetch == nil {
+			return nil, fmt.Errorf("no handler registered for %s", hookFetch)
+		}
+		var req SourceRequest
+		if err := readJSONInput(payloadLen, &req); err != nil {
+			return nil, err
+		}
+		batch, err := handlers.fetch(&req)
+		if err != nil {
+			return nil, err
+		}
+		if batch == nil {
+			return nil, errors.New("fetch handler returned a nil batch")
+		}
+		raw, err := json.Marshal(batch)
+		if err != nil {
+			return nil, fmt.Errorf("encode batch: %w", err)
+		}
+		return raw, nil
+	}, envBatch)
 }
 
 func readJSONInput(payloadLen uint32, v any) error {

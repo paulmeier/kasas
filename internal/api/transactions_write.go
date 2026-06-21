@@ -16,7 +16,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
-	"github.com/paulmeier/kasas/internal/relationships"
+	"github.com/paulmeier/kasas/internal/ledger"
 )
 
 // manualSource is the provenance stamped on transactions and accounts created by a
@@ -224,67 +224,9 @@ func (s *Server) deleteTransaction(ctx context.Context, id string) (bool, error)
 		if txn.Source != manualSource {
 			return errTxnReadOnly
 		}
-		return s.deleteTransactionTx(ctx, q, rec, txn)
+		return ledger.DeleteTransactionTx(ctx, q, rec, txn)
 	})
 	return notFound, err
-}
-
-// deleteTransactionTx removes one already-fetched transaction within an open
-// recorder transaction: it strips inbound relationship edges that other rows assert
-// against it, deletes its history versions (transaction_versions has no FK cascade),
-// deletes the row, and emits transaction.deleted carrying the last snapshot. The
-// caller owns the manual-only gate. Shared by deleteTransaction and the
-// account-delete cascade, so a deleted account's transactions leave the same clean
-// trail as a directly-deleted one.
-func (s *Server) deleteTransactionTx(ctx context.Context, q db.Querier, rec *events.Recorder, txn db.Transaction) error {
-	if err := s.stripInboundRelationships(ctx, q, rec, txn.ID); err != nil {
-		return err
-	}
-	if _, err := q.DeleteTransactionVersionsByTransaction(ctx, txn.ID); err != nil {
-		return err
-	}
-	if _, err := q.DeleteTransaction(ctx, txn.ID); err != nil {
-		return err
-	}
-	return rec.Emit(ctx, q, events.TypeTransactionDeleted, events.EntityTransaction, txn.ID, events.TransactionSnapshot(txn))
-}
-
-// stripInboundRelationships removes every outbound edge that other transactions
-// assert against targetID, emitting relationship.removed for each change.
-// Relationships are stored only on the subject (outbound) side, so the edges
-// pointing AT a deleted transaction live on other rows and would otherwise dangle.
-func (s *Server) stripInboundRelationships(ctx context.Context, q db.Querier, rec *events.Recorder, targetID string) error {
-	rows, err := q.ListRelatedTransactions(ctx)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.ID == targetID {
-			continue // its own outbound edges vanish with the row
-		}
-		oldRels := relationships.Decode(row.Relationships)
-		kept := make([]relationships.Relationship, 0, len(oldRels))
-		for _, e := range oldRels {
-			if e.Target != targetID {
-				kept = append(kept, e)
-			}
-		}
-		if len(kept) == len(oldRels) {
-			continue // nothing targeted the deleted transaction
-		}
-		newRels := relationships.Normalize(kept)
-		encoded, eerr := relationships.Encode(newRels)
-		if eerr != nil {
-			return eerr
-		}
-		if _, uerr := q.UpdateTransactionRelationships(ctx, db.UpdateTransactionRelationshipsParams{ID: row.ID, Relationships: encoded}); uerr != nil {
-			return uerr
-		}
-		if derr := rec.EmitRelationshipDiff(ctx, q, row.ID, oldRels, newRels); derr != nil {
-			return derr
-		}
-	}
-	return nil
 }
 
 // --- REST handlers ---

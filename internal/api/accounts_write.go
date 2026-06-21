@@ -16,6 +16,7 @@ import (
 
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/events"
+	"github.com/paulmeier/kasas/internal/ledger"
 )
 
 // All manually-created accounts hang off a single reserved organization. The
@@ -218,7 +219,7 @@ func (s *Server) deleteAccount(ctx context.Context, id string) (bool, error) {
 			return lerr
 		}
 		for _, child := range children {
-			if derr := s.deleteTransactionTx(ctx, q, rec, child); derr != nil {
+			if derr := ledger.DeleteTransactionTx(ctx, q, rec, child); derr != nil {
 				return derr
 			}
 		}

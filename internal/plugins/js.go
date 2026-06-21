@@ -190,6 +190,34 @@ func (ji *jsInstance) Render(ctx context.Context, hook Hook, req PageRequest) (j
 	return raw, nil
 }
 
+// Produce runs the value-returning producer hook (OnFetch): it calls the JS
+// function with the request object ({since, cursor}) and JSON-encodes whatever it
+// returned (the ImportBatch) for the host adapter.
+func (ji *jsInstance) Produce(ctx context.Context, hook Hook, payload json.RawMessage) (json.RawMessage, error) {
+	fn, ok := ji.hooks[hook]
+	if !ok {
+		return nil, ErrHookNotImpl
+	}
+	var req any
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, fmt.Errorf("%s request: %w", hook, err)
+		}
+	}
+	ret, err := ji.call(ctx, fn, ji.vm.ToValue(req))
+	if err != nil {
+		return nil, err
+	}
+	if ret == nil || goja.IsUndefined(ret) || goja.IsNull(ret) {
+		return nil, fmt.Errorf("%s returned nothing (expected a batch object)", hook)
+	}
+	raw, err := json.Marshal(ret.Export())
+	if err != nil {
+		return nil, fmt.Errorf("%s result: %w", hook, err)
+	}
+	return raw, nil
+}
+
 // call invokes one resolved hook function under the shared safety envelope: the
 // invocation context is published for the host closures, a watcher goroutine
 // interrupts the VM when the deadline fires, and a deferred recover keeps any

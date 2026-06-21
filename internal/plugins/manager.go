@@ -45,6 +45,24 @@ type Options struct {
 	Registry RegistrySource
 }
 
+// SourceRegistrar is the engine-facing seam a source:provide plugin (ADR 0005) uses
+// to join and leave the ingestion engine at runtime: the manager calls RegisterSource
+// when such a plugin loads and UnregisterSource when it unloads, and the
+// implementation (wired in main) builds a pluginSource adapter + a poller and
+// registers it with the engine. It is injected via SetSourceRegistrar; a nil
+// registrar disables plugin sources (their hooks still load, but no source appears).
+type SourceRegistrar interface {
+	RegisterSource(ctx context.Context, name string, m Manifest) error
+	UnregisterSource(ctx context.Context, name string) error
+}
+
+// providesSource reports whether a loaded plugin should be registered as an
+// ingestion source: it declares a [source] block AND was actually granted the
+// source:provide capability (a revoked grant leaves the source unregistered).
+func providesSource(m Manifest, caps capSet) bool {
+	return m.Source != nil && caps.has(CapSourceProvide)
+}
+
 // Manager loads plugins from disk, subscribes to the event bus, and routes each
 // committed event to the per-plugin workers whose plugins declared the matching
 // hook. It generalizes the webhook dispatcher: same subscribe / replay-on-drop /
@@ -62,7 +80,8 @@ type Manager struct {
 	searchLimit int
 	netLimits   NetLimits
 	logger      *slog.Logger
-	registry    RegistrySource // nil when the marketplace is disabled
+	registry    RegistrySource  // nil when the marketplace is disabled
+	sourceReg   SourceRegistrar // nil when plugin sources are disabled (ADR 0005)
 	// egress is the in-memory, bounded record of every plugin net:fetch attempt,
 	// surfaced read-only to the operator (REST/MCP/dashboard). It is process-scoped
 	// observability, deliberately not a DB table (ADR 0002 #2 logging).
@@ -109,6 +128,26 @@ func NewManager(opts Options) *Manager {
 		egress:      newEgressLog(0),
 		plugins:     map[string]*plugin{},
 	}
+}
+
+// SetSourceRegistrar injects the engine-facing registrar used to register/unregister
+// plugin ingestion sources (ADR 0005). It is called once during startup wiring,
+// before Run, so the reconcile pass registers already-enabled source plugins. A nil
+// *Manager is a no-op.
+func (m *Manager) SetSourceRegistrar(r SourceRegistrar) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.sourceReg = r
+	m.mu.Unlock()
+}
+
+// sourceRegistrar returns the injected registrar under the read lock.
+func (m *Manager) sourceRegistrar() SourceRegistrar {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sourceReg
 }
 
 // Run loads enabled plugins, then consumes the event stream until ctx is
@@ -231,11 +270,14 @@ func (m *Manager) startWorker(p *plugin) {
 		defer close(p.done)
 		ctx := m.workerCtx()
 		for j := range p.jobs {
-			if j.reply != nil {
+			switch {
+			case j.produce != nil:
+				m.produce(ctx, p, j)
+			case j.reply != nil:
 				m.render(ctx, p, j)
-				continue
+			default:
+				m.invoke(ctx, p, j)
 			}
-			m.invoke(ctx, p, j)
 		}
 	}()
 }
@@ -532,12 +574,22 @@ func (m *Manager) load(ctx context.Context, row db.Plugin, d Discovered) error {
 		lastSuccessAt: row.LastSuccessAt,
 	}
 
-	m.unload(row.Name) // stop any prior instance (reload)
+	m.unload(row.Name) // stop any prior instance (reload), unregistering its source
 	m.mu.Lock()
 	m.plugins[row.Name] = p
 	m.mu.Unlock()
 	m.startWorker(p)
 	m.logger.Info("plugin loaded", "plugin", row.Name, "runtime", d.Manifest.Runtime, "hooks", len(triggers), "capabilities", len(caps))
+
+	// A source:provide plugin joins the ingestion engine as a first-class source
+	// (ADR 0005): it then appears on the Sources page and syncs on the schedule. A
+	// registration failure is logged but does not fail the load — the plugin's other
+	// hooks still run.
+	if reg := m.sourceRegistrar(); reg != nil && providesSource(p.manifest, p.caps) {
+		if err := reg.RegisterSource(ctx, p.name, p.manifest); err != nil {
+			m.logger.Error("register plugin source failed", "plugin", p.name, "error", err)
+		}
+	}
 	return nil
 }
 
@@ -548,9 +600,17 @@ func (m *Manager) unload(name string) {
 	p := m.plugins[name]
 	delete(m.plugins, name)
 	m.mu.Unlock()
-	if p != nil {
-		m.stop(p)
+	if p == nil {
+		return
 	}
+	// Remove its ingestion source from the engine first (stops scheduling, so no sync
+	// races the VM teardown), then stop the worker and close the VM.
+	if reg := m.sourceRegistrar(); reg != nil && providesSource(p.manifest, p.caps) {
+		if err := reg.UnregisterSource(context.Background(), p.name); err != nil {
+			m.logger.Warn("unregister plugin source failed", "plugin", p.name, "error", err)
+		}
+	}
+	m.stop(p)
 }
 
 // stop drains a plugin's queue, waits for its worker to finish, and closes the VM.

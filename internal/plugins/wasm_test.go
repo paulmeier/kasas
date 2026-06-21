@@ -29,7 +29,7 @@ var (
 func buildWasmFixtures(t *testing.T) {
 	t.Helper()
 	wasmFixtureOnce.Do(func() {
-		for _, name := range []string{"wasm-budgeting", "wasm-minimal"} {
+		for _, name := range []string{"wasm-budgeting", "wasm-minimal", "wasm-source"} {
 			out := filepath.Join("testdata", name, "main.wasm")
 			cmd := exec.Command("go", "build", "-buildmode=c-shared", "-o", out, "./"+filepath.Join("testdata", name, "guest"))
 			cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "CGO_ENABLED=0")
@@ -267,4 +267,31 @@ func TestWasmSetConfigPersistsViaRealHost(t *testing.T) {
 	eff, err := effectiveConfig(pluginsDir, "wasm-budgeting", defaults)
 	require.NoError(t, err)
 	assert.Equal(t, "tea", eff["keyword"], "the override file is the durable source of truth")
+}
+
+// TestWasmProduceReturnsBatch verifies the source:provide producer path through
+// the WASM runtime + guest SDK (ADR 0005): OnFetch returns a Batch the host reads
+// from the result envelope's batch field.
+func TestWasmProduceReturnsBatch(t *testing.T) {
+	inst := loadWasmFixture(t, "wasm-source", newFakeHost())
+	raw, err := inst.Produce(context.Background(), HookFetch, json.RawMessage(`{"since":0,"cursor":""}`))
+	require.NoError(t, err)
+
+	var batch struct {
+		Accounts []struct {
+			ExternalID   string `json:"external_id"`
+			Transactions []struct {
+				ExternalID string `json:"external_id"`
+				Amount     string `json:"amount"`
+				Date       int64  `json:"date"`
+			} `json:"transactions"`
+		} `json:"accounts"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &batch))
+	require.Len(t, batch.Accounts, 1)
+	require.Len(t, batch.Accounts[0].Transactions, 1)
+	assert.Equal(t, "acct-1", batch.Accounts[0].ExternalID)
+	assert.Equal(t, "tx-1", batch.Accounts[0].Transactions[0].ExternalID)
+	assert.Equal(t, "-12.50", batch.Accounts[0].Transactions[0].Amount)
+	assert.Equal(t, int64(1700000000), batch.Accounts[0].Transactions[0].Date, "Go marshals an int64 date plainly (no exponent)")
 }
