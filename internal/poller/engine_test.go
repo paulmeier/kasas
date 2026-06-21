@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -214,4 +215,83 @@ func TestEngineSyncSkipsOnDemandCache(t *testing.T) {
 	_, err = e.SyncSource(context.Background(), "market")
 	require.NoError(t, err)
 	assert.Equal(t, 1, cache.warmed, "an explicit per-source sync warms it")
+}
+
+// TestEngineAddRemovePoller verifies that a source can be registered and
+// deregistered at runtime — the mechanism a plugin source (ADR 0005) rides on
+// enable/disable — and that it joins/leaves the listing and "sync all".
+func TestEngineAddRemovePoller(t *testing.T) {
+	ctx := context.Background()
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, typedSource{typ: "a", batch: miniBatch("a", "a-acct", "a-1")}))
+
+	// A dynamically-added source appears in the listing and can be synced by type.
+	require.NoError(t, e.AddPoller(ctx, enginePoller(store, typedSource{typ: "plugin:demo", batch: miniBatch("plugin:demo", "plugin:demo:acct", "plugin:demo:1")})))
+	srcs, err := e.Sources(ctx)
+	require.NoError(t, err)
+	require.Len(t, srcs, 2)
+	assert.Equal(t, "plugin:demo", srcs[1].Type, "added source keeps registration order (appended)")
+
+	res, err := e.SyncSource(ctx, "plugin:demo")
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.NewTransactions)
+
+	// "Sync all" includes the added pull source.
+	agg, err := e.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, agg.Accounts, "sync-all covers both the built-in and the added source")
+
+	// After removal it is gone from the listing and unknown to per-source sync.
+	require.NoError(t, e.RemovePoller(ctx, "plugin:demo"))
+	srcs, err = e.Sources(ctx)
+	require.NoError(t, err)
+	require.Len(t, srcs, 1)
+	assert.Equal(t, "a", srcs[0].Type)
+
+	_, err = e.SyncSource(ctx, "plugin:demo")
+	require.Error(t, err, "a removed source is unknown")
+	require.Error(t, e.RemovePoller(ctx, "plugin:demo"), "removing an unknown source errors")
+}
+
+// TestEngineAddPollerReplaces verifies that adding a source whose type already
+// exists replaces it in place (a plugin source reload) without duplicating it.
+func TestEngineAddPollerReplaces(t *testing.T) {
+	ctx := context.Background()
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine()
+
+	require.NoError(t, e.AddPoller(ctx, enginePoller(store, typedSource{typ: "plugin:demo", batch: miniBatch("plugin:demo", "v1-acct", "v1-1")})))
+	require.NoError(t, e.AddPoller(ctx, enginePoller(store, typedSource{typ: "plugin:demo", batch: miniBatch("plugin:demo", "v2-acct", "v2-1")})))
+
+	srcs, err := e.Sources(ctx)
+	require.NoError(t, err)
+	require.Len(t, srcs, 1, "re-adding the same type replaces rather than duplicates")
+}
+
+// TestEngineConcurrentAddRemoveAndSync exercises the engine mutex: concurrent
+// add/remove/list/sync must not race (run with -race).
+func TestEngineConcurrentAddRemoveAndSync(t *testing.T) {
+	ctx := context.Background()
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, typedSource{typ: "base", batch: miniBatch("base", "base-acct", "base-1")}))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		typ := fmt.Sprintf("plugin:%d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = e.AddPoller(ctx, enginePoller(store, typedSource{typ: typ, batch: miniBatch(typ, typ+":acct", typ+":1")}))
+			_, _ = e.Sources(ctx)
+			_ = e.RemovePoller(ctx, typ)
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 8; i++ {
+			_, _ = e.Sync(ctx)
+		}
+	}()
+	wg.Wait()
 }

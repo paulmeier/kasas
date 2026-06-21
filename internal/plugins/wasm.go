@@ -202,6 +202,7 @@ type wasmResult struct {
 	OK    bool            `json:"ok"`
 	Error string          `json:"error,omitempty"`
 	Page  json.RawMessage `json:"page,omitempty"`
+	Batch json.RawMessage `json:"batch,omitempty"` // OnFetch producer result (ADR 0005)
 	ABI   int             `json:"abi,omitempty"`
 	SDK   string          `json:"sdk,omitempty"`
 	Hooks []string        `json:"hooks,omitempty"`
@@ -250,6 +251,27 @@ func (wi *wasmInstance) Render(ctx context.Context, hook Hook, req PageRequest) 
 		return nil, fmt.Errorf("%s returned nothing (expected a page object)", hook)
 	}
 	return res.Page, nil
+}
+
+// Produce runs the value-returning producer hook (OnFetch) with the request
+// payload ({since, cursor}) and returns the ImportBatch the guest wrote into the
+// result envelope's "batch" field, still untrusted until the host adapter
+// namespaces and stamps it.
+func (wi *wasmInstance) Produce(ctx context.Context, hook Hook, payload json.RawMessage) (json.RawMessage, error) {
+	res, err := wi.invokeExport(ctx, string(hook), payload)
+	if err != nil {
+		return nil, err
+	}
+	if !res.OK {
+		if res.Error == "" {
+			res.Error = "unknown error"
+		}
+		return nil, fmt.Errorf("plugin error: %s", res.Error)
+	}
+	if len(res.Batch) == 0 {
+		return nil, fmt.Errorf("%s returned nothing (expected a batch object)", hook)
+	}
+	return res.Batch, nil
 }
 
 // Close releases the wazero runtime, which closes the module, the host modules,

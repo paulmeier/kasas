@@ -51,11 +51,12 @@ entrypoint  = "main.lua"
 # OnTransactionUpdate (transaction.updated), OnSyncComplete (sync.completed). The
 # OnUninstall lifecycle hook (no event) runs once at uninstall so the plugin can
 # clean up (see "Uninstalling" below); OnPageRender/OnPageAction back an optional
-# dashboard page (see "Dashboard pages" below).
+# dashboard page (see "Dashboard pages" below); OnFetch is a scheduled source
+# producer (see "Providing a source" below).
 hooks = ["OnTransactionCreate", "OnTransactionUpdate"]
 
-# Capabilities the host grants and enforces: transactions:read,
-# labels:write, extensions:write, ui:page.
+# Capabilities the host grants and enforces: transactions:read, labels:write,
+# extensions:write, ui:page, net:fetch, source:provide.
 capabilities = ["transactions:read", "labels:write"]
 
 [config]                            # configurable keys + their DEFAULTS, exposed as kasas.config
@@ -248,6 +249,82 @@ max_redirects      = 5          # each hop re-checked against the allowlist
 
 This keeps the single static binary and the language-agnostic runtime seam: it is
 *one* new host method, not a new runtime or a raw socket exposed to guest code.
+
+## Providing a source (`source:provide`) {#providing-a-source}
+
+Every capability so far lets a plugin *read or annotate* a transaction that already
+exists. The `source:provide` capability ([ADR 0005](../architecture/decisions/0005-plugin-originated-transactions.md))
+lets a plugin **originate** transactions — ingest a bank, card, or API kasas
+doesn't ship — but only as a **producer**: its `OnFetch` hook *returns* a batch and
+the [ingestion engine](../architecture/ingestion.md) persists it through the exact
+same path as SimpleFIN, with the same dedup, [events](event-stream.md),
+[rules](rules.md) auto-labeling, [history](transaction-history.md), and
+[provenance](transaction-provenance.md). There is **no host method that writes a
+row** — creation is only "return a batch the engine persists", so a buggy or hostile
+producer is contained: the worst it can do is return a batch the engine rejects.
+
+It is the most powerful capability kasas exposes (it writes to the ledger's core,
+not just its annotations), so it is the top [trust tier](../architecture/decisions/0003-marketplace-trust-tiers.md)
+— **never auto-listed in the marketplace, sideload-or-manual-review only**, and
+**WASM is the recommended runtime** for its memory-isolation. Enabling stays
+admin-only, like every plugin.
+
+### Declare the source in the manifest
+
+`source:provide` comes as a unit with a `[source]` block and the `OnFetch` hook
+(each requires the others). A remote-pulling producer also declares
+[`net:fetch`](#network-access-netfetch):
+
+```toml
+name         = "acme-card"
+runtime      = "lua"
+hooks        = ["OnFetch"]                 # the scheduled producer
+capabilities = ["net:fetch", "source:provide"]
+
+[net]
+allow = ["api.acme.example"]
+
+[source]
+type      = "acme-card"                    # the human label shown on the Sources page
+archetype = "pull"                         # scheduled; the engine calls OnFetch on the sync schedule
+```
+
+### Implement `OnFetch`
+
+The engine calls `OnFetch` on the [sync schedule](sync.md) (and on demand), passing
+the `since`/`cursor` it threads to every source, and the hook returns an
+`ImportBatch` — the same neutral shape built-in sources build:
+
+```lua
+-- the engine persists what this returns; it never writes a row itself
+function OnFetch(req)                        -- req.since (unix), req.cursor
+  local r = kasas.fetch{ url = "https://api.acme.example/txns?since=" .. req.since }
+  -- ... parse r.body ...
+  return {
+    source   = "acme-card",                 -- a human label; the host stamps the real one
+    accounts = {
+      { external_id = "acme-1", name = "ACME Card", currency = "USD",
+        transactions = {
+          { external_id = "9f2a", amount = "-12.50", date = 1718000000,
+            description = "Blue Bottle", payee = "Blue Bottle Coffee" },
+        } },
+    },
+  }
+end
+```
+
+The host owns the two things a plugin cannot be trusted with: it **namespaces every
+id** the plugin returns (so a plugin row can never collide with another source's),
+and it **stamps the provenance as `plugin:<name>`** — the `source` field above is a
+human label only. A plugin therefore cannot impersonate `simplefin` or forge another
+source's rows, and its rows are **read-only to the manual-edit API** (a `409`, like a
+synced row): the plugin owns them through re-emission and dedup.
+
+The plugin source then behaves like any built-in one: it appears on the
+[Sources page](../architecture/ingestion.md), syncs with the rest, and reports
+status. **Uninstalling** the plugin purges the rows it produced (a plugin owns its
+rows, so removing the plugin removes them — and since they are read-only, uninstall
+is their only removal path).
 
 ## Configuring a plugin
 

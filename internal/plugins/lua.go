@@ -174,6 +174,46 @@ func pageRequestToLua(L *lua.LState, req PageRequest) *lua.LTable {
 	return t
 }
 
+// Produce runs the value-returning producer hook (OnFetch): it calls the Lua
+// function with the request table ({since=…, cursor=…}), expects an ImportBatch
+// table back, and encodes it to JSON for the host adapter. Same safety envelope as
+// Render (context on the VM, Protect, recover).
+func (li *luaInstance) Produce(ctx context.Context, hook Hook, payload json.RawMessage) (out json.RawMessage, err error) {
+	fn, ok := li.hooks[hook]
+	if !ok {
+		return nil, ErrHookNotImpl
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin panic: %v", r)
+		}
+	}()
+	li.ctx = ctx
+	defer func() { li.ctx = nil }()
+	li.L.SetContext(ctx)
+	defer li.L.RemoveContext()
+
+	var req any
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, fmt.Errorf("%s request: %w", hook, err)
+		}
+	}
+	if err := li.L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, goToLua(li.L, req)); err != nil {
+		return nil, err
+	}
+	ret := li.L.Get(-1)
+	li.L.Pop(1)
+	if ret == lua.LNil {
+		return nil, fmt.Errorf("%s returned nil (expected a batch table)", hook)
+	}
+	raw, err := luaValueToJSON(ret)
+	if err != nil {
+		return nil, fmt.Errorf("%s result: %w", hook, err)
+	}
+	return raw, nil
+}
+
 // Close releases the VM.
 func (li *luaInstance) Close() error {
 	li.L.Close()

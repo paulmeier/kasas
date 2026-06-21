@@ -216,6 +216,13 @@ func run(command, configPath string) error {
 			Registry: pluginRegistry,
 			Logger:   logger,
 		})
+		// Let source:provide plugins register/unregister an ingestion source on the
+		// engine at runtime (ADR 0005). Wired after both the engine and manager exist;
+		// SetSourceRegistrar runs before pluginManager.Run, so the reconcile pass
+		// registers already-enabled source plugins.
+		pluginManager.SetSourceRegistrar(newPluginSourceRegistrar(
+			engine, pluginManager, store, emitter, logger, cfg.Sync.Interval, cfg.Sync.LookbackDays,
+		))
 	}
 
 	apiOpts := api.Options{

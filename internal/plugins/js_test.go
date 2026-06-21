@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -293,4 +294,25 @@ Object.assign(globalThis, __kasasExports);
 	require.NoError(t, inst.Invoke(context.Background(), HookTransactionCreate,
 		HookEvent{Transaction: &Transaction{ID: "tx-1", Amount: "-9.99"}}))
 	assert.Equal(t, map[string]string{"kind": "expense"}, host.applied["tx-1"])
+}
+
+func TestJSProduceReturnsBatch(t *testing.T) {
+	inst := loadJSFixture(t, "source-js", newFakeHost())
+	raw, err := inst.Produce(context.Background(), HookFetch, json.RawMessage(`{"since":0,"cursor":""}`))
+	require.NoError(t, err)
+
+	var batch struct {
+		Accounts []struct {
+			ExternalID   string `json:"external_id"`
+			Transactions []struct {
+				ExternalID string `json:"external_id"`
+				Amount     string `json:"amount"`
+			} `json:"transactions"`
+		} `json:"accounts"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &batch))
+	require.Len(t, batch.Accounts, 1)
+	require.Len(t, batch.Accounts[0].Transactions, 1)
+	assert.Equal(t, "tx-1", batch.Accounts[0].Transactions[0].ExternalID)
+	assert.Equal(t, "-12.50", batch.Accounts[0].Transactions[0].Amount)
 }

@@ -1,6 +1,11 @@
 # ADR 0005 — Plugin-originated transactions via the source seam (`source:provide`)
 
-- **Status:** Proposed
+- **Status:** Accepted (implemented — the `source:provide` capability + `[source]`
+  manifest block, the `OnFetch` producer hook across the Lua/JS/WASM runtimes, the
+  `pluginsource` adapter that namespaces ids and stamps `plugin:<name>` provenance,
+  runtime add/remove on the ingestion engine, and an uninstall-time purge of a
+  plugin's produced rows. The **scheduled** producer shipped first; the **reactive**
+  producer remains a follow-up.)
 - **Date:** 2026-06-11
 - **Related:** [Plugins](../../features/plugins.md), [Ingestion & Sources](../ingestion.md), [ADR 0002](0002-plugin-network-capability.md), [ADR 0003](0003-marketplace-trust-tiers.md), [ADR 0004](0004-transaction-document-artifacts.md), [Philosophy](../philosophy.md)
 

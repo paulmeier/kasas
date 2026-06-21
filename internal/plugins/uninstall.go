@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/ledger"
 )
 
 // UninstallResult reports the outcome of an uninstall: the plugin's name, whether
@@ -57,6 +58,20 @@ func (m *Manager) Uninstall(ctx context.Context, id int64) (UninstallResult, err
 		if herr := m.runUninstallHook(ctx, row, d); herr != nil {
 			res.HookError = herr.Error()
 			m.logger.Warn("plugin OnUninstall hook failed (removing anyway)", "plugin", row.Name, "error", herr)
+		}
+	}
+
+	// Purge any ledger rows this plugin produced as a source (ADR 0005). A plugin
+	// owns its rows through dedup, so removing the plugin removes them — and since
+	// those rows are read-only to the manual-edit API, uninstall is their only
+	// removal path. Keyed on the source stamp (plugin:<name>), so it is a no-op for a
+	// plugin that never produced any. Like the cleanup hook, a failure is logged but
+	// does not block removal.
+	if m.emitter != nil {
+		if pr, perr := ledger.PurgeSource(ctx, m.store, m.emitter, SourceType(row.Name)); perr != nil {
+			m.logger.Error("purge plugin source rows failed (removing anyway)", "plugin", row.Name, "error", perr)
+		} else if pr.Accounts > 0 || pr.Transactions > 0 {
+			m.logger.Info("purged plugin source rows", "plugin", row.Name, "accounts", pr.Accounts, "transactions", pr.Transactions)
 		}
 	}
 

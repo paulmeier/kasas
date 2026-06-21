@@ -1,0 +1,10 @@
+name = "source-lua"
+version = "1.0.0"
+description = "A Lua plugin source that returns a static batch (ADR 0005 test fixture)."
+runtime = "lua"
+hooks = ["OnFetch"]
+capabilities = ["source:provide"]
+
+[source]
+type = "acme-card"
+archetype = "pull"

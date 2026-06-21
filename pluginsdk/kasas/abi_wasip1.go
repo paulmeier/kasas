@@ -100,3 +100,6 @@ func exportOnPageRender(payloadLen uint32) { dispatchPage(hookPageRender, payloa
 
 //go:wasmexport OnPageAction
 func exportOnPageAction(payloadLen uint32) { dispatchPage(hookPageAction, payloadLen) }
+
+//go:wasmexport OnFetch
+func exportOnFetch(payloadLen uint32) { dispatchFetch(payloadLen) }

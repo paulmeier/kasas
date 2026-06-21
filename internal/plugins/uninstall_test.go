@@ -30,6 +30,9 @@ func (e errOnUninstall) Invoke(_ context.Context, hook Hook, _ HookEvent) error 
 func (e errOnUninstall) Render(_ context.Context, _ Hook, _ PageRequest) (json.RawMessage, error) {
 	return nil, ErrHookNotImpl
 }
+func (e errOnUninstall) Produce(_ context.Context, _ Hook, _ json.RawMessage) (json.RawMessage, error) {
+	return nil, ErrHookNotImpl
+}
 func (e errOnUninstall) Close() error { return nil }
 
 type errRuntime struct{ ran *bool }

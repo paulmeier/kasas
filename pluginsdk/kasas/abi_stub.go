@@ -11,7 +11,7 @@ const errNotWasm = "kasas plugin SDK: the host API only works inside a kasas plu
 // The dispatch core's only caller is the wasmexport bridge (abi_wasip1.go),
 // which build tags exclude here — anchor it so host-platform linting sees it
 // used.
-var _ = []any{dispatchDescribe, dispatchTransaction, dispatchSync, dispatchUninstall, dispatchPage}
+var _ = []any{dispatchDescribe, dispatchTransaction, dispatchSync, dispatchUninstall, dispatchPage, dispatchFetch}
 
 func rawInput(uint32) []byte { panic(errNotWasm) }
 
