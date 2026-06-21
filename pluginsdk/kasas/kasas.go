@@ -49,6 +49,7 @@ const (
 const (
 	hookTransactionCreate = "OnTransactionCreate"
 	hookTransactionUpdate = "OnTransactionUpdate"
+	hookTransactionDelete = "OnTransactionDelete"
 	hookSyncComplete      = "OnSyncComplete"
 	hookUninstall         = "OnUninstall"
 	hookPageRender        = "OnPageRender"
@@ -160,6 +161,13 @@ func OnTransactionCreate(fn func(*Transaction) error) { handlers.txn[hookTransac
 
 // OnTransactionUpdate registers the handler for the OnTransactionUpdate hook.
 func OnTransactionUpdate(fn func(*Transaction) error) { handlers.txn[hookTransactionUpdate] = fn }
+
+// OnTransactionDelete registers the handler for the OnTransactionDelete hook. The
+// handler receives the deleted transaction's last known state (id, labels,
+// extensions, ...) — the row itself is already gone, so a follow-up GetTransaction
+// for the same id returns nil and host writes against it fail; react from the
+// snapshot the handler is given.
+func OnTransactionDelete(fn func(*Transaction) error) { handlers.txn[hookTransactionDelete] = fn }
 
 // OnSyncComplete registers the handler for the OnSyncComplete hook.
 func OnSyncComplete(fn func(*SyncSummary) error) { handlers.sync = fn }

@@ -222,6 +222,58 @@ func TestManagerRoutesOnlyDeclaredHooks(t *testing.T) {
 	assert.Equal(t, []Hook{HookTransactionCreate}, stub.seen())
 }
 
+// TestManagerRoutesTransactionDelete confirms a transaction.deleted event reaches a
+// plugin that declared OnTransactionDelete (a manual/account-cascade delete fires the
+// hook, closing the gap that creates and edits reached plugins but deletes did not).
+func TestManagerRoutesTransactionDelete(t *testing.T) {
+	dir := t.TempDir()
+	writePlugin(t, dir, "reaper",
+		`name="reaper"`+"\n"+`runtime="lua"`+"\n"+`hooks=["OnTransactionDelete"]`,
+		`function OnTransactionDelete(txn) end`)
+
+	stub := &stubInstance{}
+	mgr := NewManager(Options{
+		Store: testutil.NewStore(t), Bus: events.NewBus(), Dir: dir,
+		Runtimes: map[string]Runtime{RuntimeLua: stubRuntime{inst: stub}}, Logger: testLogger(),
+	})
+	t.Cleanup(mgr.shutdown)
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	s, ok := findByName(statuses, "reaper")
+	require.True(t, ok)
+	_, err = mgr.SetEnabled(context.Background(), s.ID, true, nil)
+	require.NoError(t, err)
+
+	// The delete event is delivered; the create event (not declared) is not.
+	mgr.dispatch(events.Event{Type: events.TypeTransactionDeleted, Data: []byte(`{"id":"tx-1"}`)})
+	mgr.dispatch(events.Event{Type: events.TypeTransactionCreated, Data: []byte(`{"id":"tx-2"}`)})
+
+	require.Eventually(t, func() bool {
+		return len(stub.seen()) == 1
+	}, time.Second, 5*time.Millisecond)
+	assert.Equal(t, []Hook{HookTransactionDelete}, stub.seen())
+}
+
+// TestDecodeHookEventTransactionDelete asserts the deleted transaction's snapshot is
+// decoded onto the hook event, so OnTransactionDelete receives the row's last known
+// state (id + labels) rather than a bare id.
+func TestDecodeHookEventTransactionDelete(t *testing.T) {
+	data, err := json.Marshal(events.TransactionPayload{
+		ID:     "tx-gone",
+		Amount: "-5.00",
+		Labels: map[string]string{"category": "food"},
+	})
+	require.NoError(t, err)
+
+	he, ok := decodeHookEvent(events.Event{Type: events.TypeTransactionDeleted, Data: data})
+	require.True(t, ok)
+	require.NotNil(t, he.Transaction)
+	assert.Equal(t, "tx-gone", he.Transaction.ID)
+	assert.Equal(t, "food", he.Transaction.Labels["category"])
+	assert.Nil(t, he.Sync)
+}
+
 // TestManagerEndToEnd exercises the whole spine: an emitted transaction.created
 // event travels bus -> manager -> per-plugin worker -> Lua -> host -> emitter ->
 // DB, leaving the configured label on the transaction.
@@ -273,6 +325,68 @@ func TestManagerEndToEnd(t *testing.T) {
 		}
 		return labels.Decode(row.Labels)["category"] == "food"
 	}, 3*time.Second, 20*time.Millisecond, "the plugin should have labeled the coffee transaction")
+}
+
+// TestManagerEndToEndTransactionDelete exercises the delete spine end to end through a
+// real Lua VM: a transaction.deleted event reaches the OnTransactionDelete handler,
+// which reacts from the deleted row's snapshot (its id) by labeling a SURVIVING audit
+// transaction — proving the hook fires, the snapshot is delivered, and host writes
+// against other rows still work even though the deleted row is gone.
+func TestManagerEndToEndTransactionDelete(t *testing.T) {
+	store := testutil.NewStore(t)
+	fx := testutil.Seed(t, store)
+	bus := events.NewBus()
+	emitter := events.NewEmitter(bus)
+
+	dir := t.TempDir()
+	writePlugin(t, dir, "reaper",
+		`name="reaper"`+"\n"+`runtime="lua"`+"\n"+`hooks=["OnTransactionDelete"]`+"\n"+
+			`capabilities=["labels:write"]`,
+		`function OnTransactionDelete(txn)`+"\n"+
+			`  kasas.apply_labels("tx-audit", { last_deleted = txn.id })`+"\n"+
+			`end`)
+
+	mgr := NewManager(Options{
+		Store: store, Emitter: emitter, Bus: bus, Dir: dir,
+		Runtimes:    map[string]Runtime{RuntimeLua: NewLuaRuntime()},
+		HookTimeout: 2 * time.Second, Logger: testLogger(),
+	})
+
+	statuses, err := mgr.List(context.Background())
+	require.NoError(t, err)
+	rp, ok := findByName(statuses, "reaper")
+	require.True(t, ok)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go mgr.Run(ctx)
+	time.Sleep(100 * time.Millisecond) // let Run subscribe to the bus
+
+	// A surviving "audit" transaction the delete handler writes to.
+	require.NoError(t, emitter.Record(ctx, store, func(q db.Querier, _ *events.Recorder) error {
+		_, err := q.InsertTransaction(ctx, db.InsertTransactionParams{
+			ID: "tx-audit", AccountID: fx.CheckingID, Amount: "0.00",
+			Date: testutil.Date2024Jun, Description: "Audit", SyncedAt: 1,
+		})
+		return err
+	}))
+
+	_, err = mgr.SetEnabled(ctx, rp.ID, true, nil)
+	require.NoError(t, err)
+
+	// Emit transaction.deleted carrying the gone row's last-known snapshot.
+	require.NoError(t, emitter.Record(ctx, store, func(q db.Querier, rec *events.Recorder) error {
+		return rec.Emit(ctx, q, events.TypeTransactionDeleted, events.EntityTransaction, "tx-victim",
+			events.TransactionPayload{ID: "tx-victim", AccountID: fx.CheckingID, Amount: "-9.99"})
+	}))
+
+	require.Eventually(t, func() bool {
+		row, err := store.GetTransaction(context.Background(), "tx-audit")
+		if err != nil {
+			return false
+		}
+		return labels.Decode(row.Labels)["last_deleted"] == "tx-victim"
+	}, 3*time.Second, 20*time.Millisecond, "OnTransactionDelete should have recorded the deleted id on the audit transaction")
 }
 
 // TestManagerEnableContextCancelStillRuns is a regression test: a plugin enabled via

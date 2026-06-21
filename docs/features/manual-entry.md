@@ -53,9 +53,11 @@ whole platform:
   emits `transaction.updated`; a delete emits `transaction.deleted` /
   `account.deleted`. Deleting an account emits a `transaction.deleted` for **each**
   of its transactions first (the database cascade is made explicit on the stream),
-  then `account.deleted`. [Webhooks](webhooks.md) and existing
-  [plugin](plugins.md) `OnTransactionCreate`/`OnTransactionUpdate` hooks fire for
-  manual rows too.
+  then `account.deleted`. [Webhooks](webhooks.md) and the
+  [plugin](plugins.md) `OnTransactionCreate` / `OnTransactionUpdate` /
+  `OnTransactionDelete` hooks fire for manual rows too — a delete (including each
+  transaction removed by an account cascade) reaches `OnTransactionDelete` with the
+  row's last-known snapshot.
 - **History** — a manual transaction gets a v1 `imported` snapshot; each edit adds
   an `edited` version with a field-level diff. See
   [Transaction History](transaction-history.md).
@@ -67,6 +69,3 @@ whole platform:
 - **Account balances are static.** A manual account's balance is a value you
   maintain; kasas does not recompute it from the account's transactions. (A derived
   running-balance is a possible future addition.)
-- **Plugins don't receive delete hooks.** There is no `OnTransactionDelete` hook
-  today, so plugins do not react to manual deletions (creates and edits do reach
-  them via the existing hooks).

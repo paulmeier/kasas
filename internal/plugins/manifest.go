@@ -35,6 +35,7 @@ type Hook string
 const (
 	HookTransactionCreate Hook = "OnTransactionCreate" // <- events.TypeTransactionCreated
 	HookTransactionUpdate Hook = "OnTransactionUpdate" // <- events.TypeTransactionUpdated
+	HookTransactionDelete Hook = "OnTransactionDelete" // <- events.TypeTransactionDeleted
 	HookSyncComplete      Hook = "OnSyncComplete"      // <- events.TypeSyncCompleted
 	// HookUninstall runs once, synchronously, when a plugin is uninstalled — before
 	// its files are removed — so the plugin can undo anything it created (labels,
@@ -133,6 +134,7 @@ func supportedRuntimes() string {
 var hookTrigger = map[Hook]string{
 	HookTransactionCreate: events.TypeTransactionCreated,
 	HookTransactionUpdate: events.TypeTransactionUpdated,
+	HookTransactionDelete: events.TypeTransactionDeleted,
 	HookSyncComplete:      events.TypeSyncCompleted,
 }
 
@@ -142,6 +144,7 @@ var hookTrigger = map[Hook]string{
 var knownHooks = map[Hook]bool{
 	HookTransactionCreate: true,
 	HookTransactionUpdate: true,
+	HookTransactionDelete: true,
 	HookSyncComplete:      true,
 	HookUninstall:         true, // accepted and resolved, but never event-dispatched
 	HookPageRender:        true, // request-driven (dashboard page), never event-dispatched
