@@ -48,11 +48,11 @@ runtime     = "lua"
 entrypoint  = "main.lua"
 
 # Event hooks fire on matching events: OnTransactionCreate (transaction.created),
-# OnTransactionUpdate (transaction.updated), OnSyncComplete (sync.completed). The
-# OnUninstall lifecycle hook (no event) runs once at uninstall so the plugin can
-# clean up (see "Uninstalling" below); OnPageRender/OnPageAction back an optional
-# dashboard page (see "Dashboard pages" below); OnFetch is a scheduled source
-# producer (see "Providing a source" below).
+# OnTransactionUpdate (transaction.updated), OnTransactionDelete (transaction.deleted),
+# OnSyncComplete (sync.completed). The OnUninstall lifecycle hook (no event) runs once
+# at uninstall so the plugin can clean up (see "Uninstalling" below);
+# OnPageRender/OnPageAction back an optional dashboard page (see "Dashboard pages"
+# below); OnFetch is a scheduled source producer (see "Providing a source" below).
 hooks = ["OnTransactionCreate", "OnTransactionUpdate"]
 
 # Capabilities the host grants and enforces: transactions:read, labels:write,
@@ -76,6 +76,15 @@ end
 
 function OnTransactionUpdate(txn) OnTransactionCreate(txn) end
 ```
+
+`OnTransactionDelete(txn)` fires when a transaction is deleted (a manual delete, or
+each row removed by an [account cascade](manual-entry.md)). The `txn` argument is the
+row's **last-known snapshot** — id, labels, extensions, and all — because the row is
+already gone by the time the hook runs. That snapshot is the source of truth inside
+the handler: `kasas.get_transaction(txn.id)` returns nothing and host writes against
+the id fail, so react from the data you are handed (e.g. tidy up an external mirror,
+or log the removal). The same hook is exposed in every runtime
+(`kasas.OnTransactionDelete(fn)` in Go, `OnTransactionDelete(txn)` in JS/TS).
 
 ## How a hook runs
 

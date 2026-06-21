@@ -89,6 +89,11 @@ func exportOnTransactionUpdate(payloadLen uint32) {
 	dispatchTransaction(hookTransactionUpdate, payloadLen)
 }
 
+//go:wasmexport OnTransactionDelete
+func exportOnTransactionDelete(payloadLen uint32) {
+	dispatchTransaction(hookTransactionDelete, payloadLen)
+}
+
 //go:wasmexport OnSyncComplete
 func exportOnSyncComplete(payloadLen uint32) { dispatchSync(payloadLen) }
 

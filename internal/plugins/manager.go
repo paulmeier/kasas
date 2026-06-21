@@ -937,7 +937,10 @@ func (m *Manager) EgressLog(ctx context.Context, id int64, limit int) ([]EgressE
 func decodeHookEvent(ev events.Event) (HookEvent, bool) {
 	he := HookEvent{Type: ev.Type, Sequence: ev.Sequence, EntityID: ev.EntityID, OccurredAt: ev.OccurredAt}
 	switch ev.Type {
-	case events.TypeTransactionCreated, events.TypeTransactionUpdated:
+	case events.TypeTransactionCreated, events.TypeTransactionUpdated, events.TypeTransactionDeleted:
+		// transaction.deleted carries the same full snapshot (the row's last known
+		// state, captured before the row was removed), so OnTransactionDelete receives
+		// the deleted transaction just like create/update receive the live one.
 		var p events.TransactionPayload
 		if err := json.Unmarshal(ev.Data, &p); err != nil {
 			return HookEvent{}, false
