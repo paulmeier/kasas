@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -281,14 +282,53 @@ func run(command, configPath string) error {
 	}
 }
 
+// listensBeyondLoopback reports whether addr binds an interface reachable from
+// outside the local host. An empty host (":8080") or 0.0.0.0/:: binds every
+// interface; "localhost", 127.0.0.0/8, and ::1 are loopback-only. A specific
+// non-loopback IP, or any hostname that is not "localhost", is treated as exposed
+// (a hostname could resolve anywhere, so we fail safe). An unparseable address is
+// likewise treated as exposed.
+func listensBeyondLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return true
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		return true
+	case "localhost":
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true
+	}
+	return !ip.IsLoopback()
+}
+
+// checkUnauthenticatedExposure returns a non-nil error when kasas would listen on
+// a non-loopback address with no dashboard token and without an explicit opt-in —
+// the configuration that would expose the ledger to anyone who can reach it. When a
+// token is set, or the address is loopback-only, or the operator opted in via
+// server.allow_unauthenticated, it returns nil.
+func checkUnauthenticatedExposure(tokenRequired bool, addr string, allowUnauthenticated bool) error {
+	if tokenRequired || allowUnauthenticated || !listensBeyondLoopback(addr) {
+		return nil
+	}
+	return fmt.Errorf("refusing to start: server.addr %q listens beyond loopback but no dashboard token is set, so anyone who can reach kasas could read your financial data and change settings — set dashboard.token / KASAS_DASHBOARD_TOKEN, bind server.addr to 127.0.0.1, or set server.allow_unauthenticated=true (env KASAS_SERVER_ALLOW_UNAUTHENTICATED=true) to run unauthenticated on purpose", addr)
+}
+
 // serve runs the HTTP server plus the background sync scheduler until an
 // interrupt or SIGTERM is received, then shuts down gracefully.
 func serve(cfg *config.Config, logger *slog.Logger, engine *poller.Engine, srv *api.Server, updateChecker *selfupdate.Checker, guard *auth.Guard, store db.Store, eventBus *events.Bus, pluginManager *plugins.Manager) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := checkUnauthenticatedExposure(guard.Required(), cfg.Server.Addr, cfg.Server.AllowUnauthenticated); err != nil {
+		return err
+	}
 	if !guard.Required() {
-		logger.Warn("dashboard is NOT secured: no dashboard token is set — anyone who can reach kasas can read your financial data and change settings; set dashboard.token / KASAS_DASHBOARD_TOKEN, or generate a token from the dashboard Settings page")
+		logger.Warn("dashboard is NOT secured: no dashboard token is set — anyone who can reach kasas can read your financial data; the dangerous admin operations (plugin enable, self-update, API-key/webhook/settings changes, MCP-over-HTTP) require a token and are refused until you set one. Set dashboard.token / KASAS_DASHBOARD_TOKEN, or generate a token from the dashboard Settings page")
 	}
 
 	if updateChecker != nil {

@@ -56,10 +56,17 @@ VOLUME ["/data"]
 # seeds it with the annotated example on first run if it is missing, so there is a
 # real, editable config.toml at a known location (Unraid: appdata/kasas/config.toml).
 # Environment variables still win over the file, so this never changes behaviour.
+# KASAS_SERVER_ALLOW_UNAUTHENTICATED lets the image boot zero-config on its
+# published :8080 (a non-loopback bind). Without it, kasas refuses to start when no
+# dashboard token is set on a non-loopback address. Reads stay open but the
+# dangerous admin operations (plugin enable, self-update, API-key/webhook/settings
+# changes, MCP-over-HTTP) still require a token — set KASAS_DASHBOARD_TOKEN, or
+# generate one from the dashboard's "secure this instance" banner, to lock it down.
 ENV KASAS_CONFIG=/data/config.toml \
     KASAS_DATABASE_PATH=/data/kasas.db \
     KASAS_SECRETS_FILE=/data/secrets.json \
-    KASAS_SERVER_ADDR=:8080
+    KASAS_SERVER_ADDR=:8080 \
+    KASAS_SERVER_ALLOW_UNAUTHENTICATED=true
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD ["/kasas", "healthcheck"]

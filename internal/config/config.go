@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -39,6 +40,10 @@ type Config struct {
 // Server holds HTTP server settings.
 type Server struct {
 	Addr string
+	// AllowUnauthenticated opts in to serving on a non-loopback address with no
+	// dashboard token set. kasas otherwise refuses to start in that configuration
+	// (it would expose the ledger to anyone who can reach it). Default false.
+	AllowUnauthenticated bool
 }
 
 // Log holds logging settings.
@@ -317,6 +322,7 @@ func Load(path string) (*Config, error) {
 	v := viper.New()
 
 	v.SetDefault("server.addr", ":8080")
+	v.SetDefault("server.allow_unauthenticated", false)
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	v.SetDefault("database.driver", "sqlite")
@@ -360,7 +366,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("dashboard.enabled", true)
 	v.SetDefault("dashboard.token", "")
 	v.SetDefault("update.check", true)
-	v.SetDefault("update.allow_apply", true)
+	v.SetDefault("update.allow_apply", false)
 	v.SetDefault("update.repository", "paulmeier/kasas")
 	v.SetDefault("events.enabled", true)
 	v.SetDefault("events.retention_days", 0)
@@ -429,8 +435,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		Server: Server{Addr: v.GetString("server.addr")},
-		Log:    Log{Level: v.GetString("log.level"), Format: v.GetString("log.format")},
+		Server: Server{
+			Addr:                 v.GetString("server.addr"),
+			AllowUnauthenticated: v.GetBool("server.allow_unauthenticated"),
+		},
+		Log: Log{Level: v.GetString("log.level"), Format: v.GetString("log.format")},
 		Database: Database{
 			Driver: v.GetString("database.driver"),
 			Path:   v.GetString("database.path"),
@@ -569,6 +578,9 @@ func Load(path string) (*Config, error) {
 func (c *Config) Validate() error {
 	if c.Server.Addr == "" {
 		return fmt.Errorf("server.addr must not be empty")
+	}
+	if _, _, err := net.SplitHostPort(c.Server.Addr); err != nil {
+		return fmt.Errorf(`server.addr must be in host:port form (e.g. ":8080" or "127.0.0.1:8080"), got %q: %w`, c.Server.Addr, err)
 	}
 	switch c.Database.Driver {
 	case "sqlite":

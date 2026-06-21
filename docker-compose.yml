@@ -15,6 +15,13 @@ services:
       - ./data:/data
     environment:
       KASAS_SERVER_ADDR: ":8080"
+      # Boot zero-config on the published :8080. Reads stay open, but the dangerous
+      # admin ops (plugin enable, self-update, API-key/webhook/settings changes,
+      # MCP-over-HTTP) require a token regardless. To lock kasas down, set a token
+      # below (and you can then drop this line so an exposed bind without a token
+      # refuses to start):
+      KASAS_SERVER_ALLOW_UNAUTHENTICATED: "true"
+      # KASAS_DASHBOARD_TOKEN: "${KASAS_DASHBOARD_TOKEN:-}"  # or generate one from the dashboard
       KASAS_LOG_LEVEL: "info"
       KASAS_LOG_FORMAT: "json"
       # Path to a TOML config file in the /data volume. kasas seeds it with the

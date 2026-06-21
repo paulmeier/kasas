@@ -214,3 +214,61 @@ func TestConfigEndpointSecuritySection(t *testing.T) {
 	assert.True(t, out.Security.AuthRequired)
 	assert.Equal(t, "stored", out.Security.TokenSource)
 }
+
+// TestDangerousAdminClosedWhenUnsecured is the H1 hardening: on an unsecured
+// instance (an Authenticator is wired but no token is set), the dangerous admin
+// operations are refused with 503 — never silently open — while reads and the token
+// bootstrap stay reachable so the operator can secure the instance first.
+func TestDangerousAdminClosedWhenUnsecured(t *testing.T) {
+	srv, _ := newSecuredServer(t, "")
+
+	// Reads stay open on an unsecured instance.
+	assert.Equal(t, http.StatusOK,
+		doReq(t, srv, http.MethodGet, "/api/v1/accounts", "", nil).StatusCode)
+
+	// Dangerous admin operations are refused with 503 (not 200, not 401): they are
+	// never reachable without a dashboard token. The gate runs before the handler,
+	// so an empty body still yields 503.
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/security/api-keys"},
+		{http.MethodGet, "/api/v1/security/api-keys"},
+		{http.MethodPost, "/api/v1/webhooks"},
+		{http.MethodGet, "/api/v1/webhooks"},
+		{http.MethodPost, "/api/v1/system/restart"},
+		{http.MethodGet, "/mcp"}, // MCP-over-HTTP bundles the dangerous tools
+		// Plugin page execution runs third-party hook code, so it is gated too;
+		// the list (GET /plugins/pages) stays in the open read tier.
+		{http.MethodGet, "/api/v1/plugins/pages/x"},
+		{http.MethodPost, "/api/v1/plugins/pages/x/action"},
+	} {
+		resp := doReq(t, srv, tc.method, tc.path, "", nil)
+		assert.Equalf(t, http.StatusServiceUnavailable, resp.StatusCode,
+			"%s %s must be 503 on an unsecured instance", tc.method, tc.path)
+	}
+
+	// The plugin page LIST (metadata, no code) stays in the open read tier.
+	assert.Equal(t, http.StatusOK,
+		doReq(t, srv, http.MethodGet, "/api/v1/plugins/pages", "", nil).StatusCode)
+
+	// The token bootstrap stays open so the operator can secure the instance.
+	assert.Equal(t, http.StatusOK,
+		doReq(t, srv, http.MethodPost, "/api/v1/security/token", "", nil).StatusCode)
+}
+
+// TestDangerousAdminRequiresTokenOnceSecured: once a token exists, the dangerous
+// admin operations require it (401 without) rather than 503, and accept it.
+func TestDangerousAdminRequiresTokenOnceSecured(t *testing.T) {
+	srv, _ := newSecuredServer(t, "")
+	gen := doReq(t, srv, http.MethodPost, "/api/v1/security/token", "", nil)
+	var out struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, decodeJSON(gen, &out))
+
+	// Without the token, now that auth is required: 401, not 503.
+	assert.Equal(t, http.StatusUnauthorized,
+		doReq(t, srv, http.MethodGet, "/api/v1/security/api-keys", "", nil).StatusCode)
+	// With the token: the gate passes and the handler lists keys.
+	assert.Equal(t, http.StatusOK,
+		doReq(t, srv, http.MethodGet, "/api/v1/security/api-keys", out.Token, nil).StatusCode)
+}
