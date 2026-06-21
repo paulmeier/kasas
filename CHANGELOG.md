@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.0](https://github.com/paulmeier/kasas/compare/v2.33.0...v2.34.0) (2026-06-21)
+
+
+### Features
+
+* plugins can provide ingestion sources (ADR 0005, source:provide) ([#142](https://github.com/paulmeier/kasas/issues/142)) ([53f0694](https://github.com/paulmeier/kasas/commit/53f06946df8694576639826f184155d90a06e15c))
+
 ## [2.33.0](https://github.com/paulmeier/kasas/compare/v2.32.0...v2.33.0) (2026-06-21)
 
 
