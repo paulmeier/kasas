@@ -530,6 +530,21 @@ html, body {
   background: var(--surface-2);
   border-style: dashed;
 }
+.status-pill.needs-creds {
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.12);
+  border-color: rgba(210, 153, 34, 0.35);
+}
+.status-pill.active {
+  color: var(--accent);
+  background: rgba(110, 168, 254, 0.12);
+  border-color: rgba(110, 168, 254, 0.35);
+}
+.status-pill.failed {
+  color: var(--neg);
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.35);
+}
 
 .form-row {
   display: flex;
@@ -590,6 +605,106 @@ html, body {
 .sync-status.ok { color: var(--pos); }
 .sync-status.err { color: var(--neg); }
 .sync-status.muted { color: var(--muted); }
+
+/* --- Sources page: icon list + per-source detail --- */
+.source-list {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.source-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.source-row:hover { border-color: var(--accent); background: var(--surface-2); }
+.source-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.source-icon { width: 20px; height: 20px; }
+.source-row-main { min-width: 0; flex: 1; }
+.source-row-title { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
+.source-row-blurb {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.source-row-status { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.source-chevron { display: flex; color: var(--muted); }
+.source-chevron .source-icon { width: 18px; height: 18px; }
+
+/* Per-source detail header. */
+.source-detail-head { display: flex; align-items: center; gap: 10px; }
+.source-detail-head .page-title { margin: 0; }
+.source-detail-back { display: inline-flex; color: var(--muted); text-decoration: none; }
+.source-detail-back:hover { color: var(--text); }
+.source-detail-back .source-icon { width: 18px; height: 18px; }
+.source-detail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.source-detail-icon .source-icon { width: 16px; height: 16px; }
+.source-egress { font-size: 12px; color: var(--muted); margin: 14px 0 0; }
+
+/* "Recent syncs" panel on the Sources list. */
+.recent-syncs { max-width: 640px; margin-top: 24px; }
+.recent-syncs-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.recent-sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+.recent-sync-row:first-of-type { border-top: none; }
+.recent-sync-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.recent-sync-error {
+  font-size: 12px;
+  color: var(--neg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-sync-when { font-size: 12px; color: var(--muted); flex-shrink: 0; }
 
 /* Read-only configuration cards. */
 .config-grid {
