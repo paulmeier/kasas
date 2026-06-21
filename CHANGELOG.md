@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.35.0](https://github.com/paulmeier/kasas/compare/v2.34.0...v2.35.0) (2026-06-21)
+
+
+### Features
+
+* **plugins:** OnTransactionDelete hook + soft-delete ADR (0007) ([#144](https://github.com/paulmeier/kasas/issues/144)) ([645dcdb](https://github.com/paulmeier/kasas/commit/645dcdb26f876478a3c775a0b5322283fd846e34))
+
 ## [2.34.0](https://github.com/paulmeier/kasas/compare/v2.33.0...v2.34.0) (2026-06-21)
 
 
