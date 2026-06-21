@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.33.0](https://github.com/paulmeier/kasas/compare/v2.32.0...v2.33.0) (2026-06-21)
+
+
+### Features
+
+* **dashboard:** sources as an icon list with per-source detail pages ([#141](https://github.com/paulmeier/kasas/issues/141)) ([14ff0c7](https://github.com/paulmeier/kasas/commit/14ff0c7e752eb1c1bf6b9f8de979d4c693bd51a1))
+
+
+### Dependencies
+
+* bump the go-modules group with 3 updates ([#138](https://github.com/paulmeier/kasas/issues/138)) ([a0bd887](https://github.com/paulmeier/kasas/commit/a0bd887a3a0664335adf042cc43e2bd66ddd1659))
+
 ## [2.32.0](https://github.com/paulmeier/kasas/compare/v2.31.0...v2.32.0) (2026-06-13)
 
 
