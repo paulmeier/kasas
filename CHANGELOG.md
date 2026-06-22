@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/paulmeier/kasas/compare/v2.35.1...v3.0.0) (2026-06-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **security:** kasas now refuses to start when server.addr binds beyond loopback (e.g. the default :8080) with no dashboard token set. Set dashboard.token / KASAS_DASHBOARD_TOKEN, bind server.addr to 127.0.0.1, or set server.allow_unauthenticated=true (KASAS_SERVER_ALLOW_UNAUTHENTICATED=true) to run unauthenticated on purpose; the official Docker image and docker-compose.yml ship this opt-in so `docker compose up` is unaffected. The admin/code-execution operations (plugin enable, self-update, API-key/webhook/settings management, restart, MCP-over-HTTP, plugin page render/action) now require the dashboard token and return HTTP 503 on an unsecured instance, and update.allow_apply now defaults to false.
+
+### Bug Fixes
+
+* **security:** require a dashboard token for admin ops; refuse to start exposed-unauthenticated ([#148](https://github.com/paulmeier/kasas/issues/148)) ([d7ec23c](https://github.com/paulmeier/kasas/commit/d7ec23c94ff954e0220204eb7b323550d4b457d7))
+
 ## [2.35.1](https://github.com/paulmeier/kasas/compare/v2.35.0...v2.35.1) (2026-06-21)
 
 
