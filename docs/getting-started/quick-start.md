@@ -77,10 +77,14 @@ KASAS_SIMPLEFIN_SETUP_TOKEN="..." ./bin/kasas -config config.toml sync
 
 ## Secure it
 
-By default kasas is **unauthenticated** — fine on a trusted network, but anyone who
-can reach the port can read your data. Set a
-[dashboard token](../interfaces/authentication.md) (and consider keeping kasas
-behind [Tailscale](deployment.md#tailscale)):
+By default kasas is **unauthenticated for reads** — fine on a trusted network, but
+anyone who can reach the port can read your data. (The dangerous admin operations —
+plugin enable, self-update, API-key/webhook/settings changes, MCP-over-HTTP — always
+require a token, and kasas refuses to start unauthenticated on a non-loopback bind
+unless you opt in; the Docker image ships that opt-in so it boots out of the box. See
+[Authentication](../interfaces/authentication.md#unauthenticated-by-default).) Set a
+[dashboard token](../interfaces/authentication.md) to require auth for everything
+(and consider keeping kasas behind [Tailscale](deployment.md#tailscale)):
 
 ```sh
 export KASAS_DASHBOARD_TOKEN="$(openssl rand -base64 32)"

@@ -232,15 +232,14 @@ func (s *Server) Router() http.Handler {
 				// nil) so the dashboard's Plugins page gets a clean "disabled" response
 				// instead of a routing 404.
 				r.Get("/plugins", s.handleListPlugins)
-				// Plugin dashboard pages: the sidebar entries plugins contribute and
-				// their declaratively rendered pages. Static /plugins/pages is
-				// registered before /plugins/{id} so it isn't captured as a plugin id
-				// (chi prefers static segments, but keep it explicit). Rendering sits
-				// in the read tier: it's how a page is VIEWED (the spec tells plugins
-				// to treat OnPageRender as read-only), while actions are explicit
-				// mutations and live in the write tier below.
+				// Plugin dashboard page LIST: the sidebar entries plugins contribute.
+				// This is metadata only (no plugin code runs), so it stays in the read
+				// tier. Static /plugins/pages is registered before /plugins/{id} so it
+				// isn't captured as a plugin id (chi prefers static segments, but keep it
+				// explicit). RENDERING a page and page ACTIONS execute plugin hook code,
+				// so they require a configured token — see the plugin-page-execution
+				// group below.
 				r.Get("/plugins/pages", s.handleListPluginPages)
-				r.Get("/plugins/pages/{name}", s.handleRenderPluginPage)
 				// Marketplace catalog browse is a read, and like /plugins it must be
 				// registered even when the plugin system is disabled (pluginMgr is nil)
 				// so the dashboard's Marketplace page gets a clean {available:false}
@@ -326,11 +325,6 @@ func (s *Server) Router() http.Handler {
 				r.Delete("/rules/{id}", s.handleDeleteRule)
 				r.Post("/rules/{id}/run", s.handleRunRule)
 
-				// Plugin page actions: a button press declared by a plugin's page,
-				// handled by its OnPageAction hook. The hook runs with the plugin's
-				// granted write capabilities, so this is write-tier.
-				r.Post("/plugins/pages/{name}/action", s.handlePluginPageAction)
-
 				r.Post("/sync", s.handleTriggerSync)
 
 				// Per-source sync (the global /sync above syncs every source).
@@ -339,9 +333,40 @@ func (s *Server) Router() http.Handler {
 				}
 			})
 
-			// Admin / provisioning tier (dashboard token only).
+			// Plugin page EXECUTION: rendering a page runs its OnPageRender hook and a
+			// page action runs its OnPageAction hook — third-party plugin code with the
+			// plugin's granted capabilities (which may include write/net:fetch/api).
+			// Running code is a dangerous op, so unlike the page LIST above (metadata
+			// only, read tier) these require a configured token and are refused (503) on
+			// an unsecured instance, matching the plugin lifecycle routes. Registered
+			// unconditionally so the nil-manager handlers still return the clean
+			// "disabled" response (not a 404) when the plugin system is off.
 			r.Group(func(r chi.Router) {
-				r.Use(s.requireToken)
+				r.Use(s.requireConfiguredToken)
+				r.Get("/plugins/pages/{name}", s.handleRenderPluginPage)
+				r.Post("/plugins/pages/{name}/action", s.handlePluginPageAction)
+			})
+
+			// Dashboard token bootstrap: generating or setting the FIRST token must
+			// work on an unsecured instance, so it uses requireToken (open when no
+			// token is set) rather than the strict gate below. Once a token exists it
+			// is enforced; when config-managed the handlers refuse with 409.
+			if s.auth != nil {
+				r.Group(func(r chi.Router) {
+					r.Use(s.requireToken)
+					r.Post("/security/token", s.handleSetToken)
+					r.Delete("/security/token", s.handleClearToken)
+				})
+			}
+
+			// Admin / provisioning tier (a CONFIGURED dashboard token only). Unlike the
+			// read/write tiers, requireConfiguredToken refuses these on an unsecured
+			// instance (503): loading/running plugin code, self-update, minting
+			// credentials, managing webhooks, and changing settings are never reachable
+			// without a token. API keys are never accepted here either, so a key cannot
+			// escalate to managing credentials.
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireConfiguredToken)
 
 				// Per-source credential management: set a pasted credential, and
 				// begin the browser OAuth flow (which returns the consent URL). The
@@ -359,13 +384,6 @@ func (s *Server) Router() http.Handler {
 				// source credential, set via /sources/market/credential above.
 				r.Post("/market/series", s.handleAddMarketSeries)
 				r.Delete("/market/series/{id}", s.handleRemoveMarketSeries)
-
-				// Dashboard token management (generate/set, and revoke). Available only
-				// when an Authenticator is wired; refused when the token is config-managed.
-				if s.auth != nil {
-					r.Post("/security/token", s.handleSetToken)
-					r.Delete("/security/token", s.handleClearToken)
-				}
 
 				// API key provisioning: mint (returns the secret once), list metadata,
 				// and revoke per-consumer credentials.
@@ -419,10 +437,14 @@ func (s *Server) Router() http.Handler {
 			})
 		})
 
-		// Built-in MCP server over streamable HTTP, gated by the same dashboard token.
+		// Built-in MCP server over streamable HTTP. It bundles the dangerous admin
+		// tools (enabling plugins, self-update, minting keys, writing settings), so
+		// like the admin tier it requires a CONFIGURED dashboard token — closed (503)
+		// on an unsecured instance rather than open. The stdio MCP server (kasas mcp)
+		// is a local trusted subprocess and is unaffected.
 		if s.mcpEnabled {
 			r.Group(func(r chi.Router) {
-				r.Use(s.requireToken)
+				r.Use(s.requireConfiguredToken)
 				r.Mount("/mcp", s.MCPHandler())
 			})
 		}

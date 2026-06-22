@@ -16,6 +16,14 @@
 [server]
 # Address the HTTP API (and MCP server) listens on.
 addr = ":8080"
+# Safety gate: if no dashboard token is set (see [dashboard].token) and addr binds
+# beyond loopback (":8080", "0.0.0.0:…", a LAN IP), kasas REFUSES to start so the
+# ledger is not exposed unauthenticated. Set a token, bind addr to "127.0.0.1:8080",
+# or set this to true (env KASAS_SERVER_ALLOW_UNAUTHENTICATED=true) to run open on
+# purpose. Note: even when open, the dangerous admin operations (enabling plugins,
+# self-update, minting API keys, managing webhooks, changing settings, MCP-over-HTTP)
+# still require a token — they are refused until one is set.
+allow_unauthenticated = false
 
 [log]
 level  = "info"  # debug | info | warn | error
@@ -252,11 +260,13 @@ token = ""
 # deployments (update by pulling a new image) or to suppress the outbound check.
 check = true
 # Allow the dashboard banner's "Update & restart" button (and POST /api/v1/update)
-# to download, verify, install, and re-exec a new release in place. The API has
-# no auth, so this lets anyone who can reach it replace the running binary — keep
-# kasas on a trusted network (e.g. Tailscale). Set false to keep the informational
-# banner but require the `kasas self-update` CLI to actually upgrade.
-allow_apply = true
+# to download, verify, install, and re-exec a new release in place. Off by default:
+# in-place self-update replaces the running binary, so opt in only when you want it.
+# When on, the action requires the dashboard token (it is in the admin tier), and
+# Docker deployments should leave it off and update by pulling a new image. With it
+# off, the informational "update available" banner still shows; use the
+# `kasas self-update` CLI to upgrade.
+allow_apply = false
 # GitHub repository (owner/name) to check for releases and self-update assets.
 repository = "paulmeier/kasas"
 

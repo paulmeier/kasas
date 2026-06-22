@@ -100,6 +100,34 @@ func (s *Server) scopeGate(next http.Handler, need apikeys.Scope) http.Handler {
 	})
 }
 
+// requireConfiguredToken gates the dangerous admin operations — loading and running
+// plugin code, applying a self-update, minting API keys, managing webhooks, writing
+// settings, setting source credentials, restarting. Unlike requireToken, it refuses
+// the request on an UNSECURED instance (a wired Authenticator reporting
+// Required()==false) with 503, so these operations are never reachable without a
+// dashboard token; the operator secures the instance first via the always-open token
+// bootstrap (POST /api/v1/security/token). When no Authenticator is wired at all (a
+// degenerate/test configuration — production always wires one) it falls through open,
+// matching requireToken/scopeGate. API keys are never accepted, only the dashboard token.
+func (s *Server) requireConfiguredToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !s.auth.Required() {
+			s.writeError(w, http.StatusServiceUnavailable, "this operation requires a dashboard token; set one (dashboard.token / KASAS_DASHBOARD_TOKEN) or generate it from the dashboard Settings page first")
+			return
+		}
+		if !s.auth.Valid(bearerToken(r)) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="kasas"`)
+			s.writeError(w, http.StatusUnauthorized, "missing or invalid dashboard token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // verifyAPIKey resolves a presented bearer to a stored API key by hashing it and
 // looking it up (an O(1) unique-index hit). On a match it touches the key's
 // last-used time, throttled so it is not a write per request. A miss (unknown key or

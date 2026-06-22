@@ -85,10 +85,17 @@ doesn't disturb the other.
 kasas has a single shared-secret auth model and no per-user accounts, so the
 strongest posture is to keep it **off the public internet** and reach it over a
 private network. [Tailscale](https://tailscale.com) is an easy fit: run kasas bound
-to its tailnet address (or behind a Tailscale sidecar/serve), set a
-[dashboard token](../interfaces/authentication.md), and only your devices can reach
-it. This pairs well with leaving `update.allow_apply` on — the in-place updater is
-then only reachable from your tailnet.
+to its tailnet address (or behind a Tailscale sidecar/serve) and only your devices
+can reach it.
+
+!!! warning "A tailnet address is still 'beyond loopback'"
+    kasas treats any non-loopback bind — including a Tailscale CGNAT
+    (`100.64.0.0/10`) address — as exposed, so it **refuses to start** there without
+    a [dashboard token](../interfaces/authentication.md) unless you set
+    `server.allow_unauthenticated = true` (`KASAS_SERVER_ALLOW_UNAUTHENTICATED=true`).
+    Setting a token is the recommended path: it secures the dangerous admin
+    operations too, and the [in-place updater](#updating) (when
+    `update.allow_apply` is on) is then both tailnet-only and token-gated.
 
 ## Unraid
 
@@ -141,12 +148,12 @@ image (below).
     external supervisor); the page reloads onto the new version.
 
 !!! danger "Securing the in-place updater"
-    With `update.allow_apply` on, anyone who can reach the (authenticated, if a
-    [dashboard token](../interfaces/authentication.md) is set) API can replace the
-    running binary with a checksum-verified GitHub release and restart it. Set a
-    dashboard token, keep kasas on a trusted network (e.g. [Tailscale](#tailscale)),
-    or set `KASAS_UPDATE_ALLOW_APPLY=false` to keep the informational banner while
-    requiring the `kasas self-update` CLI to actually upgrade.
+    `update.allow_apply` is **off by default**. Turn it on to let the dashboard/API
+    replace the running binary with a checksum-verified GitHub release and restart
+    it. Even when on, the apply lives in the **admin tier**: it requires the
+    [dashboard token](../interfaces/authentication.md) and is refused (`503`) on an
+    unsecured instance. Keep kasas on a trusted network (e.g. [Tailscale](#tailscale))
+    too, or leave `allow_apply` off and use the `kasas self-update` CLI to upgrade.
 
 While `serve` runs, kasas also checks **once a day** for a newer release and logs a
 notice — it never self-modifies from the check. Builds without a release version

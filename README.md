@@ -103,8 +103,10 @@ Then open the dashboard at **http://localhost:8080**.
 > **Volume permissions:** the container runs as UID `65532` — the mounted data dir
 > must be writable by it: `mkdir -p data && sudo chown -R 65532:65532 data`.
 >
-> By default kasas is **unauthenticated**. Set a dashboard token and keep it on a
-> trusted network — see [Authentication](https://paulmeier.github.io/kasas/interfaces/authentication/).
+> By default kasas is **unauthenticated for reads** (dangerous admin ops always need
+> a token, and it refuses to start exposed-and-tokenless — the image ships the opt-in
+> so it boots). Set a dashboard token and keep it on a trusted network — see
+> [Authentication](https://paulmeier.github.io/kasas/interfaces/authentication/).
 
 Full walkthrough: **[Quick Start →](https://paulmeier.github.io/kasas/getting-started/quick-start/)**
 

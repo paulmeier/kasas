@@ -70,7 +70,8 @@ warning rather than refusing to start.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `addr` | `:8080` | HTTP listen address for the API, MCP, and dashboard. |
+| `addr` | `:8080` | HTTP listen address (`host:port`) for the API, MCP, and dashboard. |
+| `allow_unauthenticated` | `false` | Allow serving on a non-loopback address with **no** dashboard token. Otherwise kasas refuses to start in that configuration (it would expose your ledger). Set a token, bind `addr` to `127.0.0.1`, or set this `true` to run open on purpose. See [Authentication](../interfaces/authentication.md#unauthenticated-by-default). |
 
 ## `[log]`
 
@@ -173,7 +174,7 @@ The [self-update](../reference/cli.md#self-update) check and in-place apply.
 | Key | Default | Description |
 | --- | --- | --- |
 | `check` | `true` | Daily check for a newer release (logs + dashboard banner). Never modifies the binary. |
-| `allow_apply` | `true` | Let the dashboard/API trigger an in-place self-update. |
+| `allow_apply` | `false` | Let the dashboard/API trigger an in-place self-update (replaces the running binary). Off by default; turn on to opt in. Even when on, the apply requires the dashboard token. |
 | `repository` | `paulmeier/kasas` | GitHub repo to check for releases. |
 
 ## `[events]`

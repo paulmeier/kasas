@@ -1,10 +1,15 @@
 # Authentication & API Keys
 
-By default the REST API, the web dashboard, and the MCP-over-HTTP server are
-**unauthenticated** — convenient on a trusted network, but anyone who can reach the
-port can read your financial data and change settings. Set a **dashboard token** to
-require callers to authenticate, and mint **scoped API keys** for individual
-integrations.
+By default the REST API and the web dashboard are **unauthenticated for reads** —
+convenient on a trusted network, but anyone who can reach the port can read your
+financial data. The **dangerous admin operations** (enabling plugins, self-update,
+minting API keys, managing webhooks, changing settings, and the MCP-over-HTTP
+server) are **always gated**: they require a dashboard token and are refused with
+`503` until one is set. And kasas **refuses to start** unauthenticated on a
+non-loopback address unless you opt in — see
+[Unauthenticated by default](#unauthenticated-by-default). Set a **dashboard token**
+to require callers to authenticate for everything, and mint **scoped API keys** for
+individual integrations.
 
 Source: [`internal/auth`](https://github.com/paulmeier/kasas/tree/main/internal/auth)
 + [`internal/apikeys`](https://github.com/paulmeier/kasas/tree/main/internal/apikeys).
@@ -20,6 +25,12 @@ are deliberately capped below admin so a leaked key can never escalate.
 | **Write** | dashboard token **or a `read_write` key** | label/extension edits, rule CRUD + run, trigger sync |
 | **Admin** | **dashboard token only** | provisioning: API keys, webhooks, plugin enable/reload, SimpleFIN credential, token management, self-update apply |
 
+On an **unsecured** instance (no token set anywhere), the Read and Write tiers stay
+open but the **Admin tier is refused with `503`** — the dangerous operations are
+never reachable without a token. Plugin **page rendering and actions** run
+third-party hook code, so they are gated the same way (the page *list*, which runs
+no code, stays open). Set a token to use them.
+
 !!! danger "API keys are never admin"
     The admin tier refuses API keys entirely. A key — even a `read_write` one —
     **cannot** mint another key, manage webhooks, enable a plugin, rotate the
@@ -31,7 +42,9 @@ are deliberately capped below admin so a leaked key can never escalate.
 ```mermaid
 flowchart TD
     REQ["request: Authorization: Bearer …"] --> DIS{a token<br/>configured?}
-    DIS -->|no| ALLOW["allow — unauthenticated<br/>(startup warning logged)"]
+    DIS -->|no| TIER0{route tier?}
+    TIER0 -->|read / basic write| ALLOW["allow — unauthenticated<br/>(startup warning logged)"]
+    TIER0 -->|admin / MCP /<br/>plugin-page exec| U503["503 — set a token first"]
     DIS -->|yes| DT{matches dashboard token?<br/>constant-time hash compare}
     DT -->|yes| FULL[allow — full access]
     DT -->|no| KEY{valid API key?<br/>SHA-256 hash lookup}
@@ -45,6 +58,28 @@ flowchart TD
 Always open, regardless of token: `/healthz`, `/readyz`, `/metrics` (for probes
 and Prometheus), and `GET /api/v1/auth` (so the dashboard can learn whether to show
 a login screen before it holds a token).
+
+## Unauthenticated by default
+
+With no token set, kasas is open for reads — fine on a trusted network, risky on an
+exposed one. Two guards bound the blast radius:
+
+- **The dangerous admin tier always needs a token.** Even unauthenticated, plugin
+  enable/install, self-update, API-key/webhook/settings management, restart, and
+  MCP-over-HTTP return `503` until you set one. An open instance leaks *reads*,
+  never code execution or credential management.
+- **kasas refuses to start exposed-and-tokenless.** If `server.addr` binds beyond
+  loopback (`:8080`, `0.0.0.0:…`, a LAN or Tailscale IP) and no token is set, kasas
+  exits at startup rather than expose your ledger. Set a token, bind to
+  `127.0.0.1`, or set `server.allow_unauthenticated = true`
+  (`KASAS_SERVER_ALLOW_UNAUTHENTICATED=true`) to run open on purpose.
+
+!!! tip "Docker ships the opt-in"
+    The official image and `docker-compose.yml` set
+    `KASAS_SERVER_ALLOW_UNAUTHENTICATED=true`, so `docker compose up` works out of
+    the box on its published `:8080`. Set `KASAS_DASHBOARD_TOKEN` (or click **secure
+    this instance** in the dashboard) to lock it down; you can then drop the opt-in
+    so an exposed bind without a token refuses to start.
 
 ## The dashboard token
 
