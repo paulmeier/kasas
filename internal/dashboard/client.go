@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1929,7 +1930,28 @@ func (c *apiClient) get(ctx context.Context, path string, q url.Values, dst any)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
+		return statusError{op: "GET " + path, status: resp.StatusCode}
 	}
 	return json.NewDecoder(resp.Body).Decode(dst)
+}
+
+// statusError is returned by get when a GET responds non-200, carrying the HTTP
+// status so callers can branch on it (e.g. the admin-tier 503 on an unsecured
+// instance) while preserving the original "<op>: status <code>" message used by
+// the error banners.
+type statusError struct {
+	op     string
+	status int
+}
+
+func (e statusError) Error() string { return fmt.Sprintf("%s: status %d", e.op, e.status) }
+
+// isAdminTokenRequired reports whether err is the 503 the admin-tier endpoints
+// (webhook/API-key management, etc.) return on an UNSECURED instance: since
+// PR #148 (H1 hardening) requireConfiguredToken refuses those operations until a
+// dashboard token is set. Admin-tier reads use this to fall back to a best-effort
+// empty state with a "set a token" hint instead of a red error banner.
+func isAdminTokenRequired(err error) bool {
+	var se statusError
+	return errors.As(err, &se) && se.status == http.StatusServiceUnavailable
 }
