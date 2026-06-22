@@ -42,6 +42,12 @@ type webhooksView struct {
 	loading  bool
 	errMsg   string
 
+	// tokenRequired is set when the webhooks list could not be loaded because the
+	// instance is unsecured: requireConfiguredToken returns 503 for admin-tier reads
+	// until a dashboard token is set (PR #148). Treated as a best-effort empty state
+	// with a hint rather than a red error, mirroring the API-keys panel.
+	tokenRequired bool
+
 	// create/edit form state. editID == 0 means creating; > 0 means editing. The URL
 	// input is uncontrolled (its DOM value is the source of truth); formURL mirrors it
 	// for submit. formTypes is the set of selected event types (allEventsKey = all).
@@ -76,10 +82,21 @@ func (v *webhooksView) fetchWebhooks(ctx app.Context) {
 		ctx.Dispatch(func(ctx app.Context) {
 			v.loading = false
 			if err != nil {
+				// An unsecured instance refuses admin-tier reads with 503 until a
+				// dashboard token is set; show a calm empty state with a hint rather
+				// than a red error banner (mirrors the API-keys panel).
+				if isAdminTokenRequired(err) {
+					v.tokenRequired = true
+					v.errMsg = ""
+					v.webhooks = nil
+					ctx.Update()
+					return
+				}
 				v.errMsg = err.Error()
 				ctx.Update()
 				return
 			}
+			v.tokenRequired = false
 			v.errMsg = ""
 			v.webhooks = hooks
 			ctx.Update()
@@ -542,6 +559,13 @@ func (v *webhooksView) renderTestMsg() app.UI {
 func (v *webhooksView) renderList() app.UI {
 	if v.loading && len(v.webhooks) == 0 {
 		return app.Div().Class("status").Text("Loading…")
+	}
+	if v.tokenRequired && len(v.webhooks) == 0 {
+		return app.Div().Class("empty-state").Body(
+			app.P().Class("empty-title").Text("Set a dashboard token to manage webhooks."),
+			app.P().Class("empty-hint").Text(
+				"Webhook management is admin-only. Generate or set a dashboard token on the Settings page, then reload this page."),
+		)
 	}
 	if len(v.webhooks) == 0 {
 		return app.Div().Class("empty-state").Body(
