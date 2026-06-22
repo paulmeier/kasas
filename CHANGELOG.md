@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/paulmeier/kasas/compare/v3.0.0...v3.0.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* **dashboard:** hint instead of error when webhooks need a token ([#150](https://github.com/paulmeier/kasas/issues/150)) ([f71e0d7](https://github.com/paulmeier/kasas/commit/f71e0d79052dcf845589ba22d893536d6c4e71f3))
+
 ## [3.0.0](https://github.com/paulmeier/kasas/compare/v2.35.1...v3.0.0) (2026-06-22)
 
 
