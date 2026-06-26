@@ -29,6 +29,7 @@ history, its status updated to point forward.
 | [0006](0006-external-market-reference-data.md) | External market & reference data as a first-class source | Proposed |
 | [0007](0007-transaction-soft-delete.md) | Soft-delete: reversible transaction hiding | Proposed |
 | [0008](0008-inbound-webhook-source.md) | Inbound-webhook source (`webhook` archetype) | Accepted |
+| [0009](0009-p2p-ledger-sync.md) | Selective peer-to-peer ledger sharing | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
@@ -52,3 +53,10 @@ inverts the `Puller` direction through a new `Receiver` capability while reusing
 engine's existing persist path verbatim, and reuses kasas's own outbound-webhook HMAC
 scheme for verification — so the security boundary is a shared secret, not the
 dashboard token.
+ADR 0009 turns ADR 0008's one-way ingest into a *relationship*: selective,
+subscription-style peer-to-peer sharing between two self-hosted ledgers, with no
+mandatory central server. It reframes a "share" as a saved search query and a
+"subscription" as adding a `peer` source, so the engine's persist/dedup/events/rules
+all apply for free; on the receiver each row keeps its original originator (in an
+extension) *and* gains a `shared_by:<ledger>` tag, while a structural origin-guard
+forbids re-exporting rows you did not author.
