@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.3](https://github.com/paulmeier/kasas/compare/v3.0.2...v3.0.3) (2026-06-26)
+
+
+### Documentation
+
+* **mcp:** document connecting Claude Desktop, Hermes, and OpenClaw ([#154](https://github.com/paulmeier/kasas/issues/154)) ([a58fc76](https://github.com/paulmeier/kasas/commit/a58fc76e1fc144ee8008385bcf4c239b2de25e09))
+* **mcp:** expand the remote-server (HTTP) connection guidance ([c4fc95a](https://github.com/paulmeier/kasas/commit/c4fc95ab00891704c40a7fae16f23e4626623b17))
+
 ## [3.0.2](https://github.com/paulmeier/kasas/compare/v3.0.1...v3.0.2) (2026-06-26)
 
 
