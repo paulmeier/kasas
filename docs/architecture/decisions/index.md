@@ -62,15 +62,23 @@ all apply for free; on the receiver each row keeps its original originator (in a
 extension) *and* gains a `shared_by:<ledger>` tag, while a structural origin-guard
 forbids re-exporting rows you did not author.
 ADR 0010 fills the one gap 0009 left — connecting two *strangers* on different
-networks who share no tailnet and no out-of-band channel — **without kasas operating
-any server**. An earlier draft proposed a hosted, paid zero-knowledge directory +
-encrypted relay, but that was a data processor with privacy/DPA/retention/deletion
-duties the project refuses to carry; this revision takes the **Syncthing** approach
-instead. It is "0009 + a keypair + a doctrine": ed25519 identity (realizing 0009's
-deferred *proven*-attribution upgrade) + `age` encryption, peers reachable only via
-their own **bring-your-own front door** (a shared tailnet, a tunnel, a VPS),
-discovery by out-of-band fingerprint exchange (no keyserver to MITM), and
-consent-gated connection requests — **direct-only, no async, pure OSS**. The
-data-processor obligation is eliminated *structurally*: there is no kasas-operated
-service to regulate. It **upholds and strengthens** — does not revise — 0009's
-no-central-server stance.
+networks who share no tailnet and no out-of-band channel — on the **Syncthing**
+model: **direct-first, with a content-blind community-relay fallback**. An earlier
+hosted, paid zero-knowledge directory + encrypted *mailbox* draft was rejected (a
+data processor with privacy/DPA/retention/deletion duties over stored content); a
+still-earlier *direct-only* draft rejected relays entirely but forced every receiving
+peer to bring its own front door — too much friction. The current revision is "0009 +
+a keypair + a doctrine + a live relay fallback": ed25519 identity (realizing 0009's
+deferred *proven*-attribution upgrade) + `age` encryption, BYO front door now
+**optional** (a latency optimization), and — for the both-online-but-double-NAT case —
+kasas **seeds** content-blind, stateless, **overridable** relay and discovery
+defaults so it works out of the box. The crucial distinction: a **live relay** is not
+the rejected **mailbox** — it bridges two simultaneously-online peers and holds no
+content at rest, so the heavy mailbox duties (retention/deletion/breach/DSAR over
+content) are eliminated *structurally*. kasas is **never** a custodian of financial
+data (E2E always); the honest residual is a **thin, non-zero** duty (a privacy policy
++ abuse contact + no-logs posture for transient IP/metadata) on the defaults it seeds.
+No mandatory central server still holds — direct-first works with every default
+disabled — so 0010 **preserves** 0009's no-mandatory-central principle, softening the
+absolutist "kasas operates nothing" to "operates only content-blind, overridable
+defaults." No async, pure OSS, donations only.
