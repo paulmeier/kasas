@@ -31,6 +31,12 @@ type sourceDetailView struct {
 	removingID  string // credential entry id whose removal is in flight
 	syncingType string // type whose sync is in flight
 	syncMsg     string
+
+	// Inbound-webhook signing-secret controls (one webhook source at a time).
+	secretShown string // the revealed/just-generated secret, "" when hidden
+	secretType  string // the source type secretShown belongs to
+	secretBusy  bool   // a reveal/rotate request is in flight
+	secretMsg   string // status line under the secret controls
 }
 
 // credInputID is the stable DOM id of a source's credential input, so its value
@@ -68,6 +74,10 @@ func (v *sourceDetailView) adoptRoute(ctx app.Context) {
 	v.errMsg = ""
 	v.saveMsg = ""
 	v.syncMsg = ""
+	// Never carry a revealed secret across to another source's page.
+	v.secretShown = ""
+	v.secretType = ""
+	v.secretMsg = ""
 	v.loadSources(ctx)
 }
 
@@ -321,6 +331,11 @@ func (v *sourceDetailView) renderSource(s sourceStatus) app.UI {
 		if s.OAuth {
 			body = append(body, v.renderConnectButton(s))
 		}
+		// An inbound-webhook source has no pasted credential; it shows its ingest URL
+		// and a generated, rotatable signing secret instead.
+		if s.Archetype == "webhook" {
+			body = append(body, v.renderWebhookEndpoint(s))
+		}
 	}
 
 	// Editable, persisted configuration (applies after a restart).
@@ -334,8 +349,9 @@ func (v *sourceDetailView) renderSource(s sourceStatus) app.UI {
 		}
 	}
 
-	// Per-source sync control.
-	if s.Active {
+	// Per-source sync control. A webhook source is push-fed (synced by inbound
+	// deliveries, not by pulling), so it has no "Sync now" button.
+	if s.Active && s.Archetype != "webhook" {
 		body = append(body,
 			app.Div().Class("settings-divider"),
 			app.Div().Class("form-row").Body(
@@ -459,4 +475,147 @@ func (v *sourceDetailView) renderSyncMsg(typ string) app.UI {
 		return app.Span().Class("sync-status ok").Text(v.syncMsg)
 	}
 	return app.Text("")
+}
+
+// renderWebhookEndpoint shows an inbound-webhook source's ingest URL (to copy into
+// a sender) and its shared signing secret controls: generate one to activate the
+// source, reveal it to copy, or rotate it. The secret itself is fetched on demand
+// (never in the source listing) and shown only after an explicit reveal/generate.
+func (v *sourceDetailView) renderWebhookEndpoint(s sourceStatus) app.UI {
+	origin := ""
+	if !app.IsServer {
+		origin = app.Window().Get("location").Get("origin").String()
+	}
+	endpoint := origin + "/api/v1/sources/" + s.Type + "/ingest"
+
+	rows := []app.UI{
+		app.H3().Class("setting-group-title").Text("Inbound endpoint"),
+		app.P().Class("settings-help").Text("Have your sender POST a kasas ImportBatch JSON here, HMAC-signed with the secret below. See the inbound-webhook docs for the payload shape and a signing example."),
+		app.Div().Class("form-row").Body(
+			app.Input().Class("settings-input").Type("text").ReadOnly(true).Value(endpoint),
+			app.Button().Class("btn").Text("Copy URL").OnClick(func(ctx app.Context, _ app.Event) { v.onCopy(ctx, endpoint) }),
+		),
+		app.Div().Class("settings-divider"),
+		app.H3().Class("setting-group-title").Text("Signing secret"),
+	}
+
+	secretVisible := v.secretShown != "" && v.secretType == s.Type
+	if secretVisible {
+		rows = append(rows,
+			app.Div().Class("form-row").Body(
+				app.Input().Class("settings-input").Type("text").ReadOnly(true).Value(v.secretShown),
+				app.Button().Class("btn").Text("Copy").OnClick(func(ctx app.Context, _ app.Event) { v.onCopy(ctx, v.secretShown) }),
+			),
+			app.P().Class("settings-help").Text("Copy this into your sender now and treat it like a password."),
+		)
+	}
+
+	controls := []app.UI{}
+	if s.Connected {
+		if !secretVisible {
+			controls = append(controls, app.Button().
+				Class("btn").
+				Text(secretBtnLabel("Reveal secret", v.secretBusy)).
+				Disabled(v.secretBusy).
+				OnClick(func(ctx app.Context, _ app.Event) { v.onRevealSecret(ctx, s.Type) }))
+		}
+		controls = append(controls,
+			app.Button().
+				Class("btn btn-danger").
+				Text(secretBtnLabel("Rotate secret", v.secretBusy)).
+				Disabled(v.secretBusy).
+				OnClick(func(ctx app.Context, _ app.Event) { v.onRotateSecret(ctx, s.Type) }),
+			app.Span().Class("settings-help").Text("Rotating invalidates the current secret immediately."),
+		)
+	} else {
+		rows = append(rows, app.P().Class("settings-help").Text("Generate a secret to activate inbound delivery. kasas verifies an HMAC-SHA256 signature on every request, so the source stays inert until a secret exists."))
+		controls = append(controls, app.Button().
+			Class("btn btn-primary").
+			Text(secretBtnLabel("Generate signing secret", v.secretBusy)).
+			Disabled(v.secretBusy).
+			OnClick(func(ctx app.Context, _ app.Event) { v.onRotateSecret(ctx, s.Type) }))
+	}
+	rows = append(rows, app.Div().Class("form-row").Body(controls...))
+
+	if v.secretMsg != "" {
+		rows = append(rows, app.Div().Class("settings-ok").Text(v.secretMsg))
+	}
+	return app.Div().Body(rows...)
+}
+
+// onRevealSecret fetches and shows an inbound-webhook source's current signing secret.
+func (v *sourceDetailView) onRevealSecret(ctx app.Context, typ string) {
+	if v.secretBusy {
+		return
+	}
+	v.secretBusy = true
+	v.secretMsg = ""
+	v.errMsg = ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		resp, err := v.client.revealSourceSecret(context.Background(), typ)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.secretBusy = false
+			if err != nil {
+				v.errMsg = "Could not reveal secret: " + err.Error()
+				ctx.Update()
+				return
+			}
+			v.secretShown = resp.Secret
+			v.secretType = typ
+			if resp.Secret == "" {
+				v.secretMsg = "No secret yet — generate one to activate."
+			}
+			ctx.Update()
+		})
+	})
+}
+
+// onRotateSecret mints a new signing secret (also the "Generate" action), shows it,
+// and reloads the source list so the connected state refreshes.
+func (v *sourceDetailView) onRotateSecret(ctx app.Context, typ string) {
+	if v.secretBusy {
+		return
+	}
+	v.secretBusy = true
+	v.secretMsg = ""
+	v.errMsg = ""
+	ctx.Update()
+
+	ctx.Async(func() {
+		resp, err := v.client.rotateSourceSecret(context.Background(), typ)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.secretBusy = false
+			if err != nil {
+				v.errMsg = "Could not generate secret: " + err.Error()
+				ctx.Update()
+				return
+			}
+			v.secretShown = resp.Secret
+			v.secretType = typ
+			v.secretMsg = "New signing secret generated. Copy it into your sender — the old one no longer works."
+			v.loadSources(ctx) // refresh Connected
+			ctx.Update()
+		})
+	})
+}
+
+// onCopy writes text to the clipboard and notes it under the secret controls.
+func (v *sourceDetailView) onCopy(ctx app.Context, text string) {
+	if app.IsServer || text == "" {
+		return
+	}
+	app.Window().Get("navigator").Get("clipboard").Call("writeText", text)
+	v.secretMsg = "Copied to clipboard."
+	ctx.Update()
+}
+
+// secretBtnLabel renders a secret-control button's label, showing progress while a
+// reveal/rotate request is in flight.
+func secretBtnLabel(idle string, busy bool) string {
+	if busy {
+		return "Working…"
+	}
+	return idle
 }

@@ -175,6 +175,16 @@ func (s *Server) MCPServer() *mcp.Server {
 		Description: "Trigger an immediate sync of a single ingestion source by type (e.g. csv) and wait for it to finish. Use trigger_sync to sync every source at once.",
 	}, s.mcpSyncSource)
 
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "reveal_source_secret",
+		Description: "Reveal the shared HMAC signing secret of an inbound-webhook source (type 'webhook'), plus its ingest path, so an external sender can be configured to push signed transactions. Returns an empty secret when none has been generated yet (use rotate_source_secret to mint one).",
+	}, s.mcpRevealSourceSecret)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "rotate_source_secret",
+		Description: "Mint and store a new shared HMAC signing secret for an inbound-webhook source (type 'webhook'), returning the new secret and the ingest path. Also used to activate the source the first time. The previous secret stops verifying immediately.",
+	}, s.mcpRotateSourceSecret)
+
 	// Market/reference data (ADR 0006), registered only when the market source is
 	// wired. Reading points fetches on demand through the server-side cache.
 	if s.market != nil {
@@ -522,6 +532,15 @@ type listSourcesOutput struct {
 
 type syncSourceInput struct {
 	Type string `json:"type" jsonschema:"the source type to sync, e.g. csv or simplefin"`
+}
+
+type sourceSecretInput struct {
+	Type string `json:"type" jsonschema:"the inbound-webhook source type, e.g. webhook"`
+}
+
+type sourceSecretOutput struct {
+	Secret     string `json:"secret"`
+	IngestPath string `json:"ingest_path"`
 }
 
 type listSettingsOutput struct {
@@ -994,4 +1013,32 @@ func (s *Server) mcpSyncSource(ctx context.Context, _ *mcp.CallToolRequest, in s
 		NewTransactions: res.NewTransactions,
 		Duration:        res.Duration.String(),
 	}, nil
+}
+
+func (s *Server) mcpRevealSourceSecret(ctx context.Context, _ *mcp.CallToolRequest, in sourceSecretInput) (*mcp.CallToolResult, sourceSecretOutput, error) {
+	if s.sources == nil {
+		return nil, sourceSecretOutput{}, errors.New("source management is not available")
+	}
+	if strings.TrimSpace(in.Type) == "" {
+		return nil, sourceSecretOutput{}, errors.New("type is required")
+	}
+	secret, err := s.sources.RevealSourceSecret(ctx, in.Type)
+	if err != nil {
+		return nil, sourceSecretOutput{}, err
+	}
+	return &mcp.CallToolResult{}, sourceSecretOutput{Secret: secret, IngestPath: ingestPath(in.Type)}, nil
+}
+
+func (s *Server) mcpRotateSourceSecret(ctx context.Context, _ *mcp.CallToolRequest, in sourceSecretInput) (*mcp.CallToolResult, sourceSecretOutput, error) {
+	if s.sources == nil {
+		return nil, sourceSecretOutput{}, errors.New("source management is not available")
+	}
+	if strings.TrimSpace(in.Type) == "" {
+		return nil, sourceSecretOutput{}, errors.New("type is required")
+	}
+	secret, err := s.sources.RotateSourceSecret(ctx, in.Type)
+	if err != nil {
+		return nil, sourceSecretOutput{}, err
+	}
+	return &mcp.CallToolResult{}, sourceSecretOutput{Secret: secret, IngestPath: ingestPath(in.Type)}, nil
 }

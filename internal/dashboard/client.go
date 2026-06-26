@@ -1693,6 +1693,43 @@ func (c *apiClient) sourceOAuthStartURL(ctx context.Context, typ string) (string
 	return out.URL, nil
 }
 
+// sourceSecretResp is the reveal/rotate response for an inbound-webhook source: its
+// shared signing secret (empty when none is generated) and the ingest path senders
+// POST to.
+type sourceSecretResp struct {
+	Secret     string `json:"secret"`
+	IngestPath string `json:"ingest_path"`
+}
+
+// revealSourceSecret reads an inbound-webhook source's current signing secret.
+func (c *apiClient) revealSourceSecret(ctx context.Context, typ string) (sourceSecretResp, error) {
+	var out sourceSecretResp
+	err := c.get(ctx, "/api/v1/sources/"+url.PathEscape(typ)+"/secret", nil, &out)
+	return out, err
+}
+
+// rotateSourceSecret mints a new signing secret for an inbound-webhook source and
+// returns it (this also activates the source the first time).
+func (c *apiClient) rotateSourceSecret(ctx context.Context, typ string) (sourceSecretResp, error) {
+	var out sourceSecretResp
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/sources/"+url.PathEscape(typ)+"/secret/rotate", nil)
+	if err != nil {
+		return out, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out, decodeAPIError(resp, "rotate signing secret")
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 // settingItem mirrors settings.Status: one editable setting with its effective
 // value and override/restart state. Secret values are never present.
 type settingItem struct {

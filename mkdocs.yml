@@ -128,6 +128,7 @@ nav:
       - Bitcoin: features/bitcoin.md
       - Ethereum: features/ethereum.md
       - Market Data: features/market.md
+      - Inbound Webhook: features/inbound-webhook.md
       - Manual Entry: features/manual-entry.md
       - Event Stream: features/event-stream.md
       - Transaction History: features/transaction-history.md

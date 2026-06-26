@@ -275,6 +275,8 @@ func sourceBlurb(s sourceStatus) string {
 		return "Manual file import"
 	case "market":
 		return "Market & reference data"
+	case "webhook":
+		return "Pushed via inbound webhook"
 	}
 	return s.Archetype
 }
@@ -371,6 +373,8 @@ func sourceTypeIcon(typ string) app.UI {
 		paths = `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><line x1="8" x2="16" y1="13" y2="13"/><line x1="8" x2="16" y1="17" y2="17"/>`
 	case "market": // line chart trending up
 		paths = `<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>`
+	case "webhook": // webhook (lucide)
+		paths = `<path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/>`
 	default: // link / chain
 		paths = `<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>`
 	}

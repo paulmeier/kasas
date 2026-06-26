@@ -28,6 +28,7 @@ history, its status updated to point forward.
 | [0005](0005-plugin-originated-transactions.md) | Plugin-originated transactions (`source:provide`) | Proposed |
 | [0006](0006-external-market-reference-data.md) | External market & reference data as a first-class source | Proposed |
 | [0007](0007-transaction-soft-delete.md) | Soft-delete: reversible transaction hiding | Proposed |
+| [0008](0008-inbound-webhook-source.md) | Inbound-webhook source (`webhook` archetype) | Accepted |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
@@ -45,3 +46,9 @@ hard deletion with a reversible soft-delete (`deleted_at`), so transactions —
 manual *or* synced — can be hidden from views and analysis without erasing the
 record, with hard deletion narrowing to genuine teardown (source uninstall,
 account deletion).
+ADR 0008 adds the first **push** source: the `webhook` archetype, where an external
+system POSTs a signed batch to an ingest endpoint instead of kasas polling for it. It
+inverts the `Puller` direction through a new `Receiver` capability while reusing the
+engine's existing persist path verbatim, and reuses kasas's own outbound-webhook HMAC
+scheme for verification — so the security boundary is a shared secret, not the
+dashboard token.
