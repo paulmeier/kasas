@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/paulmeier/kasas/compare/v3.0.1...v3.0.2) (2026-06-26)
+
+
+### Bug Fixes
+
+* **simplefin:** clamp lookback so the bridge stops warning every sync ([#152](https://github.com/paulmeier/kasas/issues/152)) ([7d601e2](https://github.com/paulmeier/kasas/commit/7d601e28dea02b1884d79205f727a837b3f6445f))
+
 ## [3.0.1](https://github.com/paulmeier/kasas/compare/v3.0.0...v3.0.1) (2026-06-22)
 
 
