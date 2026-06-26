@@ -26,6 +26,125 @@ kasas -config config.toml mcp
 For HTTP clients, point them at `/mcp` and send the dashboard token as a bearer
 credential, exactly as for REST.
 
+## Connecting a client
+
+Any MCP client can drive kasas. Pick the transport that matches how the client
+runs kasas:
+
+- **stdio** — the client launches `kasas mcp` as a subprocess on the same
+  machine. No token: the subprocess reads your config directly. Use the
+  **absolute path** to the `kasas` binary (desktop clients run with a minimal
+  `PATH` and won't find it on their own), and point `-config` at your config file.
+- **Streamable HTTP** — the client connects to an already-running kasas at `/mcp`
+  and authenticates with the [dashboard token](authentication.md). Use this for a
+  remote or always-on instance (e.g. on a home server). The address below assumes
+  the default `server.addr` of `:8080`; swap in your real host and port.
+
+### Claude Desktop
+
+Open **Settings → Developer → Edit Config** (this creates/opens
+`claude_desktop_config.json` — on macOS at
+`~/Library/Application Support/Claude/`, on Windows at `%APPDATA%\Claude\`), add
+kasas under `mcpServers`, then restart Claude Desktop. The tools appear under the
+🔨 icon.
+
+=== "stdio (local)"
+
+    ```json
+    {
+      "mcpServers": {
+        "kasas": {
+          "command": "/usr/local/bin/kasas",
+          "args": ["-config", "/path/to/config.toml", "mcp"]
+        }
+      }
+    }
+    ```
+
+=== "HTTP (remote)"
+
+    Claude Desktop's config launches local subprocesses, so reach a remote kasas
+    by adding it under **Settings → Connectors → Add custom connector** with the
+    `/mcp` URL, or bridge stdio→HTTP with
+    [`mcp-remote`](https://github.com/geelen/mcp-remote):
+
+    ```json
+    {
+      "mcpServers": {
+        "kasas": {
+          "command": "npx",
+          "args": [
+            "-y", "mcp-remote",
+            "http://your-host:8080/mcp",
+            "--header", "Authorization: Bearer YOUR_DASHBOARD_TOKEN"
+          ]
+        }
+      }
+    }
+    ```
+
+### Hermes Agent
+
+Hermes ([Nous Research](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp))
+reads MCP servers from `mcp_servers` in `~/.hermes/config.yaml` (or run
+`hermes mcp` for the interactive picker):
+
+=== "stdio (local)"
+
+    ```yaml
+    mcp_servers:
+      kasas:
+        command: "/usr/local/bin/kasas"
+        args: ["-config", "/path/to/config.toml", "mcp"]
+    ```
+
+=== "HTTP (remote)"
+
+    ```yaml
+    mcp_servers:
+      kasas:
+        url: "http://your-host:8080/mcp"
+        headers:
+          Authorization: "Bearer YOUR_DASHBOARD_TOKEN"
+    ```
+
+### OpenClaw
+
+OpenClaw ([docs](https://docs.openclaw.ai/cli/mcp)) keeps servers under
+`mcp.servers` in `~/.openclaw/openclaw.json`. Edit the file directly, or use the
+CLI (`openclaw mcp add …`, then `openclaw mcp doctor --probe` to verify):
+
+=== "stdio (local)"
+
+    ```json
+    {
+      "mcp": {
+        "servers": {
+          "kasas": {
+            "command": "/usr/local/bin/kasas",
+            "args": ["-config", "/path/to/config.toml", "mcp"]
+          }
+        }
+      }
+    }
+    ```
+
+=== "HTTP (remote)"
+
+    ```json
+    {
+      "mcp": {
+        "servers": {
+          "kasas": {
+            "url": "http://your-host:8080/mcp",
+            "transport": "streamable-http",
+            "headers": { "Authorization": "Bearer YOUR_DASHBOARD_TOKEN" }
+          }
+        }
+      }
+    }
+    ```
+
 ## Tools
 
 Tools for every read/write/admin operation (the plugin tools only when
