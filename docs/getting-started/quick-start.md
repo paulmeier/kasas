@@ -107,4 +107,7 @@ curl -H "Authorization: Bearer $KASAS_DASHBOARD_TOKEN" localhost:8080/api/v1/acc
 
 -   :material-api: **[REST API](../interfaces/rest-api.md)** — start building on it.
 
+-   :material-robot-outline: **[MCP server](../interfaces/mcp.md#connecting-a-client)**
+    — drive your ledger from Claude Desktop, Hermes, OpenClaw, or any AI client.
+
 </div>
