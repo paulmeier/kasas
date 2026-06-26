@@ -122,7 +122,7 @@ nav:
           - 0007 · Transaction soft-delete: architecture/decisions/0007-transaction-soft-delete.md
           - 0008 · Inbound-webhook source: architecture/decisions/0008-inbound-webhook-source.md
           - 0009 · Peer-to-peer ledger sharing: architecture/decisions/0009-p2p-ledger-sync.md
-          - 0010 · Hosted peer directory: architecture/decisions/0010-hosted-peer-directory.md
+          - 0010 · Custody-free peer connectivity: architecture/decisions/0010-custody-free-peer-connectivity.md
   - Features:
       - Sync Pipeline: features/sync.md
       - CSV File Import: features/csv-import.md

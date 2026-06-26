@@ -30,7 +30,7 @@ history, its status updated to point forward.
 | [0007](0007-transaction-soft-delete.md) | Soft-delete: reversible transaction hiding | Proposed |
 | [0008](0008-inbound-webhook-source.md) | Inbound-webhook source (`webhook` archetype) | Accepted |
 | [0009](0009-p2p-ledger-sync.md) | Selective peer-to-peer ledger sharing | Proposed |
-| [0010](0010-hosted-peer-directory.md) | Hosted peer directory & zero-knowledge relay | Proposed |
+| [0010](0010-custody-free-peer-connectivity.md) | Custody-free internet peer connectivity | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
@@ -62,13 +62,15 @@ all apply for free; on the receiver each row keeps its original originator (in a
 extension) *and* gains a `shared_by:<ledger>` tag, while a structural origin-guard
 forbids re-exporting rows you did not author.
 ADR 0010 fills the one gap 0009 left — connecting two *strangers* on different
-networks who share no tailnet and no out-of-band channel. It adds an **opt-in,
-self-hostable, zero-knowledge** rendezvous: a directory (find a peer by handle or
-ed25519 fingerprint) + a store-and-forward encrypted mailbox relay (both NATed sides
-dial out; the relay sees only ciphertext), gated by consent-based connection requests.
-Identity is the GPG *model* with modern pure-Go primitives (ed25519 for attribution,
-`age` for encryption) — adopting 0009's pre-adopted fingerprint format so `shared_by`
-becomes cryptographically *proven*. It **revises**, rather than supersedes, 0009's "no
-central discovery server" stance: the protocol is published and self-hostable, so "no
-*mandatory* central server" still holds, and the AWS-hosted instance is the paid,
-managed convenience tied to kasas's existing commercial dual-licensing.
+networks who share no tailnet and no out-of-band channel — **without kasas operating
+any server**. An earlier draft proposed a hosted, paid zero-knowledge directory +
+encrypted relay, but that was a data processor with privacy/DPA/retention/deletion
+duties the project refuses to carry; this revision takes the **Syncthing** approach
+instead. It is "0009 + a keypair + a doctrine": ed25519 identity (realizing 0009's
+deferred *proven*-attribution upgrade) + `age` encryption, peers reachable only via
+their own **bring-your-own front door** (a shared tailnet, a tunnel, a VPS),
+discovery by out-of-band fingerprint exchange (no keyserver to MITM), and
+consent-gated connection requests — **direct-only, no async, pure OSS**. The
+data-processor obligation is eliminated *structurally*: there is no kasas-operated
+service to regulate. It **upholds and strengthens** — does not revise — 0009's
+no-central-server stance.
