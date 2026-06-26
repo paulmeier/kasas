@@ -120,6 +120,8 @@ nav:
           - 0005 · Plugin-originated transactions: architecture/decisions/0005-plugin-originated-transactions.md
           - 0006 · External market & reference data: architecture/decisions/0006-external-market-reference-data.md
           - 0007 · Transaction soft-delete: architecture/decisions/0007-transaction-soft-delete.md
+          - 0008 · Inbound-webhook source: architecture/decisions/0008-inbound-webhook-source.md
+          - 0009 · Peer-to-peer ledger sharing: architecture/decisions/0009-p2p-ledger-sync.md
   - Features:
       - Sync Pipeline: features/sync.md
       - CSV File Import: features/csv-import.md
