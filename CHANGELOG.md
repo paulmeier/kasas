@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.2](https://github.com/paulmeier/kasas/compare/v3.1.1...v3.1.2) (2026-06-26)
+
+
+### Documentation
+
+* **adr:** add ADR 0010 — hosted peer directory & zero-knowledge relay ([#163](https://github.com/paulmeier/kasas/issues/163)) ([3a32821](https://github.com/paulmeier/kasas/commit/3a328218b22c5909dcd1f0a7d45192eb55b00440))
+
 ## [3.1.1](https://github.com/paulmeier/kasas/compare/v3.1.0...v3.1.1) (2026-06-26)
 
 
