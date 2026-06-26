@@ -30,6 +30,7 @@ history, its status updated to point forward.
 | [0007](0007-transaction-soft-delete.md) | Soft-delete: reversible transaction hiding | Proposed |
 | [0008](0008-inbound-webhook-source.md) | Inbound-webhook source (`webhook` archetype) | Accepted |
 | [0009](0009-p2p-ledger-sync.md) | Selective peer-to-peer ledger sharing | Proposed |
+| [0010](0010-hosted-peer-directory.md) | Hosted peer directory & zero-knowledge relay | Proposed |
 
 ADRs 0001–0003 form one arc: they widen what a plugin may *do* without
 abandoning the sandbox that makes plugins safe to install. ADR 0004 is the
@@ -60,3 +61,14 @@ mandatory central server. It reframes a "share" as a saved search query and a
 all apply for free; on the receiver each row keeps its original originator (in an
 extension) *and* gains a `shared_by:<ledger>` tag, while a structural origin-guard
 forbids re-exporting rows you did not author.
+ADR 0010 fills the one gap 0009 left — connecting two *strangers* on different
+networks who share no tailnet and no out-of-band channel. It adds an **opt-in,
+self-hostable, zero-knowledge** rendezvous: a directory (find a peer by handle or
+ed25519 fingerprint) + a store-and-forward encrypted mailbox relay (both NATed sides
+dial out; the relay sees only ciphertext), gated by consent-based connection requests.
+Identity is the GPG *model* with modern pure-Go primitives (ed25519 for attribution,
+`age` for encryption) — adopting 0009's pre-adopted fingerprint format so `shared_by`
+becomes cryptographically *proven*. It **revises**, rather than supersedes, 0009's "no
+central discovery server" stance: the protocol is published and self-hostable, so "no
+*mandatory* central server" still holds, and the AWS-hosted instance is the paid,
+managed convenience tied to kasas's existing commercial dual-licensing.
