@@ -12,13 +12,19 @@
 // type assertion:
 //
 //   - [Puller]       pull/poll on a schedule (SimpleFIN, Teller, on-chain)
+//   - [Receiver]     accept an inbound, pushed request (webhook archetype)
+//   - [Warmer]       warm a read-through cache (reference archetype: market data)
 //   - [Credentialed] manage a runtime-settable credential (optional)
 //
-// File-import, inbound-webhook, and enrichment capabilities will be added as
-// further interfaces here as those archetypes are built; existing sources are
-// unaffected because each capability is independent.
+// File-import and enrichment capabilities will be added as further interfaces
+// here as those archetypes are built; existing sources are unaffected because
+// each capability is independent.
 //
-//   - [Warmer]       warm a read-through cache (reference archetype: market data)
+// A [Receiver] inverts the [Puller] direction: instead of the engine fetching on
+// a schedule, an external system POSTs a delivery to the source's ingest endpoint
+// and the engine routes it to Receive, which authenticates + parses it into the
+// same [ImportBatch] the persist path already consumes. The shared signing secret
+// such a source authenticates against is managed via [WebhookSecret].
 //
 // A reference source (archetype "reference") does not produce ledger
 // transactions at all. Instead of [Puller] it implements [Warmer], which the
@@ -30,8 +36,17 @@ package source
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"time"
 )
+
+// ErrUnauthorizedDelivery is returned by [Receiver.Receive] when an inbound
+// delivery fails authentication — a missing, malformed, or invalid signature, or
+// a timestamp outside the accepted freshness window. The API maps it to HTTP 401;
+// any other Receive error maps to 400 (a well-authenticated but malformed body).
+// It is deliberately coarse so a handler never leaks which check failed.
+var ErrUnauthorizedDelivery = errors.New("source: unauthorized webhook delivery")
 
 // Source is the minimal contract: every source describes itself. All ingestion
 // behaviour lives in the capability interfaces below, which a source implements
@@ -54,6 +69,49 @@ type Source interface {
 // database; it only returns data.
 type Puller interface {
 	Fetch(ctx context.Context, since time.Time, cursor string) (*ImportBatch, error)
+}
+
+// Receiver is implemented by inbound-webhook sources (archetype "webhook"). It
+// inverts the [Puller] direction: rather than the engine fetching on a schedule,
+// an external system POSTs a [Delivery] to POST /api/v1/sources/{type}/ingest and
+// the engine routes it here. The source authenticates the delivery (e.g. HMAC
+// signature verification against its [WebhookSecret]) and parses it into a neutral
+// batch; the engine then persists that batch through the same path as a pulled one.
+//
+// Receive must:
+//   - return [ErrUnauthorizedDelivery] when authentication fails (→ HTTP 401),
+//   - return any other error for a well-authenticated but unusable body (→ 400),
+//   - return (nil, nil) for an authenticated delivery with nothing to persist
+//     (e.g. a provider verification ping),
+//   - be idempotent: re-delivery is expected and deduplicated by (source, id), so
+//     a source synthesizes a stable id for any transaction the sender did not key.
+//
+// It must not write to the database; it only returns data.
+type Receiver interface {
+	Receive(ctx context.Context, delivery Delivery) (*ImportBatch, error)
+}
+
+// Delivery is one inbound webhook request, already read and size-limited by the
+// engine so a [Receiver] verifies and parses it without touching the HTTP layer
+// (which also keeps sources unit-testable without a server). Body is the exact raw
+// bytes — signature verification must run over these, not a re-encoding.
+type Delivery struct {
+	Header http.Header
+	Body   []byte
+}
+
+// WebhookSecret is implemented by inbound-webhook sources whose shared signing
+// secret kasas mints for the operator to copy into the sender. Unlike a write-only
+// [Credentialed] secret, this one must be revealable (to configure the sender) and
+// rotatable. Both operations are admin-gated by the API. A source that also
+// implements [Credentialed] lets a power user paste a specific secret instead.
+type WebhookSecret interface {
+	// RevealSecret returns the current shared signing secret, or "" when none has
+	// been generated yet (the source is then inert and rejects every delivery).
+	RevealSecret(ctx context.Context) (string, error)
+	// RotateSecret mints a new secret, stores it, and returns it. The previous
+	// secret stops verifying immediately.
+	RotateSecret(ctx context.Context) (string, error)
 }
 
 // Warmer is implemented by reference sources (archetype "reference") that maintain

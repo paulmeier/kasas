@@ -295,3 +295,54 @@ func TestEngineConcurrentAddRemoveAndSync(t *testing.T) {
 	}()
 	wg.Wait()
 }
+
+func TestEngineIngestRoutesToReceiver(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, &fakeReceiver{batch: miniBatch("webhook", "wh-acct", "wh-1")}))
+
+	res, err := e.Ingest(context.Background(), "webhook", source.Delivery{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.NewTransactions)
+}
+
+func TestEngineIngestUnknownSource(t *testing.T) {
+	e := NewEngine()
+	_, err := e.Ingest(context.Background(), "nope", source.Delivery{})
+	assert.Error(t, err)
+}
+
+func TestEngineIngestNonReceiverSource(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, typedSource{typ: "a", batch: miniBatch("a", "a-acct", "a-1")}))
+
+	_, err := e.Ingest(context.Background(), "a", source.Delivery{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not accept inbound deliveries")
+}
+
+func TestEngineRevealAndRotateSecret(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, &fakeReceiver{}))
+	ctx := context.Background()
+
+	got, err := e.RevealSourceSecret(ctx, "webhook")
+	require.NoError(t, err)
+	assert.Empty(t, got, "no secret before rotate")
+
+	minted, err := e.RotateSourceSecret(ctx, "webhook")
+	require.NoError(t, err)
+	assert.NotEmpty(t, minted)
+
+	got, err = e.RevealSourceSecret(ctx, "webhook")
+	require.NoError(t, err)
+	assert.Equal(t, minted, got)
+}
+
+func TestEngineSecretOnNonWebhookSource(t *testing.T) {
+	store := db.NewSQLiteStore(testutil.NewDB(t))
+	e := NewEngine(enginePoller(store, typedSource{typ: "a", batch: miniBatch("a", "a-acct", "a-1")}))
+
+	_, err := e.RevealSourceSecret(context.Background(), "a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no managed signing secret")
+}

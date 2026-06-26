@@ -58,6 +58,7 @@ import (
 	"github.com/paulmeier/kasas/internal/sources/plaid"
 	"github.com/paulmeier/kasas/internal/sources/simplefin"
 	"github.com/paulmeier/kasas/internal/sources/teller"
+	"github.com/paulmeier/kasas/internal/sources/webhook"
 	"github.com/paulmeier/kasas/internal/vault"
 	"github.com/paulmeier/kasas/internal/webhooks"
 	"github.com/paulmeier/kasas/migrations"
@@ -657,6 +658,23 @@ func buildEngine(cfg *config.Config, store db.Store, secrets vault.SecretStore, 
 		return nil, nil, err
 	}
 	pollers := []*poller.Poller{sfin}
+
+	// The inbound-webhook source is always built (like SimpleFIN): its ingest
+	// endpoint must always exist, but the source stays inert — rejecting every
+	// delivery — until an operator generates its signing secret. It is a push source
+	// fed by inbound deliveries, so it is never scheduled (Interval 0).
+	webhookSrc, err := source.New(webhook.SourceType, source.Env{Logger: logger, Secrets: secrets})
+	if err != nil {
+		return nil, nil, fmt.Errorf("init webhook source: %w", err)
+	}
+	pollers = append(pollers, poller.New(poller.Options{
+		Store:    store,
+		Source:   webhookSrc,
+		Logger:   logger,
+		Emitter:  emitter,
+		Interval: 0,
+	}))
+	logger.Info("inbound webhook source enabled")
 
 	// The CSV source carries a structured config (folder profiles), so it is passed
 	// as JSON through the registry's flat options map.

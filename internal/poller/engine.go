@@ -185,6 +185,50 @@ func (e *Engine) SyncSource(ctx context.Context, typ string) (SyncResult, error)
 	return p.Sync(ctx)
 }
 
+// Ingest routes one inbound webhook delivery to a source by type. The source
+// authenticates and parses it (returning source.ErrUnauthorizedDelivery for a bad
+// signature) and the engine persists the resulting batch. It errors when the type
+// is unknown or the source does not accept inbound deliveries (not a webhook source).
+func (e *Engine) Ingest(ctx context.Context, typ string, delivery source.Delivery) (SyncResult, error) {
+	p, ok := e.get(typ)
+	if !ok {
+		return SyncResult{}, fmt.Errorf("unknown source %q", typ)
+	}
+	if p.receiver == nil {
+		return SyncResult{}, fmt.Errorf("source %q does not accept inbound deliveries", typ)
+	}
+	return p.Ingest(ctx, delivery)
+}
+
+// RevealSourceSecret returns the current shared signing secret of an inbound-webhook
+// source (or "" when none has been generated yet), for the operator to copy into the
+// sender. It errors when the type is unknown or the source has no managed secret.
+func (e *Engine) RevealSourceSecret(ctx context.Context, typ string) (string, error) {
+	p, ok := e.get(typ)
+	if !ok {
+		return "", fmt.Errorf("unknown source %q", typ)
+	}
+	ws, ok := p.source.(source.WebhookSecret)
+	if !ok {
+		return "", fmt.Errorf("source %q has no managed signing secret", typ)
+	}
+	return ws.RevealSecret(ctx)
+}
+
+// RotateSourceSecret mints and stores a new shared signing secret for an
+// inbound-webhook source, returning it. The previous secret stops verifying at once.
+func (e *Engine) RotateSourceSecret(ctx context.Context, typ string) (string, error) {
+	p, ok := e.get(typ)
+	if !ok {
+		return "", fmt.Errorf("unknown source %q", typ)
+	}
+	ws, ok := p.source.(source.WebhookSecret)
+	if !ok {
+		return "", fmt.Errorf("source %q has no managed signing secret", typ)
+	}
+	return ws.RotateSecret(ctx)
+}
+
 // Sources lists every configured source with its readiness and credential shape.
 // Reading a source's credential status is best-effort: an error leaves that source
 // reported as not connected rather than failing the whole listing.

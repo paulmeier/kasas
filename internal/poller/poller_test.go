@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -36,6 +37,30 @@ type bareSource struct{}
 
 func (bareSource) Descriptor() source.Descriptor {
 	return source.Descriptor{Type: "bare", Archetype: source.ArchetypeManual}
+}
+
+// fakeReceiver is a push (webhook) source: it implements source.Receiver (returning
+// a canned batch or error from Receive) and source.WebhookSecret, with no Puller —
+// so it exercises the engine's Ingest path and the receiver-only no-op in Sync.
+type fakeReceiver struct {
+	batch  *source.ImportBatch
+	err    error
+	secret string
+}
+
+func (f *fakeReceiver) Descriptor() source.Descriptor {
+	return source.Descriptor{Type: "webhook", Archetype: source.ArchetypeWebhook, Title: "Inbound webhook"}
+}
+
+func (f *fakeReceiver) Receive(context.Context, source.Delivery) (*source.ImportBatch, error) {
+	return f.batch, f.err
+}
+
+func (f *fakeReceiver) RevealSecret(context.Context) (string, error) { return f.secret, nil }
+
+func (f *fakeReceiver) RotateSecret(context.Context) (string, error) {
+	f.secret = "whsec_rotated"
+	return f.secret, nil
 }
 
 // sampleBatch mirrors the canonical two-transaction account used across tests.
@@ -254,6 +279,73 @@ func TestSyncWithoutPullerFails(t *testing.T) {
 	latest, err := queries.LatestSyncLog(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "error", latest.Status)
+}
+
+func TestIngestPersistsDelivery(t *testing.T) {
+	p, queries := newPoller(t, Options{Source: &fakeReceiver{batch: sampleBatch()}})
+	ctx := context.Background()
+
+	res, err := p.Ingest(ctx, source.Delivery{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, res.Accounts)
+	assert.Equal(t, 2, res.NewTransactions)
+
+	// The delivery rode the shared persist path, so the transaction exists...
+	txn, err := queries.GetTransaction(ctx, "txn-1")
+	require.NoError(t, err)
+	assert.Equal(t, "Coffee", txn.Description)
+	// ...and the run was recorded to sync_log as a success, like a scheduled sync.
+	latest, err := queries.LatestSyncLog(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "success", latest.Status)
+}
+
+func TestIngestUnauthorizedWritesNoSyncLog(t *testing.T) {
+	p, queries := newPoller(t, Options{Source: &fakeReceiver{err: source.ErrUnauthorizedDelivery}})
+	ctx := context.Background()
+
+	_, err := p.Ingest(ctx, source.Delivery{})
+	assert.ErrorIs(t, err, source.ErrUnauthorizedDelivery)
+
+	// A rejected delivery must not create a sync_log row (no log spam from an
+	// unauthenticated caller).
+	_, err = queries.LatestSyncLog(ctx)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestIngestPingIsNoOp(t *testing.T) {
+	p, queries := newPoller(t, Options{Source: &fakeReceiver{batch: nil}})
+	ctx := context.Background()
+
+	res, err := p.Ingest(ctx, source.Delivery{})
+	require.NoError(t, err)
+	assert.Equal(t, SyncResult{}, res)
+	// An authenticated ping persists nothing and logs nothing.
+	_, err = queries.LatestSyncLog(ctx)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestIngestOnNonReceiverFails(t *testing.T) {
+	p, _ := newPoller(t, Options{Source: bareSource{}})
+	_, err := p.Ingest(context.Background(), source.Delivery{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not accept inbound deliveries")
+}
+
+func TestSyncIsNoOpForReceiverOnlySource(t *testing.T) {
+	p, queries := newPoller(t, Options{Source: &fakeReceiver{batch: sampleBatch()}})
+	ctx := context.Background()
+
+	res, err := p.Sync(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, SyncResult{}, res)
+
+	// A push source is fed by Ingest; Sync ("Sync now"/"Sync all") neither persists
+	// nor logs.
+	_, err = queries.GetTransaction(ctx, "txn-1")
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+	_, err = queries.LatestSyncLog(ctx)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
 }
 
 // credSource implements source.Credentialed so the engine's Connector methods

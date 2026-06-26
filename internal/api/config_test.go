@@ -19,6 +19,7 @@ import (
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/db"
 	"github.com/paulmeier/kasas/internal/poller"
+	"github.com/paulmeier/kasas/internal/source"
 	"github.com/paulmeier/kasas/internal/testutil"
 )
 
@@ -33,6 +34,12 @@ type fakeSources struct {
 	removeErr error
 	oauthURL  string // when set, OAuthStart returns it with the state appended
 	exchanged string // the last code passed to OAuthExchange
+
+	// inbound-webhook fields
+	ingestResult poller.SyncResult
+	ingestErr    error
+	secret       string // current shared signing secret
+	secretErr    error
 }
 
 func (f *fakeSources) Sources(context.Context) ([]poller.SourceStatus, error) {
@@ -90,6 +97,32 @@ func (f *fakeSources) OAuthExchange(_ context.Context, _, code string) error {
 	f.exchanged = code
 	f.connected = true
 	return nil
+}
+
+func (f *fakeSources) Ingest(_ context.Context, _ string, _ source.Delivery) (poller.SyncResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ingestErr != nil {
+		return poller.SyncResult{}, f.ingestErr
+	}
+	return f.ingestResult, nil
+}
+
+func (f *fakeSources) RevealSourceSecret(context.Context, string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.secret, f.secretErr
+}
+
+func (f *fakeSources) RotateSourceSecret(context.Context, string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.secretErr != nil {
+		return "", f.secretErr
+	}
+	f.secret = "whsec_rotated"
+	f.connected = true
+	return f.secret, nil
 }
 
 func (f *fakeSources) LastToken() string {

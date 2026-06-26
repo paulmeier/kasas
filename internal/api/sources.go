@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -175,6 +177,90 @@ func (s *Server) handleRemoveSourceCredential(w http.ResponseWriter, r *http.Req
 		s.logger.Warn("read source credential status", "source", typ, "error", err)
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"connected": connected})
+}
+
+// maxIngestBytes caps an inbound webhook delivery body. It is generous compared to
+// the 16 KiB credential cap because a batch can carry many transactions, but bounded
+// so a caller (the HMAC signature is verified only after the body is read) cannot
+// stream an unbounded payload at the open endpoint.
+const maxIngestBytes = 1 << 20 // 1 MiB
+
+// ingestPath is the inbound endpoint an external sender POSTs signed deliveries to.
+func ingestPath(typ string) string { return "/api/v1/sources/" + typ + "/ingest" }
+
+// handleSourceIngest receives one inbound webhook delivery. The route is open (the
+// sender holds no dashboard token); the source authenticates the delivery by
+// verifying its HMAC signature, so a bad/missing signature is the 401 boundary. A
+// valid delivery is persisted through the shared ingestion path and summarized.
+func (s *Server) handleSourceIngest(w http.ResponseWriter, r *http.Request) {
+	if s.sources == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "source management is not available")
+		return
+	}
+	typ := chi.URLParam(r, "type")
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxIngestBytes))
+	if err != nil {
+		s.writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
+		return
+	}
+
+	res, err := s.sources.Ingest(r.Context(), typ, source.Delivery{Header: r.Header, Body: body})
+	switch {
+	case errors.Is(err, source.ErrUnauthorizedDelivery):
+		// Coarse on purpose: never reveal which check failed.
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	case err != nil && !s.sourceExists(r.Context(), typ):
+		s.writeError(w, http.StatusNotFound, "unknown source "+typ)
+		return
+	case err != nil:
+		// Authenticated but unusable (non-webhook source, malformed body, invalid account).
+		s.logger.Warn("webhook ingest failed", "source", typ, "error", err)
+		s.writeError(w, http.StatusBadRequest, "could not ingest delivery: "+err.Error())
+		return
+	}
+
+	s.writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":               "accepted",
+		"accounts":             res.Accounts,
+		"new_transactions":     res.NewTransactions,
+		"updated_transactions": res.UpdatedTransactions,
+	})
+}
+
+// handleRevealSourceSecret returns an inbound-webhook source's shared signing secret
+// (empty when none has been generated) plus its ingest path, for the operator to
+// copy into the sender. Admin-gated: the secret is the source's auth boundary.
+func (s *Server) handleRevealSourceSecret(w http.ResponseWriter, r *http.Request) {
+	if s.sources == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "source management is not available")
+		return
+	}
+	typ := chi.URLParam(r, "type")
+	secret, err := s.sources.RevealSourceSecret(r.Context(), typ)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "could not read signing secret: "+err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"secret": secret, "ingest_path": ingestPath(typ)})
+}
+
+// handleRotateSourceSecret mints and stores a new shared signing secret for an
+// inbound-webhook source and returns it (this also activates the source on first
+// use). The previous secret stops verifying immediately.
+func (s *Server) handleRotateSourceSecret(w http.ResponseWriter, r *http.Request) {
+	if s.sources == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "source management is not available")
+		return
+	}
+	typ := chi.URLParam(r, "type")
+	secret, err := s.sources.RotateSourceSecret(r.Context(), typ)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "could not rotate signing secret: "+err.Error())
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"secret": secret, "ingest_path": ingestPath(typ)})
 }
 
 // handleSourceOAuthStart begins a source's browser OAuth flow: it mints an

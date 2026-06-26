@@ -70,6 +70,7 @@ type Poller struct {
 	source       source.Source
 	puller       source.Puller       // source.(Puller); nil if the source cannot be polled
 	warmer       source.Warmer       // source.(Warmer); nil unless it is a reference (cache) source
+	receiver     source.Receiver     // source.(Receiver); non-nil only for a push (webhook) source
 	cred         source.Credentialed // source.(Credentialed); nil if it has no runtime credential
 	store        db.Store
 	logger       *slog.Logger
@@ -100,6 +101,7 @@ func New(opts Options) *Poller {
 	}
 	p.puller, _ = opts.Source.(source.Puller)
 	p.warmer, _ = opts.Source.(source.Warmer)
+	p.receiver, _ = opts.Source.(source.Receiver)
 	p.cred, _ = opts.Source.(source.Credentialed)
 	return p
 }
@@ -165,9 +167,16 @@ func (p *Poller) onDemandCache() bool {
 // Sync performs a single sync. It is safe for concurrent callers; runs are
 // serialized so the background schedule and on-demand API triggers never
 // overlap.
-func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
+func (p *Poller) Sync(ctx context.Context) (SyncResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// A push-only source (an inbound webhook) is fed by deliveries to its ingest
+	// endpoint, not by pulling, so "Sync now"/"Sync all" is a clean no-op — and it
+	// must not create a sync_log row each cycle.
+	if p.puller == nil && p.warmer == nil && p.receiver != nil {
+		return SyncResult{}, nil
+	}
 
 	// A source with a runtime credential that isn't configured yet is skipped (a
 	// clean no-op, not a logged failure): in a multi-source setup the other sources
@@ -180,6 +189,64 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 		}
 	}
 
+	return p.recordRun(ctx, func(ctx context.Context, syncLogID int64, start time.Time) (SyncResult, error) {
+		// A reference source (e.g. market data) warms a read-through cache instead of
+		// ingesting transactions: it never produces accounts/transactions, so it skips
+		// the persist path. The run is still recorded to sync_log; the source owns its
+		// own storage and event emission.
+		if p.puller == nil {
+			if p.warmer != nil {
+				if err := p.warmer.Warm(ctx); err != nil {
+					return SyncResult{}, err
+				}
+				dur := time.Since(start)
+				p.logger.Info("cache warm complete", "source", p.source.Descriptor().Type, "duration", dur.String())
+				return SyncResult{Duration: dur}, nil
+			}
+			return SyncResult{}, errors.New("configured ingestion source does not support polling")
+		}
+
+		var since time.Time
+		if p.lookbackDays > 0 {
+			since = start.AddDate(0, 0, -p.lookbackDays)
+		}
+		batch, err := p.puller.Fetch(ctx, since, "")
+		if err != nil {
+			return SyncResult{}, err
+		}
+		return p.persistResult(ctx, syncLogID, batch, start)
+	})
+}
+
+// Ingest persists a single inbound webhook delivery (the push counterpart of
+// Sync's scheduled pull). It first authenticates and parses the delivery via the
+// source's Receiver OUTSIDE the sync_log and persist lock, so a rejected or
+// unauthenticated request never creates a sync_log row. A delivery that
+// authenticates but carries nothing (a verification ping) is a clean no-op; a real
+// batch then rides the same recordRun + persist path as a scheduled sync.
+func (p *Poller) Ingest(ctx context.Context, delivery source.Delivery) (SyncResult, error) {
+	if p.receiver == nil {
+		return SyncResult{}, errors.New("configured ingestion source does not accept inbound deliveries")
+	}
+	batch, err := p.receiver.Receive(ctx, delivery)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if batch == nil {
+		return SyncResult{}, nil // authenticated, nothing to persist
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.recordRun(ctx, func(ctx context.Context, syncLogID int64, start time.Time) (SyncResult, error) {
+		return p.persistResult(ctx, syncLogID, batch, start)
+	})
+}
+
+// recordRun wraps a single ingestion run in a sync_log entry and the sync metrics,
+// finalizing the log (success/error) and gauges in a defer regardless of outcome.
+// It is the shared scaffolding for a scheduled Sync and a pushed Ingest.
+func (p *Poller) recordRun(ctx context.Context, run func(ctx context.Context, syncLogID int64, start time.Time) (SyncResult, error)) (result SyncResult, err error) {
 	start := time.Now()
 	entry, logErr := p.store.CreateSyncLog(ctx, db.CreateSyncLogParams{
 		StartedAt: start.Unix(),
@@ -212,38 +279,20 @@ func (p *Poller) Sync(ctx context.Context) (result SyncResult, err error) {
 		}
 	}()
 
-	// A reference source (e.g. market data) warms a read-through cache instead of
-	// ingesting transactions: it never produces accounts/transactions, so it skips
-	// the whole persist path. The run is still recorded to sync_log (via the defer
-	// above); the source owns its own storage and event emission.
-	if p.puller == nil {
-		if p.warmer != nil {
-			if err = p.warmer.Warm(ctx); err != nil {
-				return SyncResult{}, err
-			}
-			result.Duration = time.Since(start)
-			p.logger.Info("cache warm complete", "source", p.source.Descriptor().Type, "duration", result.Duration.String())
-			return result, nil
-		}
-		return SyncResult{}, errors.New("configured ingestion source does not support polling")
-	}
+	result, err = run(ctx, entry.ID, start)
+	return result, err
+}
 
-	var since time.Time
-	if p.lookbackDays > 0 {
-		since = start.AddDate(0, 0, -p.lookbackDays)
-	}
-
-	batch, err := p.puller.Fetch(ctx, since, "")
-	if err != nil {
-		return SyncResult{}, err
-	}
-
-	result, err = p.persister.Persist(ctx, batch, time.Now().Unix())
+// persistResult writes a produced batch through the shared persist path, emits the
+// sync.completed event, and updates the ingestion metrics. It is the common tail of
+// a scheduled fetch and a pushed delivery.
+func (p *Poller) persistResult(ctx context.Context, syncLogID int64, batch *source.ImportBatch, start time.Time) (SyncResult, error) {
+	result, err := p.persister.Persist(ctx, batch, time.Now().Unix())
 	if err != nil {
 		return SyncResult{}, err
 	}
 	result.Duration = time.Since(start)
-	p.emitSyncCompleted(ctx, entry.ID, result)
+	p.emitSyncCompleted(ctx, syncLogID, result)
 
 	accountsGauge.Set(float64(result.Accounts))
 	txInserted.Add(float64(result.NewTransactions))

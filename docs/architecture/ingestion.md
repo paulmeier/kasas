@@ -82,7 +82,7 @@ in that archetype is a thin adapter. **O(archetypes), not O(providers).**
 | --- | --- | --- | --- |
 | **`pull`** | The engine fetches on a schedule. | `gocron` interval + on-demand | SimpleFIN, Teller, Plaid, Bitcoin, Ethereum |
 | **`file`** | Files in a folder are parsed. | scheduled folder scan | **CSV (local + Google Drive)**, OFX, QIF |
-| **`webhook`** | An inbound request pushes data. | HTTP endpoint | Stripe, payment processors |
+| **`webhook`** | An inbound request pushes data. | HTTP ingest endpoint | [Inbound webhook](../features/inbound-webhook.md), Stripe, payment processors |
 | **`manual`** | A human or agent writes directly. | API / MCP call | hand-entered cash |
 | **`reference`** | A read-through cache of *world* data, not ledger transactions. | API read path + optional warm | [Market data](../features/market.md) (Alpha Vantage) |
 | **`enrichment`** | Annotates transactions that already exist. | post-change hook | categorizers, geocoders |
@@ -101,6 +101,10 @@ type Puller interface { // archetype "pull"
     Fetch(ctx context.Context, since time.Time, cursor string) (*ImportBatch, error)
 }
 
+type Receiver interface { // archetype "webhook": an inbound request is pushed in
+    Receive(ctx context.Context, delivery Delivery) (*ImportBatch, error)
+}
+
 type Credentialed interface { // optional: a runtime-settable credential
     CredentialConfigured(ctx context.Context) (bool, error)
     SetCredential(ctx context.Context, input string) error
@@ -117,16 +121,20 @@ type Warmer interface { // archetype "reference": warms a read-through cache, no
 }
 ```
 
-`Puller`, `Credentialed`, `MultiCredentialed`, `OAuthCredentialed`, and `Warmer`
-exist today, and **three archetypes ship**: `pull` (SimpleFIN, Teller, Plaid, and the
-on-chain [Bitcoin](../features/bitcoin.md) / [Ethereum](../features/ethereum.md)
-sources), `file` (CSV import), and `reference` ([Market data](../features/market.md),
-which warms a read-through cache via `Warmer` instead of producing transactions). The `file` source
-reuses the `pull` trigger — scanning its configured folders on the sync schedule —
-rather than needing a separate file-upload interface, so adding it required **no
-engine change**. The `webhook` and `enrichment` archetypes remain reserved in the
-taxonomy; their capability interfaces land here as each is built, and because every
-capability is independent, adding one never disturbs existing sources.
+`Puller`, `Receiver`, `Credentialed`, `MultiCredentialed`, `OAuthCredentialed`, and
+`Warmer` exist today, and **four archetypes ship**: `pull` (SimpleFIN, Teller, Plaid,
+and the on-chain [Bitcoin](../features/bitcoin.md) / [Ethereum](../features/ethereum.md)
+sources), `file` (CSV import), `reference` ([Market data](../features/market.md),
+which warms a read-through cache via `Warmer` instead of producing transactions), and
+`webhook` (the [Inbound webhook](../features/inbound-webhook.md) source, which
+*receives* a pushed batch via `Receiver` instead of fetching one — see
+[ADR 0008](decisions/0008-inbound-webhook-source.md)). The `file` source reuses the
+`pull` trigger — scanning its configured folders on the sync schedule — rather than
+needing a separate file-upload interface, so adding it required **no engine change**;
+the `webhook` source inverts the direction (an HTTP delivery drives the persist path
+the engine already owns). The `enrichment` archetype remains reserved in the taxonomy;
+its capability interface lands here when it is built, and because every capability is
+independent, adding one never disturbs existing sources.
 
 ## The `ImportBatch`
 

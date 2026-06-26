@@ -20,6 +20,7 @@ import (
 	"github.com/paulmeier/kasas/internal/poller"
 	"github.com/paulmeier/kasas/internal/selfupdate"
 	"github.com/paulmeier/kasas/internal/settings"
+	"github.com/paulmeier/kasas/internal/source"
 )
 
 // Syncer triggers an on-demand sync.
@@ -48,6 +49,15 @@ type SourceManager interface {
 	OAuthStart(typ, state string) (string, error)
 	// OAuthExchange completes the OAuth flow, storing the credential.
 	OAuthExchange(ctx context.Context, typ, code string) error
+	// Ingest routes one inbound webhook delivery to a source, which authenticates and
+	// parses it; the engine then persists the resulting batch.
+	Ingest(ctx context.Context, typ string, delivery source.Delivery) (poller.SyncResult, error)
+	// RevealSourceSecret returns an inbound-webhook source's shared signing secret
+	// (or "" when none has been generated yet).
+	RevealSourceSecret(ctx context.Context, typ string) (string, error)
+	// RotateSourceSecret mints and stores a new shared signing secret for an
+	// inbound-webhook source, returning it.
+	RotateSourceSecret(ctx context.Context, typ string) (string, error)
 }
 
 // UpdateChecker reports the running build's status against the latest release
@@ -198,6 +208,12 @@ func (s *Server) Router() http.Handler {
 			// state value issued by the admin-gated /oauth/start, which it verifies.
 			if s.sources != nil {
 				r.Get("/sources/{type}/oauth/callback", s.handleSourceOAuthCallback)
+
+				// The inbound-webhook ingest endpoint is open: the external sender has
+				// no dashboard token. It is NOT unauthenticated — the source verifies an
+				// HMAC signature over the body inside the handler, so the security
+				// boundary is the shared signing secret, not the bearer token.
+				r.Post("/sources/{type}/ingest", s.handleSourceIngest)
 			}
 
 			// Read tier.
@@ -376,6 +392,12 @@ func (s *Server) Router() http.Handler {
 					r.Delete("/sources/{type}/credentials/{id}", s.handleRemoveSourceCredential)
 					r.Get("/sources/{type}/oauth/start", s.handleSourceOAuthStart)
 					r.Put("/simplefin/credential", s.handleSetSimpleFINCredential)
+
+					// Inbound-webhook signing secret: reveal it (to copy into the sender)
+					// and rotate it. The secret is the source's auth boundary, so reading
+					// and minting it is admin-only — never an API key.
+					r.Get("/sources/{type}/secret", s.handleRevealSourceSecret)
+					r.Post("/sources/{type}/secret/rotate", s.handleRotateSourceSecret)
 				}
 
 				// Market series management: defining/removing series reconfigures what
