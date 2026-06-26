@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.1](https://github.com/paulmeier/kasas/compare/v3.1.0...v3.1.1) (2026-06-26)
+
+
+### Documentation
+
+* **adr:** add ADR 0009 — selective peer-to-peer ledger sharing ([#161](https://github.com/paulmeier/kasas/issues/161)) ([a55713e](https://github.com/paulmeier/kasas/commit/a55713e667898e10ae7dc33b6c61525b408c47a3))
+
 ## [3.1.0](https://github.com/paulmeier/kasas/compare/v3.0.4...v3.1.0) (2026-06-26)
 
 
