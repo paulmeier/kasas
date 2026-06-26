@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.1.0](https://github.com/paulmeier/kasas/compare/v3.0.4...v3.1.0) (2026-06-26)
+
+
+### Features
+
+* **sources:** add inbound-webhook ingestion source ([#159](https://github.com/paulmeier/kasas/issues/159)) ([e58228f](https://github.com/paulmeier/kasas/commit/e58228f795c08c73afb0a2e9aea6c0bec3d67e15))
+
+
+### Dependencies
+
+* bump the go-modules group with 2 updates ([#158](https://github.com/paulmeier/kasas/issues/158)) ([0b58019](https://github.com/paulmeier/kasas/commit/0b58019d848d2ad197cfa6f5384e916379fdb54a))
+
 ## [3.0.4](https://github.com/paulmeier/kasas/compare/v3.0.3...v3.0.4) (2026-06-26)
 
 
