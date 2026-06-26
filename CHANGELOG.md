@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.4](https://github.com/paulmeier/kasas/compare/v3.0.3...v3.0.4) (2026-06-26)
+
+
+### Documentation
+
+* **mcp:** expand the remote-server (HTTP) connection guidance ([#156](https://github.com/paulmeier/kasas/issues/156)) ([357fcb6](https://github.com/paulmeier/kasas/commit/357fcb648d63f4617a6bf748db001acca23c2573))
+
 ## [3.0.3](https://github.com/paulmeier/kasas/compare/v3.0.2...v3.0.3) (2026-06-26)
 
 
