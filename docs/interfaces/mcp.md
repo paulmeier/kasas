@@ -40,27 +40,6 @@ runs kasas:
   remote or always-on instance (e.g. on a home server). The address below assumes
   the default `server.addr` of `:8080`; swap in your real host and port.
 
-Each client below has a **stdio (local)** tab and an **HTTP (remote)** tab — use
-the latter when kasas runs on another machine.
-
-!!! tip "Exposing a remote kasas over HTTP"
-    The HTTP transport talks to an *already-running* kasas, so before pointing a
-    client at it, make the instance reachable and require auth:
-
-    - **Bind it somewhere reachable.** The default `server.addr = ":8080"` already
-      listens on every interface; front it with a reverse proxy or
-      [Tailscale](../getting-started/deployment.md#tailscale) and use that
-      host. (kasas refuses to start on a non-loopback bind unless a token is set —
-      see [Authentication](authentication.md).)
-    - **Set a [dashboard token](authentication.md).** MCP-over-HTTP is admin-gated
-      and *always* requires it — `/mcp` returns `503` until one is set, even when
-      reads are otherwise open. Send it as `Authorization: Bearer <token>` (the
-      HTTP snippets below do exactly this). API keys do **not** work here.
-    - **Use the full URL** including scheme and the `/mcp` path —
-      `https://kasas.example.com/mcp` behind TLS, or `http://<tailnet-host>:8080/mcp`
-      on a trusted network. Prefer HTTPS or Tailscale, since the request carries
-      your admin token.
-
 ### Claude Desktop
 
 Open **Settings → Developer → Edit Config** (this creates/opens
