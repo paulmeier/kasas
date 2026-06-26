@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.4](https://github.com/paulmeier/kasas/compare/v3.1.3...v3.1.4) (2026-06-26)
+
+
+### Documentation
+
+* **adr:** add a Syncthing-model community relay tier to ADR 0010 ([#167](https://github.com/paulmeier/kasas/issues/167)) ([b9a7c7d](https://github.com/paulmeier/kasas/commit/b9a7c7d08e0cf2cb544784afca7642fb2eef2a7b))
+
 ## [3.1.3](https://github.com/paulmeier/kasas/compare/v3.1.2...v3.1.3) (2026-06-26)
 
 
