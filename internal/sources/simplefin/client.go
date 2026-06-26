@@ -69,8 +69,19 @@ func (c *Client) Claim(ctx context.Context, setupToken string) (string, error) {
 	return accessURL, nil
 }
 
+// maxLookback is the widest history a SimpleFIN bridge will serve. The protocol
+// caps a requested range to 90 days and reports "Requested date range exceeds
+// limit of 90 days and was capped." whenever a request crosses that line. We
+// hold start-date a day inside the ceiling so clock skew and request latency
+// between our clock and the bridge's can't tip a full-90-day lookback past 90
+// days, which would surface that warning on every sync. The bridge drops
+// anything older than 90 days regardless, so the clamp costs no data.
+const maxLookback = 89 * 24 * time.Hour
+
 // Fetch retrieves accounts and their transactions from the access URL. When
-// since is non-zero, only transactions on or after that time are requested.
+// since is non-zero, only transactions on or after that time are requested
+// (clamped to the bridge's maxLookback window so we never ask for more history
+// than it will return).
 func (c *Client) Fetch(ctx context.Context, accessURL string, since time.Time) (*AccountSet, error) {
 	base := strings.TrimRight(accessURL, "/")
 	u, err := url.Parse(base + "/accounts")
@@ -82,6 +93,9 @@ func (c *Client) Fetch(ctx context.Context, accessURL string, since time.Time) (
 
 	q := u.Query()
 	if !since.IsZero() {
+		if earliest := time.Now().Add(-maxLookback); since.Before(earliest) {
+			since = earliest
+		}
 		q.Set("start-date", strconv.FormatInt(since.Unix(), 10))
 	}
 	q.Set("pending", "1") // include pending transactions

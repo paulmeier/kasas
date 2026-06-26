@@ -102,7 +102,9 @@ func TestFetch(t *testing.T) {
 		u, _ := url.Parse(srv.URL)
 		u.User = url.UserPassword("user", "secret")
 
-		set, err := NewClient().Fetch(ctx, u.String(), time.Unix(testutil.Date2024Jun, 0))
+		// A since inside the bridge's lookback window is passed through verbatim.
+		since := time.Now().Add(-30 * 24 * time.Hour).Truncate(time.Second)
+		set, err := NewClient().Fetch(ctx, u.String(), since)
 		require.NoError(t, err)
 		require.Len(t, set.Accounts, 1)
 		assert.Equal(t, "acct-1", set.Accounts[0].ID)
@@ -111,7 +113,28 @@ func TestFetch(t *testing.T) {
 		assert.Equal(t, "/accounts", gotPath)
 		assert.Equal(t, "user:secret", gotAuth, "credentials from the URL userinfo are sent as basic auth")
 		assert.Equal(t, "1", gotQuery.Get("pending"))
-		assert.Equal(t, strconv.FormatInt(testutil.Date2024Jun, 10), gotQuery.Get("start-date"))
+		assert.Equal(t, strconv.FormatInt(since.Unix(), 10), gotQuery.Get("start-date"))
+	})
+
+	t.Run("clamps start-date to the bridge's lookback window", func(t *testing.T) {
+		var gotQuery url.Values
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotQuery = r.URL.Query()
+			_, _ = w.Write([]byte(sampleAccounts))
+		}))
+		defer srv.Close()
+
+		// A since older than 90 days would make the bridge cap the range and warn
+		// on every sync; the client clamps it to ~maxLookback ago instead.
+		_, err := NewClient().Fetch(ctx, srv.URL, time.Unix(testutil.Date2024Jun, 0))
+		require.NoError(t, err)
+
+		startDate, err := strconv.ParseInt(gotQuery.Get("start-date"), 10, 64)
+		require.NoError(t, err)
+		earliest := time.Now().Add(-maxLookback)
+		assert.WithinDuration(t, earliest, time.Unix(startDate, 0), time.Minute,
+			"start-date is clamped to roughly maxLookback ago, not the far-past since")
+		assert.Greater(t, startDate, testutil.Date2024Jun, "the far-past since was not sent verbatim")
 	})
 
 	t.Run("omits start-date when since is zero", func(t *testing.T) {
