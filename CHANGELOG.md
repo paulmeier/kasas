@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.3](https://github.com/paulmeier/kasas/compare/v3.1.2...v3.1.3) (2026-06-26)
+
+
+### Documentation
+
+* **adr:** revise ADR 0010 to custody-free peer connectivity (Syncthing-model) ([#165](https://github.com/paulmeier/kasas/issues/165)) ([b3fab1d](https://github.com/paulmeier/kasas/commit/b3fab1d190e824ba7df98952f2a5467a7c2b861d))
+
 ## [3.1.2](https://github.com/paulmeier/kasas/compare/v3.1.1...v3.1.2) (2026-06-26)
 
 
