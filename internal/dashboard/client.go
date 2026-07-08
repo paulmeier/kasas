@@ -1899,6 +1899,49 @@ func (c *apiClient) updateStatus(ctx context.Context) (updateStatus, error) {
 	return out, nil
 }
 
+// migrateTableResult mirrors dbmigrate.TableResult: the rows copied for one table.
+type migrateTableResult struct {
+	Table string `json:"table"`
+	Rows  int64  `json:"rows"`
+}
+
+// migrateResult mirrors the POST /system/migrate-postgres response.
+type migrateResult struct {
+	Migrated  bool                 `json:"migrated"`
+	TotalRows int64                `json:"total_rows"`
+	Tables    []migrateTableResult `json:"tables"`
+	Message   string               `json:"message"`
+}
+
+// migrateToPostgres asks the server to copy the SQLite ledger into the Postgres
+// database at dsn. A full copy can take a while on a large ledger, so it uses a
+// longer timeout than the default client and surfaces the server's error message
+// (unreachable host, non-empty target, ...) on failure.
+func (c *apiClient) migrateToPostgres(ctx context.Context, dsn string) (migrateResult, error) {
+	body, err := json.Marshal(map[string]string{"dsn": dsn})
+	if err != nil {
+		return migrateResult{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/system/migrate-postgres", bytes.NewReader(body))
+	if err != nil {
+		return migrateResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client(30 * time.Minute).Do(req)
+	if err != nil {
+		return migrateResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return migrateResult{}, decodeAPIError(resp, "migrate to postgres")
+	}
+	var out migrateResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return migrateResult{}, err
+	}
+	return out, nil
+}
+
 // applyUpdate triggers the server-side self-update. It can take a while (the
 // server downloads and verifies a release), so it uses a longer timeout than
 // the default client and surfaces the server's error message on failure.

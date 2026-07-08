@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,8 +53,17 @@ type settingsView struct {
 	keyMsg        string
 	keyErr        string
 
+	// Postgres migration panel state (SQLite backend only).
+	migrating     bool
+	migrateMsg    string
+	migrateErr    string
+	migrateReport *migrateResult
+
 	errMsg string
 }
+
+// migrateDSNInputID is the DOM id of the target-Postgres-DSN input.
+const migrateDSNInputID = "kasas-migrate-dsn-input"
 
 // DOM ids for the (uncontrolled) API-key create inputs.
 const (
@@ -226,8 +236,129 @@ func (v *settingsView) Render() app.UI {
 		v.renderSecurity(),
 		v.renderApiKeys(),
 		v.renderSettingSections(),
+		v.renderMigratePostgres(),
 		v.renderConfig(),
 	)
+}
+
+// renderMigratePostgres renders the "Migrate to Postgres" panel, shown only on
+// the SQLite backend (once already on Postgres there is nothing to migrate from).
+// It copies the whole ledger into an empty Postgres database the operator names
+// by DSN; the SQLite data is only read, so they can verify Postgres before
+// switching database.driver and restarting.
+func (v *settingsView) renderMigratePostgres() app.UI {
+	if !v.cfgLoaded || v.cfg.Database.Driver != "sqlite" {
+		return app.Text("")
+	}
+
+	body := []app.UI{
+		app.Div().Class("settings-section-head").Body(
+			app.H2().Class("settings-title").Text("Migrate to Postgres"),
+		),
+		app.P().Class("settings-help").Text(
+			"Copy this SQLite ledger into a Postgres database — every account, transaction, rule, event, " +
+				"and setting, with ids preserved. The target must be an empty, reachable Postgres database; " +
+				"kasas creates its schema there automatically. Your SQLite data is only read and stays " +
+				"unchanged, so you can verify Postgres before switching."),
+		app.Div().Class("form-row").Body(
+			app.Input().
+				ID(migrateDSNInputID).
+				Class("settings-input").
+				Type("text").
+				Placeholder("postgres://user:pass@host:5432/kasas?sslmode=disable").
+				AutoComplete(false),
+			app.Button().
+				Class("btn btn-primary").
+				Text(migrateLabel(v.migrating)).
+				Disabled(v.migrating).
+				OnClick(v.onMigratePostgres),
+		),
+		app.P().Class("settings-help").Text(
+			"When it finishes, set database.driver=postgres and database.dsn (or KASAS_DATABASE_DRIVER / " +
+				"KASAS_DATABASE_DSN) and restart kasas to run on Postgres."),
+	}
+
+	if v.migrateErr != "" {
+		body = append(body, app.Div().Class("error").Text("Error: "+v.migrateErr))
+	}
+	if v.migrateMsg != "" && v.migrateErr == "" {
+		body = append(body, app.Div().Class("settings-ok").Text(v.migrateMsg))
+	}
+	if v.migrateReport != nil {
+		body = append(body, v.renderMigrateReport())
+	}
+
+	return app.Section().Class("card settings-section").Body(body...)
+}
+
+// renderMigrateReport shows the per-table row counts from a completed migration.
+func (v *settingsView) renderMigrateReport() app.UI {
+	rep := v.migrateReport
+	return app.Table().Class("txns rules-table").Body(
+		app.THead().Body(
+			app.Tr().Body(
+				app.Th().Text("Table"),
+				app.Th().Class("right").Text("Rows copied"),
+			),
+		),
+		app.TBody().Body(
+			app.Range(rep.Tables).Slice(func(i int) app.UI {
+				return app.Tr().Body(
+					app.Td().Text(rep.Tables[i].Table),
+					app.Td().Class("right").Text(strconv.FormatInt(rep.Tables[i].Rows, 10)),
+				)
+			}),
+		),
+	)
+}
+
+func migrateLabel(busy bool) string {
+	if busy {
+		return "Migrating…"
+	}
+	return "Migrate to Postgres"
+}
+
+// onMigratePostgres validates the DSN, confirms, then asks the server to copy the
+// ledger into Postgres, showing the per-table result on success.
+func (v *settingsView) onMigratePostgres(ctx app.Context, _ app.Event) {
+	if v.migrating {
+		return
+	}
+	dsn := strings.TrimSpace(domInputValue(migrateDSNInputID))
+	if dsn == "" {
+		v.migrateErr = "Enter the target Postgres DSN."
+		v.migrateMsg = ""
+		ctx.Update()
+		return
+	}
+	if !app.Window().Call("confirm",
+		"Copy this SQLite ledger into Postgres?\n\nThe target database must be empty. Your SQLite data is only read and left unchanged.").Bool() {
+		return
+	}
+
+	v.migrating = true
+	v.migrateErr = ""
+	v.migrateReport = nil
+	v.migrateMsg = "Migrating… this can take a while for a large ledger."
+	ctx.Update()
+
+	ctx.Async(func() {
+		res, err := v.client.migrateToPostgres(context.Background(), dsn)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.migrating = false
+			if err != nil {
+				v.migrateErr = err.Error()
+				v.migrateMsg = ""
+				ctx.Update()
+				return
+			}
+			report := res
+			v.migrateReport = &report
+			v.migrateMsg = res.Message
+			ctx.Update()
+		})
+	})
 }
 
 // renderSettingSections renders the editable app settings grouped by section
