@@ -1,0 +1,3861 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="kasas is a financial ledger that can power all kinds of apps — it ingests your financial data through pluggable sources (SimpleFIN, Teller, Plaid, and CSV file import today) into SQLite or Postgres and exposes it over a REST API, an MCP server, a canonical event stream, webhooks, and sandboxed plugins.">
+      
+      
+        <meta name="author" content="Paul Meier">
+      
+      
+        <link rel="canonical" href="https://paulmeier.github.io/kasas/features/plugins/">
+      
+      
+        <link rel="prev" href="../webhooks/">
+      
+      
+        <link rel="next" href="../../interfaces/rest-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Plugins - kasas</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#plugins" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="kasas" class="md-header__button md-logo" aria-label="kasas" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            kasas
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plugins
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/paulmeier/kasas" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    paulmeier/kasas
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/quick-start/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architecture/philosophy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../sync/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Features
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../interfaces/rest-api/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Interfaces
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="kasas" class="md-nav__button md-logo" aria-label="kasas" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    kasas
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/paulmeier/kasas" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    paulmeier/kasas
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/migrate-to-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrate to Postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/philosophy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ingestion & Sources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/data-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../architecture/decisions/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions (ADRs)
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions (ADRs)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0001-plugin-dependency-bundling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0001 · Plugin dependency bundling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0002-plugin-network-capability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0002 · Plugin network capability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0003-marketplace-trust-tiers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0003 · Marketplace trust tiers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0004-transaction-document-artifacts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0004 · Document & artifact association
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0005-plugin-originated-transactions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0005 · Plugin-originated transactions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0006-external-market-reference-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0006 · External market & reference data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0007-transaction-soft-delete/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0007 · Transaction soft-delete
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0008-inbound-webhook-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0008 · Inbound-webhook source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0009-p2p-ledger-sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0009 · Peer-to-peer ledger sharing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/decisions/0010-custody-free-peer-connectivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    0010 · Custody-free peer connectivity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sync Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../csv-import/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CSV File Import
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../teller/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Teller
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plaid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plaid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bitcoin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bitcoin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ethereum/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ethereum
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../market/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Market Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inbound-webhook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inbound Webhook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manual-entry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manual Entry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../event-stream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Stream
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transaction-history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transaction History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transaction-provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transaction Provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../labels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Labels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../schema-extensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../transaction-relationships/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transaction Relationships
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Search
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rules Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webhooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Webhooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plugins
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#safe-by-construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safe by construction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installing-a-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing a plugin
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-a-hook-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a hook runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-host-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The host API
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-access-netfetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network access (net:fetch)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network access (net:fetch)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declare-the-allowlist-in-the-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare the allowlist in the manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-kasasfetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call kasas.fetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-host-enforces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the host enforces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enabling-collects-the-private-host-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling collects the private-host grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-the-egress-caps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring the egress caps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#providing-a-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Providing a source (source:provide)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Providing a source (source:provide)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declare-the-source-in-the-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare the source in the manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implement-onfetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implement OnFetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuring-a-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring a plugin
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#javascript-typescript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JavaScript &amp; TypeScript
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="JavaScript &amp; TypeScript">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bundled-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundled dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-wasm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go (WASM)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Go (WASM)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#other-languages-the-abi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other languages &amp; the ABI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dashboard-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dashboard pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-runtime-seam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The runtime seam
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-is-opt-in-admin-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling is opt-in &amp; admin-only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-community-marketplace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The community marketplace
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The community marketplace">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trust-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust tiers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uninstalling-the-cleanup-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uninstalling &amp; the cleanup hook
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sandbox-limits-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox &amp; limits (v1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interfaces
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Interfaces
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../interfaces/rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    REST API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../interfaces/mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../interfaces/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../interfaces/authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication & API Keys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../interfaces/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics & Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI & Subcommands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+  
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#safe-by-construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safe by construction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installing-a-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing a plugin
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-a-hook-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a hook runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-host-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The host API
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-access-netfetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network access (net:fetch)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network access (net:fetch)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declare-the-allowlist-in-the-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare the allowlist in the manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-kasasfetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call kasas.fetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-host-enforces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the host enforces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enabling-collects-the-private-host-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling collects the private-host grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-the-egress-caps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring the egress caps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#providing-a-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Providing a source (source:provide)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Providing a source (source:provide)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#declare-the-source-in-the-manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declare the source in the manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implement-onfetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implement OnFetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuring-a-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring a plugin
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#javascript-typescript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JavaScript &amp; TypeScript
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="JavaScript &amp; TypeScript">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bundled-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundled dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#go-wasm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go (WASM)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Go (WASM)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#other-languages-the-abi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other languages &amp; the ABI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dashboard-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dashboard pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-runtime-seam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The runtime seam
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-is-opt-in-admin-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling is opt-in &amp; admin-only
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-community-marketplace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The community marketplace
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The community marketplace">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trust-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust tiers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#uninstalling-the-cleanup-hook" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uninstalling &amp; the cleanup hook
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sandbox-limits-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox &amp; limits (v1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="plugins">Plugins<a class="headerlink" href="#plugins" title="Permanent link">&para;</a></h1>
+<p>Plugins are the <strong>in-process</strong> counterpart to <a href="../webhooks/">webhooks</a>: instead of
+pushing events to an external service, a plugin runs <em>inside</em> kasas, in a sandboxed
+language VM, and reacts to the same committed events. They let developers extend
+kasas — tax, budgeting, forecasting, notifications — without bloating the core
+ledger. Three runtimes ship today, all pure Go (no cgo, so the single-static-binary,
+multi-arch build is preserved):</p>
+<ul>
+<li><strong>Lua</strong> (<a href="https://github.com/yuin/gopher-lua">gopher-lua</a>)</li>
+<li><strong>JavaScript / TypeScript</strong> (<a href="https://github.com/dop251/goja">goja</a>, with
+  <a href="https://github.com/evanw/esbuild">esbuild</a> stripping TypeScript types and
+  downleveling modern syntax at load)</li>
+<li><strong>WASM</strong> (<a href="https://github.com/tetratelabs/wazero">wazero</a>) — the home for
+  plugins written in <strong>Go</strong> (via the <a href="#go-wasm">plugin SDK</a>), or any other
+  language that compiles to <code>wasip1</code></li>
+</ul>
+<p>Source: <a href="https://github.com/paulmeier/kasas/tree/main/internal/plugins"><code>internal/plugins</code></a>.
+Requires <code>events.enabled</code> and <code>plugins.enabled</code>.</p>
+<h2 id="safe-by-construction">Safe by construction<a class="headerlink" href="#safe-by-construction" title="Permanent link">&para;</a></h2>
+<p>Plugins run <strong>asynchronously, after commit</strong> (like webhooks, not like the
+synchronous <a href="../rules/">rules engine</a>): a slow or crashing plugin can never block or
+corrupt a sync. Each plugin runs on its own goroutine with a per-hook timeout, a
+non-reentrant VM touched by only that one goroutine, and a panic that becomes a
+recorded error rather than a crash.</p>
+<h2 id="installing-a-plugin">Installing a plugin<a class="headerlink" href="#installing-a-plugin" title="Permanent link">&para;</a></h2>
+<p>Drop a directory into the plugins folder (<code>plugins.dir</code>, default <code>/data/plugins</code>):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>/data/plugins/
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  budgeting/
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    plugin.toml      # manifest (required)
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    main.lua         # entrypoint (manifest `entrypoint`, default main.lua)
+</span></code></pre></div>
+<p>The manifest declares the lifecycle <strong>hooks</strong> the plugin implements and the
+<strong>capabilities</strong> it needs:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">name</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;budgeting&quot;</span><span class="w">          </span><span class="c1"># must match the directory name</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">version</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Auto-categorize spending&quot;</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">runtime</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lua&quot;</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">entrypoint</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;main.lua&quot;</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Event hooks fire on matching events: OnTransactionCreate (transaction.created),</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># OnTransactionUpdate (transaction.updated), OnTransactionDelete (transaction.deleted),</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># OnSyncComplete (sync.completed). The OnUninstall lifecycle hook (no event) runs once</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># at uninstall so the plugin can clean up (see &quot;Uninstalling&quot; below);</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="c1"># OnPageRender/OnPageAction back an optional dashboard page (see &quot;Dashboard pages&quot;</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1"># below); OnFetch is a scheduled source producer (see &quot;Providing a source&quot; below).</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">hooks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;OnTransactionCreate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;OnTransactionUpdate&quot;</span><span class="p">]</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="c1"># Capabilities the host grants and enforces: transactions:read, labels:write,</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="c1"># extensions:write, ui:page, net:fetch, source:provide.</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="n">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;transactions:read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;labels:write&quot;</span><span class="p">]</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="k">[config]</span><span class="w">                            </span><span class="c1"># configurable keys + their DEFAULTS, exposed as kasas.config</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="n">keyword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;coffee&quot;</span>
+</span></code></pre></div>
+<p>A plugin implements its declared hooks as global functions and acts through the
+capability-checked <code>kasas</code> <strong>host API</strong>:</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnTransactionCreate</span><span class="p">(</span><span class="nv">txn</span><span class="p">)</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="kr">if</span><span class="w"> </span><span class="nb">string.find</span><span class="p">(</span><span class="nb">string.lower</span><span class="p">(</span><span class="nv">txn</span><span class="p">.</span><span class="py">description</span><span class="p">),</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="py">config</span><span class="p">.</span><span class="py">keyword</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="kr">then</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">apply_labels</span><span class="p">(</span><span class="nv">txn</span><span class="p">.</span><span class="py">id</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nv">category</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;food&quot;</span><span class="w"> </span><span class="p">})</span><span class="w">   </span><span class="c1">-- routes through the normal</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;tagged&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nv">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">txn</span><span class="p">.</span><span class="py">id</span><span class="w"> </span><span class="p">})</span><span class="w">        </span><span class="c1">-- emitter: emits label.applied</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="kr">end</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="kr">end</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnTransactionUpdate</span><span class="p">(</span><span class="nv">txn</span><span class="p">)</span><span class="w"> </span><span class="nf">OnTransactionCreate</span><span class="p">(</span><span class="nv">txn</span><span class="p">)</span><span class="w"> </span><span class="kr">end</span>
+</span></code></pre></div>
+<p><code>OnTransactionDelete(txn)</code> fires when a transaction is deleted (a manual delete, or
+each row removed by an <a href="../manual-entry/">account cascade</a>). The <code>txn</code> argument is the
+row's <strong>last-known snapshot</strong> — id, labels, extensions, and all — because the row is
+already gone by the time the hook runs. That snapshot is the source of truth inside
+the handler: <code>kasas.get_transaction(txn.id)</code> returns nothing and host writes against
+the id fail, so react from the data you are handed (e.g. tidy up an external mirror,
+or log the removal). The same hook is exposed in every runtime
+(<code>kasas.OnTransactionDelete(fn)</code> in Go, <code>OnTransactionDelete(txn)</code> in JS/TS).</p>
+<h2 id="how-a-hook-runs">How a hook runs<a class="headerlink" href="#how-a-hook-runs" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Bus as Event bus
+    participant M as Manager
+    participant Q as Per-plugin queue
+    participant VM as Sandboxed VM (Lua)
+    participant Host as Capability host
+    participant E as Emitter
+
+    Bus-&gt;&gt;M: event committed
+    M-&gt;&gt;M: find plugins whose hooks match the type
+    M-&gt;&gt;Q: enqueue HookEvent (non-blocking — drop if full)
+    Q-&gt;&gt;VM: Invoke(hook, event) — per-hook timeout
+    VM-&gt;&gt;Host: kasas.apply_labels(id, {...})
+    Host-&gt;&gt;Host: capability check (labels:write)
+    Host-&gt;&gt;E: Record → write + emit label.applied + history
+    VM--&gt;&gt;M: ok / error (panic → recorded error)
+    M-&gt;&gt;DB: record last_status / last_error</code></pre>
+<p>Because a plugin's writes go through the <strong>same emitter</strong> as a REST or rules edit,
+they produce the normal <code>label.applied</code> / <code>extension.set</code>
+<a href="../event-stream/">events</a> and <a href="../transaction-history/">history</a> — and flow onward
+to webhooks and other consumers. A plugin is a first-class participant in the
+event stream, not a side channel.</p>
+<h2 id="the-host-api">The host API<a class="headerlink" href="#the-host-api" title="Permanent link">&para;</a></h2>
+<p>The <code>kasas</code> table is the <strong>only</strong> way a plugin touches your data, and every method
+that needs a capability checks it up front in a single host facade — so every
+runtime (Lua today, JS/WASM later) inherits the same enforcement:</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Capability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kasas.get_transaction(id)</code></td>
+<td><code>transactions:read</code></td>
+</tr>
+<tr>
+<td><code>kasas.search(query, limit?)</code></td>
+<td><code>transactions:read</code></td>
+</tr>
+<tr>
+<td><code>kasas.apply_labels(id, {k=v,…})</code></td>
+<td><code>labels:write</code></td>
+</tr>
+<tr>
+<td><code>kasas.remove_labels(id, {k,…})</code></td>
+<td><code>labels:write</code></td>
+</tr>
+<tr>
+<td><code>kasas.set_extension(id, key, value)</code></td>
+<td><code>extensions:write</code></td>
+</tr>
+<tr>
+<td><code>kasas.remove_extension(id, key)</code></td>
+<td><code>extensions:write</code></td>
+</tr>
+<tr>
+<td><code>kasas.fetch({url, method, headers, body, timeout_ms})</code></td>
+<td><code>net:fetch</code> (host-mediated, allowlisted — see <a href="#network-access-netfetch">Network access</a>)</td>
+</tr>
+<tr>
+<td><code>kasas.log(level, msg, {k=v,…})</code></td>
+<td>— (always allowed)</td>
+</tr>
+<tr>
+<td><code>kasas.config</code></td>
+<td>— (the effective config: manifest defaults + user overrides)</td>
+</tr>
+<tr>
+<td><code>kasas.set_config({k=v,…})</code></td>
+<td>— (always allowed; a plugin only configures itself)</td>
+</tr>
+</tbody>
+</table>
+<p>A call to a host function the plugin wasn't granted returns an error. The table shows
+the <strong>Lua</strong> names; the JavaScript/TypeScript runtime exposes the same methods in
+idiomatic <strong>camelCase</strong> (<code>kasas.getTransaction</code>, <code>kasas.applyLabels</code>, …) — see
+<a href="#javascript-typescript">JavaScript &amp; TypeScript</a> below — and the Go SDK in
+exported <strong>PascalCase</strong> (<code>kasas.GetTransaction</code>, <code>kasas.ApplyLabels</code>, …) — see
+<a href="#go-wasm">Go (WASM)</a>.</p>
+<h2 id="network-access-netfetch">Network access (<code>net:fetch</code>)<a class="headerlink" href="#network-access-netfetch" title="Permanent link">&para;</a></h2>
+<p>By default a plugin has <strong>no network access</strong> — that is what makes it safe to
+install. The <code>net:fetch</code> capability (<a href="../../architecture/decisions/0002-plugin-network-capability/">ADR 0002</a>)
+unlocks the whole class of integration plugins (importers, enrichers, notifiers,
+mirrors) <strong>in-process</strong>, but it does so the same way every other capability works:
+the plugin never opens a socket — it calls a <strong>host method</strong>, and the host performs
+the request under rules the host owns. Network egress is <strong>declared, narrow,
+enforced, and observable</strong>, never blanket and never raw.</p>
+<h3 id="declare-the-allowlist-in-the-manifest">Declare the allowlist in the manifest<a class="headerlink" href="#declare-the-allowlist-in-the-manifest" title="Permanent link">&para;</a></h3>
+<p><code>net:fetch</code> comes as a unit with a <code>[net].allow</code> block: the exact hosts the plugin
+may reach. Declaring the capability without a non-empty allowlist is a manifest
+error, so the install/enable prompt can make a <em>specific</em> claim ("this plugin talks
+to: paperless.lan") instead of a generic "uses the network" warning.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;transactions:read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;extensions:write&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;net:fetch&quot;</span><span class="p">]</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">[net]</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Egress is default-deny. A plugin may only reach hosts it declares here (bare</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># hostnames — no scheme, port, or path), and the gate/dashboard surface this exact</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># list at review and enable time. A request to any other host is refused.</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">allow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;paperless.lan&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;api.merchant.example.com&quot;</span><span class="p">]</span>
+</span></code></pre></div>
+<h3 id="call-kasasfetch">Call <code>kasas.fetch</code><a class="headerlink" href="#call-kasasfetch" title="Permanent link">&para;</a></h3>
+<p>One host method, mirrored across runtimes like the rest of the host API. It returns
+the response <code>{ status, headers, body, truncated }</code>; <code>truncated</code> is true when the
+body hit the size cap.</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">-- Lua</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kd">local</span><span class="w"> </span><span class="nv">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="py">fetch</span><span class="p">{</span><span class="w"> </span><span class="nv">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.merchant.example.com/receipts/&quot;</span><span class="w"> </span><span class="o">..</span><span class="w"> </span><span class="nv">id</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">                       </span><span class="nv">method</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;GET&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">headers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nv">Authorization</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Bearer …&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">                       </span><span class="nv">timeout_ms</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5000</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="kr">if</span><span class="w"> </span><span class="nv">r</span><span class="p">.</span><span class="py">status</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">200</span><span class="w"> </span><span class="kr">then</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">set_extension</span><span class="p">(</span><span class="nv">id</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;merchant.receipt&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">r</span><span class="p">.</span><span class="py">body</span><span class="p">)</span><span class="w"> </span><span class="kr">end</span>
+</span></code></pre></div>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">// JS/TS</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kd">const</span><span class="w"> </span><span class="nx">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">fetch</span><span class="p">({</span><span class="w"> </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="sb">`https://api.merchant.example.com/receipts/</span><span class="si">${</span><span class="nx">id</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">                        </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;GET&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">Authorization</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer …&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">                        </span><span class="nx">timeoutMs</span><span class="o">:</span><span class="w"> </span><span class="kt">5000</span><span class="w"> </span><span class="p">});</span>
+</span></code></pre></div>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1">// Go (WASM)</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nx">r</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">Fetch</span><span class="p">(</span><span class="nx">kasas</span><span class="p">.</span><span class="nx">FetchRequest</span><span class="p">{</span><span class="nx">URL</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://api.merchant.example.com/x&quot;</span><span class="p">})</span>
+</span></code></pre></div>
+<h3 id="what-the-host-enforces">What the host enforces<a class="headerlink" href="#what-the-host-enforces" title="Permanent link">&para;</a></h3>
+<p>Every call goes through the capability-checked host facade, then a per-plugin
+<strong>egress gate</strong>:</p>
+<ul>
+<li><strong>Allowlist.</strong> The URL host must be on the manifest's <code>[net].allow</code> list, or the
+  request is <strong>refused</strong> (not silently dropped). Redirects are re-checked — a
+  permitted host cannot <code>302</code> a plugin onto an undeclared one — and the redirect
+  count is bounded.</li>
+<li><strong>The SSRF rule, tuned for self-hosting.</strong> A blanket "block all private IPs"
+  guard would break the primary use case (a NAS or <code>*.lan</code> API on <code>192.168.x.x</code>).
+  Instead: a host that resolves to a <strong>public</strong> address is allowed; a host that
+  resolves to a <strong>private/loopback/link-local/metadata</strong> address (RFC 1918,
+  <code>127.0.0.0/8</code>, <code>::1</code>, <code>169.254.169.254</code>, CGNAT <code>100.64/10</code>, …) is <strong>refused
+  unless the operator granted that specific host</strong> for that specific plugin at
+  enable time. The address is <strong>resolved and pinned at request time</strong> and the
+  <em>resolved IP</em> is re-validated, so DNS rebinding cannot swap a permitted IP for
+  an internal one.</li>
+<li><strong>Caps.</strong> A per-request timeout (a call may ask for less, never more than the
+  host's <code>plugins.net.timeout</code>), a response-size cap, a per-plugin request rate
+  limit, and a max redirect count — all host-owned, none plugin-raisable.</li>
+<li><strong>Logging.</strong> Every attempt (allowed <em>or</em> refused) is recorded — plugin, method,
+  host, status, bytes, duration — to the structured log, a Prometheus counter, and
+  an operator-visible <strong>egress log</strong> on the Plugins page.</li>
+</ul>
+<h3 id="enabling-collects-the-private-host-grants">Enabling collects the private-host grants<a class="headerlink" href="#enabling-collects-the-private-host-grants" title="Permanent link">&para;</a></h3>
+<p>Like every plugin, a <code>net:fetch</code> plugin is
+<a href="#enabling-is-opt-in-admin-only">installed disabled and enabled only by an admin</a>.
+Enabling additionally surfaces its declared egress list; for any host on your
+private network/LAN you tick "allow private/LAN access", and that per-plugin,
+per-host grant is recorded next to the plugin's config (the <code>net_grants</code> column)
+and shown on the Plugins page. Public hosts on the allowlist need no grant. The
+same grants can be passed through the API/MCP:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Enable with a private-host grant (admin/dashboard token).</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$KASAS_DASHBOARD_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;net_grants&quot;:[&quot;paperless.lan&quot;]}&#39;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>http://localhost:8080/api/v1/plugins/2/enable
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1"># Read a plugin&#39;s recent egress log.</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$KASAS_DASHBOARD_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span>http://localhost:8080/api/v1/plugins/2/egress
+</span></code></pre></div>
+<p>The MCP surface mirrors this: <code>enable_plugin</code> takes an optional <code>net_grants</code>, and
+<code>plugin_egress_log</code> returns the egress trail.</p>
+<h3 id="configuring-the-egress-caps">Configuring the egress caps<a class="headerlink" href="#configuring-the-egress-caps" title="Permanent link">&para;</a></h3>
+<p>The ceilings are host config (and runtime-editable <a href="../../getting-started/configuration/">settings</a>), so an
+operator bounds every plugin's egress regardless of what a manifest asks for:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[plugins.net]</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">timeout</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;10s&quot;</span><span class="w">      </span><span class="c1"># cap on one request (a plugin may ask for less)</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">max_response_bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5242880</span><span class="w">    </span><span class="c1"># 5 MiB body read cap</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">rate_per_minute</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span><span class="w">         </span><span class="c1"># per-plugin request budget</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">max_redirects</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w">          </span><span class="c1"># each hop re-checked against the allowlist</span>
+</span></code></pre></div>
+<p>This keeps the single static binary and the language-agnostic runtime seam: it is
+<em>one</em> new host method, not a new runtime or a raw socket exposed to guest code.</p>
+<h2 id="providing-a-source">Providing a source (<code>source:provide</code>)<a class="headerlink" href="#providing-a-source" title="Permanent link">&para;</a></h2>
+<p>Every capability so far lets a plugin <em>read or annotate</em> a transaction that already
+exists. The <code>source:provide</code> capability (<a href="../../architecture/decisions/0005-plugin-originated-transactions/">ADR 0005</a>)
+lets a plugin <strong>originate</strong> transactions — ingest a bank, card, or API kasas
+doesn't ship — but only as a <strong>producer</strong>: its <code>OnFetch</code> hook <em>returns</em> a batch and
+the <a href="../../architecture/ingestion/">ingestion engine</a> persists it through the exact
+same path as SimpleFIN, with the same dedup, <a href="../event-stream/">events</a>,
+<a href="../rules/">rules</a> auto-labeling, <a href="../transaction-history/">history</a>, and
+<a href="../transaction-provenance/">provenance</a>. There is <strong>no host method that writes a
+row</strong> — creation is only "return a batch the engine persists", so a buggy or hostile
+producer is contained: the worst it can do is return a batch the engine rejects.</p>
+<p>It is the most powerful capability kasas exposes (it writes to the ledger's core,
+not just its annotations), so it is the top <a href="../../architecture/decisions/0003-marketplace-trust-tiers/">trust tier</a>
+— <strong>never auto-listed in the marketplace, sideload-or-manual-review only</strong>, and
+<strong>WASM is the recommended runtime</strong> for its memory-isolation. Enabling stays
+admin-only, like every plugin.</p>
+<h3 id="declare-the-source-in-the-manifest">Declare the source in the manifest<a class="headerlink" href="#declare-the-source-in-the-manifest" title="Permanent link">&para;</a></h3>
+<p><code>source:provide</code> comes as a unit with a <code>[source]</code> block and the <code>OnFetch</code> hook
+(each requires the others). A remote-pulling producer also declares
+<a href="#network-access-netfetch"><code>net:fetch</code></a>:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">name</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;acme-card&quot;</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">runtime</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;lua&quot;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">hooks</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;OnFetch&quot;</span><span class="p">]</span><span class="w">                 </span><span class="c1"># the scheduled producer</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;net:fetch&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;source:provide&quot;</span><span class="p">]</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="k">[net]</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="n">allow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;api.acme.example&quot;</span><span class="p">]</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="k">[source]</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="n">type</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;acme-card&quot;</span><span class="w">                    </span><span class="c1"># the human label shown on the Sources page</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="n">archetype</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pull&quot;</span><span class="w">                         </span><span class="c1"># scheduled; the engine calls OnFetch on the sync schedule</span>
+</span></code></pre></div>
+<h3 id="implement-onfetch">Implement <code>OnFetch</code><a class="headerlink" href="#implement-onfetch" title="Permanent link">&para;</a></h3>
+<p>The engine calls <code>OnFetch</code> on the <a href="../sync/">sync schedule</a> (and on demand), passing
+the <code>since</code>/<code>cursor</code> it threads to every source, and the hook returns an
+<code>ImportBatch</code> — the same neutral shape built-in sources build:</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1">-- the engine persists what this returns; it never writes a row itself</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnFetch</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span><span class="w">                        </span><span class="c1">-- req.since (unix), req.cursor</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="kd">local</span><span class="w"> </span><span class="nv">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="py">fetch</span><span class="p">{</span><span class="w"> </span><span class="nv">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://api.acme.example/txns?since=&quot;</span><span class="w"> </span><span class="o">..</span><span class="w"> </span><span class="nv">req</span><span class="p">.</span><span class="py">since</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="c1">-- ... parse r.body ...</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="kr">return</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">    </span><span class="nv">source</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;acme-card&quot;</span><span class="p">,</span><span class="w">                 </span><span class="c1">-- a human label; the host stamps the real one</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">    </span><span class="nv">accounts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nv">external_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;acme-1&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ACME Card&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">currency</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;USD&quot;</span><span class="p">,</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">        </span><span class="nv">transactions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nv">external_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;9f2a&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">amount</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;-12.50&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">date</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1718000000</span><span class="p">,</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">            </span><span class="nv">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Blue Bottle&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">payee</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Blue Bottle Coffee&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="kr">end</span>
+</span></code></pre></div>
+<p>The host owns the two things a plugin cannot be trusted with: it <strong>namespaces every
+id</strong> the plugin returns (so a plugin row can never collide with another source's),
+and it <strong>stamps the provenance as <code>plugin:&lt;name&gt;</code></strong> — the <code>source</code> field above is a
+human label only. A plugin therefore cannot impersonate <code>simplefin</code> or forge another
+source's rows, and its rows are <strong>read-only to the manual-edit API</strong> (a <code>409</code>, like a
+synced row): the plugin owns them through re-emission and dedup.</p>
+<p>The plugin source then behaves like any built-in one: it appears on the
+<a href="../../architecture/ingestion/">Sources page</a>, syncs with the rest, and reports
+status. <strong>Uninstalling</strong> the plugin purges the rows it produced (a plugin owns its
+rows, so removing the plugin removes them — and since they are read-only, uninstall
+is their only removal path).</p>
+<h2 id="configuring-a-plugin">Configuring a plugin<a class="headerlink" href="#configuring-a-plugin" title="Permanent link">&para;</a></h2>
+<p>The manifest's <code>[config]</code> block is the <strong>schema</strong> of what an end user may
+configure: it declares every configurable key together with its default. The
+user can then override those defaults through <strong>either</strong> of two equivalent
+surfaces, and both end up in the same place:</p>
+<ol>
+<li>
+<p><strong>A config TOML file</strong>, edited by hand. Each plugin owns one override file
+   that lives <em>next to</em> its directory (so a marketplace update — an atomic
+   directory swap — never wipes it):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>/data/plugins/
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>  coffee-budget/                 # the plugin&#39;s files (replaced on update)
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>  coffee-budget.config.toml      # the user&#39;s overrides (survives updates)
+</span></code></pre></div>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># coffee-budget.config.toml — keys must exist in the manifest&#39;s [config].</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">keyword</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;espresso&quot;</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">category</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;coffee&quot;</span>
+</span></code></pre></div>
+<p>The file is read when the plugin loads; after editing it, hit <strong>Reload</strong> on
+the Plugins page (or <code>POST /api/v1/plugins/{id}/reload</code>) to apply.</p>
+</li>
+<li>
+<p><strong>The plugin's own dashboard page</strong>, if the developer builds one. A page can
+   include a <a href="#dashboard-pages"><code>form</code> block</a> whose submitted values arrive in
+   <code>OnPageAction</code>, where the plugin persists them with <code>kasas.set_config</code>:</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnPageAction</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="kr">if</span><span class="w"> </span><span class="nv">req</span><span class="p">.</span><span class="py">action</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s2">&quot;save_settings&quot;</span><span class="w"> </span><span class="kr">then</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">set_config</span><span class="p">({</span><span class="w"> </span><span class="nv">keyword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">req</span><span class="p">.</span><span class="py">params</span><span class="p">.</span><span class="py">keyword</span><span class="w"> </span><span class="p">})</span><span class="w">  </span><span class="c1">-- validates, then</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="kr">end</span><span class="w">                                                   </span><span class="c1">-- OVERWRITES the file</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span><span class="kr">return</span><span class="w"> </span><span class="nf">OnPageRender</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="kr">end</span>
+</span></code></pre></div>
+</li>
+</ol>
+<p><code>kasas.set_config</code> (JS: <code>kasas.setConfig</code>) validates every key against the
+<code>[config]</code> defaults — an unknown key is an error, and each value is coerced to
+its default's type (so the string <code>"25"</code> from a form lands as a number when the
+default is numeric). On success it <strong>overwrites <code>&lt;name&gt;.config.toml</code></strong>, updates
+the live <code>kasas.config</code> value in place, and returns the new effective config.
+The file is therefore always the single source of truth: what the dashboard
+saved is exactly what the user sees (and may re-edit) in the TOML.</p>
+<p>Precedence, lowest to highest: manifest <code>[config]</code> defaults →
+<code>&lt;name&gt;.config.toml</code> overrides. A broken override file (bad TOML, an unknown
+key, a value of the wrong type) fails the plugin's load with a clear error on
+the Plugins page rather than silently running on defaults. Uninstalling a
+plugin deletes its override file along with its directory.</p>
+<h2 id="javascript-typescript">JavaScript &amp; TypeScript<a class="headerlink" href="#javascript-typescript" title="Permanent link">&para;</a></h2>
+<p>Set <code>runtime = "js"</code> in the manifest. The entrypoint defaults to <code>main.js</code>; for
+TypeScript, point it at a <code>.ts</code> file — esbuild strips the types (and downlevels
+modern syntax) at load, so no build step or <code>node_modules</code> is required:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">name</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;budgeting&quot;</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">runtime</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;js&quot;</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">entrypoint</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;main.ts&quot;</span><span class="w">          </span><span class="c1"># or main.js (the default)</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">hooks</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;OnTransactionCreate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;OnTransactionUpdate&quot;</span><span class="p">]</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;labels:write&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;extensions:write&quot;</span><span class="p">]</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="k">[config]</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="n">keyword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;coffee&quot;</span>
+</span></code></pre></div>
+<p>Hooks are plain <strong>top-level functions</strong> (same names as everywhere else); the host API
+is the <code>kasas</code> global, in camelCase. Data passed to a hook uses kasas's canonical
+snake_case field names (<code>account_id</code>, …) — the same shape you would get from the REST
+API — and <code>date</code> is a JavaScript <code>Date</code>.</p>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kd">function</span><span class="w"> </span><span class="nx">classify</span><span class="p">(</span><span class="nx">txn</span><span class="o">:</span><span class="w"> </span><span class="kt">KasasTransaction</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">txn</span><span class="p">.</span><span class="nx">description</span><span class="p">.</span><span class="nx">toLowerCase</span><span class="p">().</span><span class="nx">includes</span><span class="p">(</span><span class="nx">kasas</span><span class="p">.</span><span class="nx">config</span><span class="p">.</span><span class="nx">keyword</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">applyLabels</span><span class="p">(</span><span class="nx">txn</span><span class="p">.</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">category</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;food&quot;</span><span class="w"> </span><span class="p">});</span><span class="w">   </span><span class="c1">// routes through the normal</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">setExtension</span><span class="p">(</span><span class="nx">txn</span><span class="p">.</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;budgeting.flagged&quot;</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span><span class="w"> </span><span class="c1">// emitter, like a REST edit</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">}</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="kd">function</span><span class="w"> </span><span class="nx">OnTransactionCreate</span><span class="p">(</span><span class="nx">txn</span><span class="o">:</span><span class="w"> </span><span class="kt">KasasTransaction</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">classify</span><span class="p">(</span><span class="nx">txn</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="kd">function</span><span class="w"> </span><span class="nx">OnTransactionUpdate</span><span class="p">(</span><span class="nx">txn</span><span class="o">:</span><span class="w"> </span><span class="kt">KasasTransaction</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">classify</span><span class="p">(</span><span class="nx">txn</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+<p>For editor autocomplete and type-checking, drop this <code>kasas.d.ts</code> next to your
+plugin. It is <strong>dev-time only</strong> — esbuild discards all types at load:</p>
+<div class="language-typescript highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1">// kasas.d.ts — ambient types for kasas JavaScript/TypeScript plugins.</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="cm">/** A transaction, in kasas&#39;s canonical snake_case shape. */</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">KasasTransaction</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">  </span><span class="nx">account_id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">  </span><span class="cm">/** Decimal string (never a float) so cents are never lost, e.g. &quot;-4.50&quot;. */</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">  </span><span class="nx">amount</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">  </span><span class="nx">pending</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">  </span><span class="nx">date</span><span class="o">:</span><span class="w"> </span><span class="kt">Date</span><span class="p">;</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="w">  </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">  </span><span class="nx">payee</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">  </span><span class="nx">memo</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">  </span><span class="nx">labels</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="o">&gt;</span><span class="p">;</span>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">  </span><span class="nx">extensions</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="p">;</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="p">}</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="cm">/** The summary passed to OnSyncComplete. */</span>
+</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">KasasSyncSummary</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-20"><a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a><span class="w">  </span><span class="nx">accounts</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+</span><span id="__span-16-21"><a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="w">  </span><span class="nx">new_transactions</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+</span><span id="__span-16-22"><a id="__codelineno-16-22" name="__codelineno-16-22" href="#__codelineno-16-22"></a><span class="w">  </span><span class="nx">updated_transactions</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+</span><span id="__span-16-23"><a id="__codelineno-16-23" name="__codelineno-16-23" href="#__codelineno-16-23"></a><span class="w">  </span><span class="nx">auto_labeled</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+</span><span id="__span-16-24"><a id="__codelineno-16-24" name="__codelineno-16-24" href="#__codelineno-16-24"></a><span class="w">  </span><span class="nx">duration</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-25"><a id="__codelineno-16-25" name="__codelineno-16-25" href="#__codelineno-16-25"></a><span class="p">}</span>
+</span><span id="__span-16-26"><a id="__codelineno-16-26" name="__codelineno-16-26" href="#__codelineno-16-26"></a>
+</span><span id="__span-16-27"><a id="__codelineno-16-27" name="__codelineno-16-27" href="#__codelineno-16-27"></a><span class="cm">/** The capability-checked host API. A method throws if the capability isn&#39;t granted. */</span>
+</span><span id="__span-16-28"><a id="__codelineno-16-28" name="__codelineno-16-28" href="#__codelineno-16-28"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Kasas</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-29"><a id="__codelineno-16-29" name="__codelineno-16-29" href="#__codelineno-16-29"></a><span class="w">  </span><span class="nx">getTransaction</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">KasasTransaction</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">          </span><span class="c1">// transactions:read</span>
+</span><span id="__span-16-30"><a id="__codelineno-16-30" name="__codelineno-16-30" href="#__codelineno-16-30"></a><span class="w">  </span><span class="nx">search</span><span class="p">(</span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">limit?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">KasasTransaction</span><span class="p">[];</span><span class="w">    </span><span class="c1">// transactions:read</span>
+</span><span id="__span-16-31"><a id="__codelineno-16-31" name="__codelineno-16-31" href="#__codelineno-16-31"></a><span class="w">  </span><span class="nx">applyLabels</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">labels</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="o">&gt;</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span><span class="w"> </span><span class="c1">// labels:write (merge)</span>
+</span><span id="__span-16-32"><a id="__codelineno-16-32" name="__codelineno-16-32" href="#__codelineno-16-32"></a><span class="w">  </span><span class="nx">removeLabels</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">keys</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[])</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span><span class="w">                </span><span class="c1">// labels:write</span>
+</span><span id="__span-16-33"><a id="__codelineno-16-33" name="__codelineno-16-33" href="#__codelineno-16-33"></a><span class="w">  </span><span class="nx">setExtension</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span><span class="w">   </span><span class="c1">// extensions:write</span>
+</span><span id="__span-16-34"><a id="__codelineno-16-34" name="__codelineno-16-34" href="#__codelineno-16-34"></a><span class="w">  </span><span class="nx">removeExtension</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span><span class="w">                </span><span class="c1">// extensions:write</span>
+</span><span id="__span-16-35"><a id="__codelineno-16-35" name="__codelineno-16-35" href="#__codelineno-16-35"></a><span class="w">  </span><span class="cm">/** Host-mediated HTTP request, allowlisted to the manifest&#39;s [net].allow hosts. */</span>
+</span><span id="__span-16-36"><a id="__codelineno-16-36" name="__codelineno-16-36" href="#__codelineno-16-36"></a><span class="w">  </span><span class="nx">fetch</span><span class="p">(</span><span class="nx">req</span><span class="o">:</span><span class="w"> </span><span class="kt">KasasFetchRequest</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">KasasFetchResponse</span><span class="p">;</span><span class="w">             </span><span class="c1">// net:fetch</span>
+</span><span id="__span-16-37"><a id="__codelineno-16-37" name="__codelineno-16-37" href="#__codelineno-16-37"></a><span class="w">  </span><span class="nx">log</span><span class="p">(</span><span class="nx">level</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;debug&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;warn&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span>
+</span><span id="__span-16-38"><a id="__codelineno-16-38" name="__codelineno-16-38" href="#__codelineno-16-38"></a><span class="w">      </span><span class="nx">fields?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="ow">void</span><span class="p">;</span><span class="w">                   </span><span class="c1">// always allowed</span>
+</span><span id="__span-16-39"><a id="__codelineno-16-39" name="__codelineno-16-39" href="#__codelineno-16-39"></a><span class="w">  </span><span class="cm">/** Effective config: manifest [config] defaults + the user&#39;s overrides. */</span>
+</span><span id="__span-16-40"><a id="__codelineno-16-40" name="__codelineno-16-40" href="#__codelineno-16-40"></a><span class="w">  </span><span class="nx">config</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">any</span><span class="o">&gt;</span><span class="p">;</span>
+</span><span id="__span-16-41"><a id="__codelineno-16-41" name="__codelineno-16-41" href="#__codelineno-16-41"></a><span class="w">  </span><span class="cm">/** Persist config overrides (validated against the [config] defaults),</span>
+</span><span id="__span-16-42"><a id="__codelineno-16-42" name="__codelineno-16-42" href="#__codelineno-16-42"></a><span class="cm">      overwrite &lt;name&gt;.config.toml, refresh kasas.config, and return it. */</span>
+</span><span id="__span-16-43"><a id="__codelineno-16-43" name="__codelineno-16-43" href="#__codelineno-16-43"></a><span class="w">  </span><span class="nx">setConfig</span><span class="p">(</span><span class="nx">changes</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">any</span><span class="o">&gt;</span><span class="p">;</span><span class="w"> </span><span class="c1">// always allowed</span>
+</span><span id="__span-16-44"><a id="__codelineno-16-44" name="__codelineno-16-44" href="#__codelineno-16-44"></a><span class="p">}</span>
+</span><span id="__span-16-45"><a id="__codelineno-16-45" name="__codelineno-16-45" href="#__codelineno-16-45"></a>
+</span><span id="__span-16-46"><a id="__codelineno-16-46" name="__codelineno-16-46" href="#__codelineno-16-46"></a><span class="cm">/** An outbound HTTP request for kasas.fetch. timeoutMs may only shorten the host&#39;s</span>
+</span><span id="__span-16-47"><a id="__codelineno-16-47" name="__codelineno-16-47" href="#__codelineno-16-47"></a><span class="cm">    configured per-request timeout, never exceed it. */</span>
+</span><span id="__span-16-48"><a id="__codelineno-16-48" name="__codelineno-16-48" href="#__codelineno-16-48"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">KasasFetchRequest</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-49"><a id="__codelineno-16-49" name="__codelineno-16-49" href="#__codelineno-16-49"></a><span class="w">  </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-50"><a id="__codelineno-16-50" name="__codelineno-16-50" href="#__codelineno-16-50"></a><span class="w">  </span><span class="nx">method?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">                 </span><span class="c1">// default &quot;GET&quot;</span>
+</span><span id="__span-16-51"><a id="__codelineno-16-51" name="__codelineno-16-51" href="#__codelineno-16-51"></a><span class="w">  </span><span class="nx">headers?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="o">&gt;</span><span class="p">;</span>
+</span><span id="__span-16-52"><a id="__codelineno-16-52" name="__codelineno-16-52" href="#__codelineno-16-52"></a><span class="w">  </span><span class="nx">body?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-53"><a id="__codelineno-16-53" name="__codelineno-16-53" href="#__codelineno-16-53"></a><span class="w">  </span><span class="nx">timeoutMs?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+</span><span id="__span-16-54"><a id="__codelineno-16-54" name="__codelineno-16-54" href="#__codelineno-16-54"></a><span class="p">}</span>
+</span><span id="__span-16-55"><a id="__codelineno-16-55" name="__codelineno-16-55" href="#__codelineno-16-55"></a>
+</span><span id="__span-16-56"><a id="__codelineno-16-56" name="__codelineno-16-56" href="#__codelineno-16-56"></a><span class="cm">/** The host&#39;s reply. body is the response body up to the size cap; truncated is</span>
+</span><span id="__span-16-57"><a id="__codelineno-16-57" name="__codelineno-16-57" href="#__codelineno-16-57"></a><span class="cm">    true when it was cut at the cap. */</span>
+</span><span id="__span-16-58"><a id="__codelineno-16-58" name="__codelineno-16-58" href="#__codelineno-16-58"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">KasasFetchResponse</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-59"><a id="__codelineno-16-59" name="__codelineno-16-59" href="#__codelineno-16-59"></a><span class="w">  </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+</span><span id="__span-16-60"><a id="__codelineno-16-60" name="__codelineno-16-60" href="#__codelineno-16-60"></a><span class="w">  </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="o">&gt;</span><span class="p">;</span>
+</span><span id="__span-16-61"><a id="__codelineno-16-61" name="__codelineno-16-61" href="#__codelineno-16-61"></a><span class="w">  </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+</span><span id="__span-16-62"><a id="__codelineno-16-62" name="__codelineno-16-62" href="#__codelineno-16-62"></a><span class="w">  </span><span class="nx">truncated</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+</span><span id="__span-16-63"><a id="__codelineno-16-63" name="__codelineno-16-63" href="#__codelineno-16-63"></a><span class="p">}</span>
+</span><span id="__span-16-64"><a id="__codelineno-16-64" name="__codelineno-16-64" href="#__codelineno-16-64"></a>
+</span><span id="__span-16-65"><a id="__codelineno-16-65" name="__codelineno-16-65" href="#__codelineno-16-65"></a><span class="kr">declare</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">kasas</span><span class="o">:</span><span class="w"> </span><span class="kt">Kasas</span><span class="p">;</span>
+</span></code></pre></div>
+<p>Annotate your hook parameters with <code>KasasTransaction</code> / <code>KasasSyncSummary</code> (don't
+re-<code>declare</code> the hook functions — you define them). <code>console.log/info/warn/error/debug</code>
+also work and route to kasas's structured logging.</p>
+<h3 id="bundled-dependencies">Bundled dependencies<a class="headerlink" href="#bundled-dependencies" title="Permanent link">&para;</a></h3>
+<p>A hand-written plugin is still a single file. But "single file" no longer means
+"no dependencies": per <a href="../../architecture/decisions/0001-plugin-dependency-bundling/">ADR 0001</a>
+a JS/TS plugin may depend on third-party libraries, provided they are <strong>bundled at
+submission time into the single entrypoint</strong>. The author develops against npm
+packages and ships a pre-bundled <code>main.js</code>; the host still sees, hashes, and runs
+exactly one file. esbuild — already the host's loader — is the bundler, so this
+needs no new capability and no change to the build: a bundled <code>lodash</code> can sort an
+array but still cannot open a socket, because the sandbox is unchanged.</p>
+<p>The host does not bundle at load (it only strips types and downlevels syntax, as
+before); the bundle is produced ahead of time. The
+<a href="#the-community-marketplace">community marketplace</a> gate verifies a bundled
+submission by <strong>reproducing it from a linked source repository</strong> and comparing
+hashes — so review shifts from "read the artifact" to "the artifact is provably
+this source." WASM plugins already bundle by construction (a compiled module
+statically links its dependencies); Lua remains single-file.</p>
+<h2 id="go-wasm">Go (WASM)<a class="headerlink" href="#go-wasm" title="Permanent link">&para;</a></h2>
+<p>Set <code>runtime = "wasm"</code> in the manifest. The entrypoint defaults to <code>main.wasm</code> — a
+compiled WebAssembly module, executed by <a href="https://github.com/tetratelabs/wazero">wazero</a>
+(pure Go, like the other runtimes). For Go authors there is a first-party <strong>plugin
+SDK</strong>; a plugin is an ordinary Go program:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">name</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;budgeting&quot;</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">runtime</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;wasm&quot;</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">hooks</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;OnTransactionCreate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;OnTransactionUpdate&quot;</span><span class="p">]</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;transactions:read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;labels:write&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;extensions:write&quot;</span><span class="p">]</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="k">[config]</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="n">keyword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;coffee&quot;</span>
+</span></code></pre></div>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">package</span><span class="w"> </span><span class="nx">main</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">    </span><span class="s">&quot;strings&quot;</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">    </span><span class="nx">kasas</span><span class="w"> </span><span class="s">&quot;github.com/paulmeier/kasas/pluginsdk/kasas&quot;</span>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="p">)</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>
+</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="kd">func</span><span class="w"> </span><span class="nx">init</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="w">    </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">OnTransactionCreate</span><span class="p">(</span><span class="nx">classify</span><span class="p">)</span>
+</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a><span class="w">    </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">OnTransactionUpdate</span><span class="p">(</span><span class="nx">classify</span><span class="p">)</span>
+</span><span id="__span-18-12"><a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a><span class="p">}</span>
+</span><span id="__span-18-13"><a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a>
+</span><span id="__span-18-14"><a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a><span class="kd">func</span><span class="w"> </span><span class="nx">classify</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">kasas</span><span class="p">.</span><span class="nx">Transaction</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-18-15"><a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">Contains</span><span class="p">(</span><span class="nx">strings</span><span class="p">.</span><span class="nx">ToLower</span><span class="p">(</span><span class="nx">t</span><span class="p">.</span><span class="nx">Description</span><span class="p">),</span><span class="w"> </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">ConfigString</span><span class="p">(</span><span class="s">&quot;keyword&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-18-16"><a id="__codelineno-18-16" name="__codelineno-18-16" href="#__codelineno-18-16"></a><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">ApplyLabels</span><span class="p">(</span><span class="nx">t</span><span class="p">.</span><span class="nx">ID</span><span class="p">,</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span><span class="p">{</span><span class="s">&quot;category&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;food&quot;</span><span class="p">});</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-18-17"><a id="__codelineno-18-17" name="__codelineno-18-17" href="#__codelineno-18-17"></a><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+</span><span id="__span-18-18"><a id="__codelineno-18-18" name="__codelineno-18-18" href="#__codelineno-18-18"></a><span class="w">        </span><span class="p">}</span>
+</span><span id="__span-18-19"><a id="__codelineno-18-19" name="__codelineno-18-19" href="#__codelineno-18-19"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">kasas</span><span class="p">.</span><span class="nx">SetExtension</span><span class="p">(</span><span class="nx">t</span><span class="p">.</span><span class="nx">ID</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;budgeting.flagged&quot;</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="c1">// routes through the</span>
+</span><span id="__span-18-20"><a id="__codelineno-18-20" name="__codelineno-18-20" href="#__codelineno-18-20"></a><span class="w">    </span><span class="p">}</span><span class="w">                                                            </span><span class="c1">// normal emitter</span>
+</span><span id="__span-18-21"><a id="__codelineno-18-21" name="__codelineno-18-21" href="#__codelineno-18-21"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span>
+</span><span id="__span-18-22"><a id="__codelineno-18-22" name="__codelineno-18-22" href="#__codelineno-18-22"></a><span class="p">}</span>
+</span><span id="__span-18-23"><a id="__codelineno-18-23" name="__codelineno-18-23" href="#__codelineno-18-23"></a>
+</span><span id="__span-18-24"><a id="__codelineno-18-24" name="__codelineno-18-24" href="#__codelineno-18-24"></a><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{}</span><span class="w"> </span><span class="c1">// required by the build mode, never runs</span>
+</span></code></pre></div>
+<p>Build it with the standard Go toolchain (Go 1.24+), no extra tools:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">GOOS</span><span class="o">=</span>wasip1<span class="w"> </span><span class="nv">GOARCH</span><span class="o">=</span>wasm<span class="w"> </span>go<span class="w"> </span>build<span class="w"> </span>-buildmode<span class="o">=</span>c-shared<span class="w"> </span>-o<span class="w"> </span>main.wasm<span class="w"> </span>.
+</span></code></pre></div>
+<p>The module is a <strong>WASI reactor</strong>: kasas runs your <code>init</code> functions once at load
+(that is where hooks are registered — <code>main</code> never runs), then invokes exported
+hooks per event. The SDK mirrors the Lua/JS host API one-to-one —
+<code>GetTransaction</code>, <code>Search</code>, <code>ApplyLabels</code>, <code>RemoveLabels</code>, <code>SetExtension</code>,
+<code>RemoveExtension</code>, <code>Fetch</code>, <code>Log</code>, <code>Config</code>/<code>ConfigString</code>/<code>SetConfig</code> — with the
+same capability gates, and ships typed <a href="#dashboard-pages">page builders</a>
+(<code>kasas.Page</code>, <code>kasas.Stat(...)</code>, <code>kasas.Form(...)</code>, …) for dashboard pages.
+<code>fmt.Println</code> output lands in the plugin log at info level (stderr at error
+level).</p>
+<p>Failure semantics match the other runtimes, with one twist worth knowing:</p>
+<ul>
+<li>A <strong>handler panic</strong> is recovered by the SDK inside the module and surfaces as a
+  recorded hook error — the instance keeps running.</li>
+<li>A <strong>timeout</strong> (<code>plugins.hook_timeout</code>) or an <code>os.Exit</code> kills the module
+  <em>instance</em>; kasas transparently <strong>re-instantiates it from the compiled module on
+  the next invocation</strong>. In-memory guest state is reset (treat globals as a cache,
+  not a store — durable state belongs in labels, extensions, or config).</li>
+</ul>
+<h3 id="other-languages-the-abi">Other languages &amp; the ABI<a class="headerlink" href="#other-languages-the-abi" title="Permanent link">&para;</a></h3>
+<p>The WASM runtime is not Go-specific — the ABI (v1) is four host functions and a
+handshake, all JSON over linear memory, implementable from Rust, Zig, TinyGo, or
+anything else that targets <code>wasip1</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Import (<code>kasas</code> module)</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>input(ptr, cap) -&gt; n</code></td>
+<td>copy the invocation payload (length arrived as the hook argument)</td>
+</tr>
+<tr>
+<td><code>output(ptr, len)</code></td>
+<td>set the result envelope: <code>{"ok":true}</code>, <code>{"ok":true,"page":{…}}</code>, or <code>{"ok":false,"error":…}</code></td>
+</tr>
+<tr>
+<td><code>host_call(ptr, len) -&gt; n</code></td>
+<td>run a host op <code>{"op":"apply_labels", …}</code>; returns response length</td>
+</tr>
+<tr>
+<td><code>read_response(ptr, cap) -&gt; n</code></td>
+<td>copy (and consume) that response: <code>{"ok":true,"data":…}</code> or <code>{"ok":false,"error":…}</code></td>
+</tr>
+</tbody>
+</table>
+<p>The guest exports <code>_initialize</code> (the reactor initializer), <code>kasas_describe()</code> —
+which must <code>output</code> <code>{"ok":true,"abi":1,"hooks":["OnTransactionCreate",…]}</code> so
+kasas can verify at load that every declared hook is really implemented — and one
+export per hook, named exactly like the hook, with signature
+<code>(payload_len: u32)</code>. Host ops mirror the host API: <code>get_transaction</code>, <code>search</code>,
+<code>apply_labels</code>, <code>remove_labels</code>, <code>set_extension</code>, <code>remove_extension</code>, <code>fetch</code>,
+<code>log</code>, <code>get_config</code>, <code>set_config</code>.</p>
+<h2 id="dashboard-pages">Dashboard pages<a class="headerlink" href="#dashboard-pages" title="Permanent link">&para;</a></h2>
+<p>A plugin can extend the dashboard with its <strong>own sidebar entry and page</strong>, without
+shipping any frontend code. The page is <em>declarative</em>: the plugin's <code>OnPageRender</code>
+hook returns a JSON-shaped <strong>page document</strong> (a list of typed blocks), kasas
+validates and normalizes it server-side, and the dashboard renders the blocks with
+its own components. Plugin output is always treated as text — a plugin cannot
+inject markup, scripts, or styles.</p>
+<p>Declare the page in the manifest. The <code>[ui]</code> block, the <code>OnPageRender</code> hook, and
+the <code>ui:page</code> capability come as a unit (the manifest is rejected if any of the
+three is missing):</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">hooks</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;OnTransactionCreate&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;OnPageRender&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;OnPageAction&quot;</span><span class="p">]</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">capabilities</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;transactions:read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ui:page&quot;</span><span class="p">]</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="k">[ui]</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="n">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Coffee Budget&quot;</span><span class="w">   </span><span class="c1"># sidebar label + default page heading (max 40 chars)</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="n">icon</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;chart&quot;</span><span class="w">           </span><span class="c1"># curated icon name; bell, calendar, chart, coin, flag,</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">                          </span><span class="c1"># gauge, heart, list, puzzle (default), star</span>
+</span></code></pre></div>
+<p>The page appears in the sidebar at <code>/ext/&lt;plugin-name&gt;</code> while the plugin is
+<strong>enabled and loaded</strong> (disable the plugin — or revoke <code>ui:page</code> — and the entry
+disappears). The hook receives a request (<code>req.plugin</code>, <code>req.action</code>,
+<code>req.params</code>) and returns the page:</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnPageRender</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span><span class="kd">local</span><span class="w"> </span><span class="nv">matches</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">search</span><span class="p">(</span><span class="nv">kasas</span><span class="p">.</span><span class="py">config</span><span class="p">.</span><span class="py">keyword</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">)</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span><span class="kd">local</span><span class="w"> </span><span class="nv">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{}</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="kr">for</span><span class="w"> </span><span class="nv">_</span><span class="p">,</span><span class="w"> </span><span class="nv">t</span><span class="w"> </span><span class="kr">in</span><span class="w"> </span><span class="nb">ipairs</span><span class="p">(</span><span class="nv">matches</span><span class="p">)</span><span class="w"> </span><span class="kr">do</span>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="w">    </span><span class="nv">rows</span><span class="p">[</span><span class="o">#</span><span class="nv">rows</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nv">t</span><span class="p">.</span><span class="py">description</span><span class="p">,</span><span class="w"> </span><span class="nv">t</span><span class="p">.</span><span class="py">amount</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="w">  </span><span class="kr">end</span>
+</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="w">  </span><span class="kr">return</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="w">    </span><span class="nv">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Coffee Budget&quot;</span><span class="p">,</span>
+</span><span id="__span-21-9"><a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="w">    </span><span class="nv">blocks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-21-10"><a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nb">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;stat&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">label</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Matches&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">#</span><span class="nv">matches</span><span class="p">,</span><span class="w"> </span><span class="nv">hint</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;tagged so far&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-21-11"><a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nb">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;table&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">columns</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;Description&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Amount&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="nv">rows</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">rows</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-21-12"><a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nb">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;actions&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">actions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nv">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;rescan&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">label</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Re-scan&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">style</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;primary&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-21-13"><a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-21-14"><a id="__codelineno-21-14" name="__codelineno-21-14" href="#__codelineno-21-14"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-21-15"><a id="__codelineno-21-15" name="__codelineno-21-15" href="#__codelineno-21-15"></a><span class="kr">end</span>
+</span><span id="__span-21-16"><a id="__codelineno-21-16" name="__codelineno-21-16" href="#__codelineno-21-16"></a>
+</span><span id="__span-21-17"><a id="__codelineno-21-17" name="__codelineno-21-17" href="#__codelineno-21-17"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnPageAction</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span><span class="w">         </span><span class="c1">-- req.action == &quot;rescan&quot;, req.params == {…}</span>
+</span><span id="__span-21-18"><a id="__codelineno-21-18" name="__codelineno-21-18" href="#__codelineno-21-18"></a><span class="w">  </span><span class="c1">-- do the work (with the plugin&#39;s granted capabilities), then re-render:</span>
+</span><span id="__span-21-19"><a id="__codelineno-21-19" name="__codelineno-21-19" href="#__codelineno-21-19"></a><span class="w">  </span><span class="kr">return</span><span class="w"> </span><span class="nf">OnPageRender</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-21-20"><a id="__codelineno-21-20" name="__codelineno-21-20" href="#__codelineno-21-20"></a><span class="kr">end</span>
+</span></code></pre></div>
+<p><strong>Block types:</strong> <code>heading</code> and <code>text</code> (a <code>text</code> string), <code>stat</code> (<code>label</code>, <code>value</code>,
+optional <code>hint</code>), <code>keyvalue</code> (<code>items</code> of <code>{key, value}</code>), <code>table</code> (<code>columns</code> plus
+<code>rows</code> of cell arrays), <code>actions</code> (buttons of <code>{id, label, style?, params?}</code> that
+POST back to <code>OnPageAction</code>), <code>form</code> (see below), and <code>divider</code>. Scalar values may
+be strings, numbers, or booleans — they are normalized to strings. An <strong>empty Lua table is
+accepted wherever a list is expected</strong> (a table with zero <code>rows</code> renders as an
+empty table), since Lua cannot distinguish an empty array from an empty object.
+Documents are bounds-checked (≤256 KiB, ≤200 blocks, ≤1000 table rows, …) and an
+unknown block type is an error, so a typo surfaces immediately on the page.</p>
+<p><strong>Form blocks</strong> let a page collect input — the building block of an in-dashboard
+settings panel (see <a href="#configuring-a-plugin">Configuring a plugin</a>). A form is
+<code>{id, fields, submit_label?}</code>; each field is <code>{name, label, kind?, value?,
+placeholder?, help?, options?}</code> with <code>kind</code> one of <code>text</code> (default), <code>number</code>,
+<code>toggle</code>, or <code>select</code> (which requires <code>options</code>). Submitting POSTs the form's
+<code>id</code> as the action with every field's current value (a string; toggles send
+<code>"true"</code>/<code>"false"</code>) in <code>req.params</code> under the field's name — at most 16 fields,
+matching the action-param bound:</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnPageRender</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span><span class="kr">return</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="nv">blocks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nb">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;heading&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Settings&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nb">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;form&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;save_settings&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">submit_label</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Save&quot;</span><span class="p">,</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">        </span><span class="nv">fields</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nv">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w">  </span><span class="nv">label</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="py">config</span><span class="p">.</span><span class="py">keyword</span><span class="p">,</span>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="w">            </span><span class="nv">help</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;transactions whose description contains this are tagged&quot;</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">          </span><span class="p">{</span><span class="w"> </span><span class="nv">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;category&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">label</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Category&quot;</span><span class="p">,</span><span class="w"> </span><span class="nv">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">kasas</span><span class="p">.</span><span class="py">config</span><span class="p">.</span><span class="py">category</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-22-12"><a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-22-13"><a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a><span class="kr">end</span>
+</span><span id="__span-22-14"><a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a>
+</span><span id="__span-22-15"><a id="__codelineno-22-15" name="__codelineno-22-15" href="#__codelineno-22-15"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnPageAction</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-22-16"><a id="__codelineno-22-16" name="__codelineno-22-16" href="#__codelineno-22-16"></a><span class="w">  </span><span class="kr">if</span><span class="w"> </span><span class="nv">req</span><span class="p">.</span><span class="py">action</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s2">&quot;save_settings&quot;</span><span class="w"> </span><span class="kr">then</span>
+</span><span id="__span-22-17"><a id="__codelineno-22-17" name="__codelineno-22-17" href="#__codelineno-22-17"></a><span class="w">    </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">set_config</span><span class="p">({</span><span class="w"> </span><span class="nv">keyword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">req</span><span class="p">.</span><span class="py">params</span><span class="p">.</span><span class="py">keyword</span><span class="p">,</span><span class="w"> </span><span class="nv">category</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">req</span><span class="p">.</span><span class="py">params</span><span class="p">.</span><span class="py">category</span><span class="w"> </span><span class="p">})</span>
+</span><span id="__span-22-18"><a id="__codelineno-22-18" name="__codelineno-22-18" href="#__codelineno-22-18"></a><span class="w">  </span><span class="kr">end</span>
+</span><span id="__span-22-19"><a id="__codelineno-22-19" name="__codelineno-22-19" href="#__codelineno-22-19"></a><span class="w">  </span><span class="kr">return</span><span class="w"> </span><span class="nf">OnPageRender</span><span class="p">(</span><span class="nv">req</span><span class="p">)</span>
+</span><span id="__span-22-20"><a id="__codelineno-22-20" name="__codelineno-22-20" href="#__codelineno-22-20"></a><span class="kr">end</span>
+</span></code></pre></div>
+<p><strong>Contract &amp; tiers:</strong> treat <code>OnPageRender</code> as <strong>read-only</strong> — it runs whenever
+someone views the page (<code>GET /api/v1/plugins/pages/{name}</code>, read tier). Mutations
+belong in <code>OnPageAction</code> (<code>POST /api/v1/plugins/pages/{name}/action</code>, write
+tier), and both hooks run on the plugin's single worker under
+<code>plugins.hook_timeout</code>, serialized with its event hooks. Render failures are
+recorded as plugin health (visible on the Plugins page) and reported on the page
+itself.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># The sidebar entries (read tier).</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>localhost:8080/api/v1/plugins/pages
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="c1"># -&gt; {&quot;pages&quot;:[{&quot;name&quot;:&quot;coffee-budget&quot;,&quot;title&quot;:&quot;Coffee Budget&quot;,&quot;icon&quot;:&quot;chart&quot;}]}</span>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="c1"># Render a page (runs OnPageRender).</span>
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>curl<span class="w"> </span>-s<span class="w"> </span>localhost:8080/api/v1/plugins/pages/coffee-budget
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="c1"># -&gt; {&quot;name&quot;:&quot;coffee-budget&quot;,&quot;page&quot;:{&quot;title&quot;:&quot;Coffee Budget&quot;,&quot;blocks&quot;:[…]}}</span>
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>
+</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="c1"># Press a button (runs OnPageAction; write tier).</span>
+</span><span id="__span-23-10"><a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>localhost:8080/api/v1/plugins/pages/coffee-budget/action<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-23-11"><a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;id&quot;:&quot;rescan&quot;}&#39;</span>
+</span></code></pre></div>
+<h2 id="the-runtime-seam">The runtime seam<a class="headerlink" href="#the-runtime-seam" title="Permanent link">&para;</a></h2>
+<p>The manager, host facade, and capability model are <strong>language-agnostic</strong>. A
+language plugs in by implementing two small interfaces — that is exactly how JS
+and then WASM landed, with no core logic touched:</p>
+<div class="language-go highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">Runtime</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">    </span><span class="nx">Name</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span><span class="w">                                          </span><span class="c1">// &quot;lua&quot; / &quot;js&quot; / &quot;wasm&quot;</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">    </span><span class="nx">Load</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">Manifest</span><span class="p">,</span><span class="w"> </span><span class="nx">dir</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">Host</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">Instance</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="p">}</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="kd">type</span><span class="w"> </span><span class="nx">Instance</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">    </span><span class="nx">Invoke</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">Hook</span><span class="p">,</span><span class="w"> </span><span class="nx">HookEvent</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+</span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">    </span><span class="nx">Close</span><span class="p">()</span><span class="w"> </span><span class="kt">error</span>
+</span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>The Lua runtime opens a gopher-lua VM with <strong>only safe libraries</strong> (base, table,
+string, math), removes every escape hatch (<code>dofile</code>, <code>loadfile</code>, <code>load</code>,
+<code>require</code>, <code>module</code>, <code>newproxy</code>), routes <code>print</code> to structured logging, injects the
+<code>kasas</code> table, and resolves the declared hook functions. Each <code>Invoke</code> sets the
+VM's context so a runaway pure-Lua loop is interrupted at the deadline.</p>
+<p>The JS/TS runtime transpiles the entrypoint with esbuild, then runs it in a fresh
+goja VM — which exposes no <code>require</code>, filesystem, or network by default — injects the
+camelCase <code>kasas</code> object plus a <code>console</code> shim, and resolves the declared hooks as
+global functions. A watcher goroutine calls the VM's <code>Interrupt</code> at the deadline, so
+a runaway <code>while (true) {}</code> is stopped just like a Lua loop.</p>
+<p>The WASM runtime compiles the module once with wazero and instantiates it as a
+WASI reactor with <strong>no preopened directories</strong> (so the entire WASI
+filesystem/network surface is dead on arrival), binds the four ABI host
+functions, and verifies the <code>kasas_describe</code> handshake against the manifest's
+hook list. Deadlines interrupt even a tight compiled loop (wazero closes the
+module instance); the instance is then re-instantiated from the compiled module
+on the next invocation.</p>
+<h2 id="enabling-is-opt-in-admin-only">Enabling is opt-in &amp; admin-only<a class="headerlink" href="#enabling-is-opt-in-admin-only" title="Permanent link">&para;</a></h2>
+<p>A plugin is third-party code, so discovery and execution are separated:</p>
+<ul>
+<li>The <code>plugins.enabled</code> switch only makes plugins <strong>discoverable</strong>. Discovered
+  plugins start <strong>disabled</strong>.</li>
+<li><strong>Enabling one loads and runs its code</strong>, so that action is <strong>admin-only</strong> (the
+  <a href="../../interfaces/authentication/">dashboard token</a>, never an API key).</li>
+</ul>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$KASAS_DASHBOARD_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span>http://localhost:8080/api/v1/plugins
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="c1"># -&gt; {&quot;plugins&quot;:[{&quot;id&quot;:1,&quot;name&quot;:&quot;budgeting&quot;,&quot;state&quot;:&quot;disabled&quot;,&quot;hooks&quot;:[…],…}]}</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$KASAS_DASHBOARD_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">  </span>http://localhost:8080/api/v1/plugins/1/enable
+</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="c1"># -&gt; {&quot;id&quot;:1,&quot;name&quot;:&quot;budgeting&quot;,&quot;enabled&quot;:true,&quot;loaded&quot;:true,&quot;state&quot;:&quot;loaded&quot;,…}</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Operations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>REST</td>
+<td><code>GET /api/v1/plugins</code>, <code>GET /api/v1/plugins/{id}</code>, admin <code>POST /api/v1/plugins/{id}/{enable,disable,reload}</code>, admin <code>DELETE /api/v1/plugins/{id}</code> (uninstall)</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td><code>list_plugins</code>, <code>get_plugin</code>, <code>enable_plugin</code>, <code>disable_plugin</code>, <code>reload_plugin</code>, <code>uninstall_plugin</code></td>
+</tr>
+<tr>
+<td>Dashboard</td>
+<td>The <strong>Plugins</strong> page: status/health, enable/disable toggle, reload, uninstall</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>plugins</code> table stays lean — name, runtime, granted capabilities, config, and
+run health — while the code lives on disk under <code>plugins.dir</code>.</p>
+<h2 id="the-community-marketplace">The community marketplace<a class="headerlink" href="#the-community-marketplace" title="Permanent link">&para;</a></h2>
+<p>Installing a plugin by hand means dropping a directory into <code>plugins.dir</code>. The
+<strong>marketplace</strong> automates discovery and installation from the
+<a href="https://github.com/paulmeier/kasas-plugins">kasas-plugins</a> community registry — a
+repository whose submission pipeline gates every plugin (per-language static
+analysis, a single self-contained entrypoint — hand-written or a
+<a href="#bundled-dependencies">verified dependency bundle</a>, capability review) before it
+is listed, so a user can install with confidence.</p>
+<p>kasas reads the registry's published, machine-readable <strong>index</strong> (<code>index.json</code>),
+which lists each plugin with its manifest metadata, capability tier, <strong>trust tier</strong>
+(see below), and a <strong>per-file SHA-256</strong> plus an aggregate content hash. Installing
+fetches those files, <strong>verifies every hash before writing a byte</strong>, and writes the
+plugin into <code>plugins.dir</code> — so what lands on disk is exactly what was reviewed in the
+registry, independent of the transport.</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Browse the catalog (admin/dashboard token).</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>curl<span class="w"> </span>-s<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$KASAS_DASHBOARD_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="w">  </span>http://localhost:8080/api/v1/plugins/registry
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="c1"># -&gt; {&quot;available&quot;:true,&quot;plugins&quot;:[{&quot;name&quot;:&quot;coffee-budget&quot;,&quot;capability_tier&quot;:&quot;write&quot;,</span>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="c1">#     &quot;tier&quot;:&quot;verified&quot;,&quot;installed&quot;:false,&quot;update_available&quot;:false,...}]}</span>
+</span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a>
+</span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="c1"># Install (downloads + integrity-verifies, then registers it DISABLED).</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$KASAS_DASHBOARD_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-26-9"><a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="w">  </span>http://localhost:8080/api/v1/plugins/registry/coffee-budget/install
+</span><span id="__span-26-10"><a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a><span class="c1"># -&gt; {&quot;id&quot;:2,&quot;name&quot;:&quot;coffee-budget&quot;,&quot;state&quot;:&quot;disabled&quot;,...}</span>
+</span></code></pre></div>
+<p>Installing is <strong>admin-only</strong> and never runs code: a freshly installed plugin is
+registered <strong>disabled</strong>, exactly like one dropped in by hand — enabling it (which
+loads and runs it) stays the separate, deliberate action described above. An install
+over an existing plugin (an update) atomically swaps the files and reloads it only if
+it was already running.</p>
+<h3 id="trust-tiers">Trust tiers<a class="headerlink" href="#trust-tiers" title="Permanent link">&para;</a></h3>
+<p>Every listed plugin carries an explicit <strong>trust tier</strong>
+(<a href="../../architecture/decisions/0003-marketplace-trust-tiers/">ADR 0003</a>) — a legible,
+escalating signal of how far you are extending trust, computed by the registry gate
+from the plugin's declared capabilities (never self-assigned). The Marketplace page
+<strong>groups and badges</strong> plugins by it:</p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>What it may do</th>
+<th>What you see</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Verified</strong></td>
+<td>reads, labels, extensions, a dashboard page — capabilities the gate can prove <strong>sealed</strong> (no network, no disk)</td>
+<td>The default. "Sealed: cannot reach the network or disk." Auto-listed once the gate's checks pass.</td>
+</tr>
+<tr>
+<td><strong>Connected</strong></td>
+<td>the above <strong>+ <a href="#network-access-netfetch"><code>net:fetch</code></a></strong></td>
+<td>The exact hosts it may reach are shown before install; a registry maintainer reviewed that list, and enabling collects any private/LAN grants.</td>
+</tr>
+<tr>
+<td><strong>Unlisted</strong></td>
+<td>a capability outside the reviewed set</td>
+<td>Never auto-listed — the registry refuses to publish it, so it appears only if you sideload it by hand.</td>
+</tr>
+</tbody>
+</table>
+<p>The tier is a <em>communication and review</em> construct layered on the capability checks
+the host already enforces — it changes how loudly the risk is shown and how hard the
+gate looks, not the <a href="#enabling-is-opt-in-admin-only">opt-in, admin-only</a> posture or
+the per-capability enforcement in the <a href="#the-host-api">host facade</a>. <code>net:fetch</code> is the
+capability that distinguishes "labels my transactions" from "reads everything and can
+POST it out," so it gets its own tier rather than hiding inside "write."</p>
+<p>Configure it under <code>[plugins.registry]</code> (effective only when <code>plugins.enabled</code> is
+true; on by default, pointing at the official registry):</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">[plugins.registry]</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="n">url</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://raw.githubusercontent.com/paulmeier/kasas-plugins/main/registry/index.json&quot;</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="n">ref</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;main&quot;</span><span class="w">   </span><span class="c1"># used to build raw file-download URLs</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Operations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>REST</td>
+<td>admin <code>GET /api/v1/plugins/registry</code>, <code>POST /api/v1/plugins/registry/{name}/install</code></td>
+</tr>
+<tr>
+<td>MCP</td>
+<td><code>browse_plugin_registry</code>, <code>install_plugin</code></td>
+</tr>
+<tr>
+<td>Dashboard</td>
+<td>The <strong>Marketplace</strong> page: browse grouped by <a href="#trust-tiers">trust tier</a>, capability-tier warning, Connected-tier egress hosts, one-click install</td>
+</tr>
+</tbody>
+</table>
+<h2 id="uninstalling-the-cleanup-hook">Uninstalling &amp; the cleanup hook<a class="headerlink" href="#uninstalling-the-cleanup-hook" title="Permanent link">&para;</a></h2>
+<p>Disabling a plugin only stops it; <strong>uninstalling</strong> removes it entirely. Because a
+plugin may have created data (labels, schema extensions), the plugin — not kasas —
+owns undoing that. Every plugin therefore implements an <strong><code>OnUninstall</code></strong> lifecycle
+hook, and kasas runs it at uninstall time:</p>
+<div class="language-lua highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="kr">function</span><span class="w"> </span><span class="nf">OnUninstall</span><span class="p">()</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="c1">-- Undo what this plugin created. It runs with the plugin&#39;s granted</span>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span><span class="c1">-- capabilities, so it can remove its own labels/extensions via the kasas API.</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">  </span><span class="nv">kasas</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="s2">&quot;info&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;budgeting: cleaning up&quot;</span><span class="p">)</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="kr">end</span>
+</span></code></pre></div>
+<p><code>OnUninstall</code> is a <strong>lifecycle</strong> hook, not an event hook: it has no triggering
+event and is never dispatched off the bus — it is invoked exactly once, when the
+plugin is removed. Uninstall:</p>
+<ol>
+<li>stops the plugin if it is running;</li>
+<li>loads a fresh, isolated instance (with the plugin's granted capabilities) and
+   runs <code>OnUninstall</code> under the per-hook timeout;</li>
+<li>deletes the plugin's files from <code>plugins.dir</code> and removes its registration.</li>
+</ol>
+<p>The plugin is <strong>always removed</strong>, even if its <code>OnUninstall</code> errors or times out —
+a buggy cleanup can never trap a plugin as un-removable. The hook's error is
+reported back (in the REST/MCP response and the dashboard) so you know cleanup may
+have been incomplete. Community plugins are <strong>required</strong> to declare <code>OnUninstall</code>
+(the <a href="#the-community-marketplace">registry</a> gate rejects those that don't); a
+hand-dropped plugin without it is still removable, just without self-cleanup.</p>
+<h2 id="sandbox-limits-v1">Sandbox &amp; limits (v1)<a class="headerlink" href="#sandbox-limits-v1" title="Permanent link">&para;</a></h2>
+<p>All three runtimes run with <strong>no filesystem or process access, and no network
+access by default</strong>, plus a single, self-contained entrypoint — the Lua VM opens
+only safe libraries, the goja VM exposes none of those globals by default (<code>eval</code>
+and the <code>Function</code> constructor binding are removed too), and the WASM module gets a
+WASI with no preopens, so every path and socket operation fails by construction.
+The <strong>one</strong> sanctioned exception is the <code>net:fetch</code> capability
+(<a href="#network-access-netfetch">Network access</a>): even then a plugin opens no socket —
+it calls the host, which performs an allowlisted, SSRF-checked, logged request. The
+submission gate keeps rejecting every other network construct. Each hook is bounded by
+<code>plugins.hook_timeout</code>. The "single entrypoint" is about a single <em>reviewable,
+hashed artifact</em>, not about forbidding dependencies: a JS/TS plugin may
+<a href="#bundled-dependencies">bundle third-party libraries</a> into that one file (ADR 0001),
+and the host loads it the same way — there is still no runtime <code>import</code>/<code>require</code>,
+no <code>node_modules</code>, and no module loader inside the sandbox.</p>
+<p>WASM is the strongest of the three: isolation is enforced by the WebAssembly
+memory model rather than by withholding APIs, and guest linear memory is <strong>hard
+capped at 1 GiB</strong> per plugin. The Lua and JS VMs are not hard memory sandboxes (a
+buggy plugin can still allocate without bound), so the v1 trust model remains
+<em>operator-installed, opt-in</em> plugins — sourced by hand or, with the same
+disabled-by-default posture, from the gated
+<a href="#the-community-marketplace">community marketplace</a> above. Pick the WASM runtime
+when you want the strongest isolation for third-party code.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../webhooks/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Webhooks">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Webhooks
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../interfaces/rest-api/" class="md-footer__link md-footer__link--next" aria-label="Next: REST API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                REST API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Paul Meier — released under the MIT License
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/paulmeier/kasas" target="_blank" rel="noopener" title="kasas on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://github.com/paulmeier/kasas/pkgs/container/kasas" target="_blank" rel="noopener" title="kasas container image" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M349.9 236.3h-66.1v-59.4h66.1zm0-204.3h-66.1v60.7h66.1zm78.2 144.8H362v59.4h66.1zm-156.3-72.1h-66.1v60.1h66.1zm78.1 0h-66.1v60.1h66.1zm276.8 100c-14.4-9.7-47.6-13.2-73.1-8.4-3.3-24-16.7-44.9-41.1-63.7l-14-9.3-9.3 14c-18.4 27.8-23.4 73.6-3.7 103.8-8.7 4.7-25.8 11.1-48.4 10.7H2.4c-8.7 50.8 5.8 116.8 44 162.1 37.1 43.9 92.7 66.2 165.4 66.2 157.4 0 273.9-72.5 328.4-204.2 21.4.4 67.6.1 91.3-45.2 1.5-2.5 6.6-13.2 8.5-17.1zm-511.1-27.9h-66v59.4h66.1v-59.4zm78.1 0h-66.1v59.4h66.1zm78.1 0h-66.1v59.4h66.1zm-78.1-72.1h-66.1v60.1h66.1z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.top", "navigation.indexes", "navigation.footer", "toc.follow", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tooltips"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
