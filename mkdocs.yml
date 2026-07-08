@@ -106,6 +106,7 @@ nav:
       - Quick Start: getting-started/quick-start.md
       - Configuration: getting-started/configuration.md
       - Deployment: getting-started/deployment.md
+      - Migrate to Postgres: getting-started/migrate-to-postgres.md
   - Architecture:
       - Philosophy: architecture/philosophy.md
       - System Overview: architecture/overview.md

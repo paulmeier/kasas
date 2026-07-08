@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"net/http"
 	"time"
@@ -86,6 +87,7 @@ type Server struct {
 	settingsSvc *settings.Service // nil when settings management is unavailable
 	market      *market.Service   // nil when market data is unavailable
 	oauth       *oauthStates      // pending source OAuth flows (anti-CSRF state)
+	sqliteDB    *sql.DB           // the raw SQLite handle; non-nil only on the SQLite backend, for migrate-to-Postgres
 }
 
 // Options configures a Server.
@@ -133,6 +135,11 @@ type Options struct {
 	// (GET /api/v1/market/series, .../points) and series management
 	// (POST/DELETE /api/v1/market/series), across REST, MCP, and the dashboard.
 	Market *market.Service
+	// SQLiteDB, when non-nil, is the raw SQLite database handle (set only when
+	// the active backend is SQLite). It enables POST /api/v1/system/migrate-postgres,
+	// which copies the ledger into a Postgres database. Nil on the Postgres
+	// backend, where there is nothing to migrate from.
+	SQLiteDB *sql.DB
 }
 
 // New constructs a Server.
@@ -159,6 +166,7 @@ func New(opts Options) *Server {
 		settingsSvc: opts.Settings,
 		market:      opts.Market,
 		oauth:       newOAuthStates(),
+		sqliteDB:    opts.SQLiteDB,
 	}
 }
 
@@ -451,6 +459,11 @@ func (s *Server) Router() http.Handler {
 
 				// Restart kasas in place (re-exec) so pending setting changes apply.
 				r.Post("/system/restart", s.handleRestart)
+
+				// Migrate the SQLite ledger into a Postgres database. Admin-only
+				// (a configured token); the handler refuses (400) on the Postgres
+				// backend, where there is nothing to migrate from.
+				r.Post("/system/migrate-postgres", s.handleMigratePostgres)
 
 				// Apply a self-update (status is in the read tier above).
 				if s.updates != nil && s.allowApply {

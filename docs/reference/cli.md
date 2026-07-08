@@ -44,6 +44,33 @@ Applies the embedded [goose migrations](../architecture/data-model.md#migrations
 for the active dialect and exits. Migrations also run automatically on `serve`, so
 this is for running them explicitly.
 
+## migrate-postgres
+
+```sh
+kasas -config config.toml migrate-postgres \
+  "postgres://user:pass@host:5432/kasas?sslmode=disable"
+```
+
+Copies the current **SQLite** ledger into a **Postgres** database and exits — the
+one-time move from the default embedded backend to Postgres. It applies the kasas
+schema to the target, then copies every table (accounts, transactions, rules,
+events, history, settings, …) **with ids preserved**, and prints a per-table row
+count. See the [migration guide](../getting-started/migrate-to-postgres.md) for the
+full walkthrough (the same thing is available from the dashboard's **Settings →
+Migrate to Postgres** panel).
+
+The target DSN may be passed as the first argument or with `-dsn`. Requirements:
+
+- the active `database.driver` must be `sqlite` (there must be a ledger to copy from);
+- the target Postgres database must be **empty** (kasas refuses a non-empty one
+  rather than risk a half-merged ledger);
+- the source SQLite database is only **read** — it is left untouched, so you can
+  verify Postgres before switching.
+
+It does **not** change your configuration: after it succeeds, set
+`database.driver=postgres` and `database.dsn` (or `KASAS_DATABASE_DRIVER` /
+`KASAS_DATABASE_DSN`) and restart kasas to run on Postgres.
+
 ## mcp
 
 ```sh

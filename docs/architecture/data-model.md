@@ -159,8 +159,10 @@ The pieces:
 
 !!! tip "Switching backends"
     Point kasas at Postgres with `database.driver=postgres` and a `database.dsn`;
-    it creates its schema on first start via the same embedded migrations. Data is
-    **not** migrated between backends — each keeps its own database. See
+    it creates its schema on first start via the same embedded migrations. A fresh
+    Postgres database starts **empty** — to carry an existing SQLite ledger across,
+    run [`kasas migrate-postgres`](../getting-started/migrate-to-postgres.md) (or
+    the dashboard's **Settings → Migrate to Postgres** panel) once first. See
     [Deployment → Postgres](../getting-started/deployment.md#postgres).
 
 ## Migrations

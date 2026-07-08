@@ -7,10 +7,11 @@
 //
 // Commands:
 //
-//	serve        (default) run the HTTP server and background sync scheduler
-//	sync         run a single sync and exit
-//	migrate      apply database migrations and exit
-//	mcp          serve the MCP server over stdio (for desktop MCP clients)
+//	serve            (default) run the HTTP server and background sync scheduler
+//	sync             run a single sync and exit
+//	migrate          apply database migrations and exit
+//	migrate-postgres copy this SQLite ledger into a Postgres database and exit
+//	mcp              serve the MCP server over stdio (for desktop MCP clients)
 //	healthcheck  probe the local /healthz endpoint (used by Docker HEALTHCHECK)
 //	self-update  download and install the latest release (use -check to dry-run)
 //	version      print the version and exit
@@ -43,6 +44,7 @@ import (
 	"github.com/paulmeier/kasas/internal/config"
 	"github.com/paulmeier/kasas/internal/dashboard"
 	"github.com/paulmeier/kasas/internal/db"
+	"github.com/paulmeier/kasas/internal/dbmigrate"
 	"github.com/paulmeier/kasas/internal/events"
 	"github.com/paulmeier/kasas/internal/market"
 	_ "github.com/paulmeier/kasas/internal/market/alphavantage" // registers the alphavantage provider
@@ -108,6 +110,13 @@ func run(command, configPath string) error {
 
 	if err := runMigrations(database, cfg.Database.Driver); err != nil {
 		return fmt.Errorf("apply migrations: %w", err)
+	}
+
+	// migrate-postgres copies this SQLite ledger into a Postgres database and
+	// exits. It needs the open (source) database but none of the server setup
+	// below, so it is handled here.
+	if command == "migrate-postgres" {
+		return migrateToPostgres(flag.Args()[1:], cfg, database, logger)
 	}
 
 	store := newStore(cfg.Database.Driver, database)
@@ -254,6 +263,12 @@ func run(command, configPath string) error {
 		apiOpts.UpdateChecker = updateChecker
 		apiOpts.AllowApply = cfg.Update.AllowApply
 	}
+	// Expose the raw SQLite handle so the dashboard can migrate the ledger to
+	// Postgres. Only on the SQLite backend — there is nothing to migrate from
+	// once already on Postgres.
+	if cfg.Database.Driver == "sqlite" {
+		apiOpts.SQLiteDB = database
+	}
 	srv := api.New(apiOpts)
 
 	switch command {
@@ -279,7 +294,7 @@ func run(command, configPath string) error {
 	case "mcp":
 		return srv.RunMCPStdio(context.Background())
 	default:
-		return fmt.Errorf("unknown command %q (want one of: serve, sync, migrate, mcp, healthcheck, self-update, version)", command)
+		return fmt.Errorf("unknown command %q (want one of: serve, sync, migrate, migrate-postgres, mcp, healthcheck, self-update, version)", command)
 	}
 }
 
@@ -834,6 +849,43 @@ func newStore(driver string, database *sql.DB) db.Store {
 		return db.NewPostgresStore(database)
 	}
 	return db.NewSQLiteStore(database)
+}
+
+// migrateToPostgres copies the ledger from the open SQLite database into a fresh
+// Postgres database, then prints a per-table summary. The target DSN comes from
+// -dsn or the first positional argument. It refuses to run unless the active
+// driver is sqlite (there must be a SQLite ledger to copy from); it never
+// modifies the running config, so the operator switches to Postgres by editing
+// database.driver / database.dsn and restarting afterward.
+func migrateToPostgres(args []string, cfg *config.Config, database *sql.DB, logger *slog.Logger) error {
+	fs := flag.NewFlagSet("migrate-postgres", flag.ContinueOnError)
+	dsn := fs.String("dsn", "", "target Postgres DSN (e.g. postgres://user:pass@host:5432/kasas?sslmode=disable)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dsn == "" && fs.NArg() > 0 {
+		*dsn = fs.Arg(0)
+	}
+	if *dsn == "" {
+		return fmt.Errorf("migrate-postgres requires a target Postgres DSN (pass -dsn or as the first argument)")
+	}
+	if cfg.Database.Driver != "sqlite" {
+		return fmt.Errorf("migrate-postgres copies from a SQLite ledger, but database.driver is %q — run it with your existing SQLite configuration", cfg.Database.Driver)
+	}
+
+	logger.Info("migrating SQLite ledger to Postgres")
+	report, err := dbmigrate.MigrateToPostgres(context.Background(), database, *dsn, logger)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Migration complete. Rows copied:")
+	for _, t := range report.Tables {
+		fmt.Printf("  %-22s %d\n", t.Table, t.Rows)
+	}
+	fmt.Printf("\nCopied %d rows across %d tables.\n", report.Total, len(report.Tables))
+	fmt.Println("Next: set database.driver=postgres and database.dsn (or KASAS_DATABASE_DRIVER / KASAS_DATABASE_DSN) and restart kasas.")
+	return nil
 }
 
 // runMigrations applies the embedded goose migrations for the active dialect.

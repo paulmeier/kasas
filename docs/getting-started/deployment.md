@@ -58,9 +58,23 @@ The Compose file includes an optional Postgres service behind a profile:
 docker compose --profile postgres up -d
 ```
 
-!!! note
-    Switching backends does **not** migrate existing data between them; each
-    backend keeps its own database.
+### Moving an existing SQLite ledger to Postgres
+
+Pointing kasas at a fresh Postgres database creates an **empty** schema — it does
+not carry your SQLite data across on its own. To bring an existing ledger with
+you, run the built-in migration once:
+
+```sh
+kasas -config config.toml migrate-postgres \
+  "postgres://user:pass@host:5432/kasas?sslmode=disable"
+```
+
+It copies every table — accounts, transactions, rules, events, history, settings,
+and the rest — into the (empty) Postgres database with ids preserved, reading the
+SQLite file without modifying it. Then set `database.driver=postgres` and
+`database.dsn` and restart. The same thing is available from the dashboard under
+**Settings → Migrate to Postgres**. See the
+[migration guide](migrate-to-postgres.md) for the full walkthrough and caveats.
 
 ## Vault
 
