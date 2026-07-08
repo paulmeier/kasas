@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.2.0](https://github.com/paulmeier/kasas/compare/v3.1.4...v3.2.0) (2026-07-08)
+
+
+### Features
+
+* migrate a SQLite ledger to Postgres from the CLI or dashboard ([#170](https://github.com/paulmeier/kasas/issues/170)) ([89d6cd0](https://github.com/paulmeier/kasas/commit/89d6cd0b0ff184e410e177465669806b403a3be0))
+
+
+### Dependencies
+
+* bump github.com/pressly/goose/v3 in the go-modules group ([#169](https://github.com/paulmeier/kasas/issues/169)) ([16c812f](https://github.com/paulmeier/kasas/commit/16c812f54c1ee27f0159aebf686314ad57a7782e))
+
 ## [3.1.4](https://github.com/paulmeier/kasas/compare/v3.1.3...v3.1.4) (2026-06-26)
 
 
