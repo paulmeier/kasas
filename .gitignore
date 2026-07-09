@@ -30,6 +30,7 @@ go.work.sum
 # kasas: local build output
 /bin/
 /kasas
+/kasas-wasm
 
 # kasas: built dashboard WebAssembly (produced by `make wasm`)
 /internal/dashboard/web/app.wasm
