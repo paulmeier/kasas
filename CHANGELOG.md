@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.1](https://github.com/paulmeier/kasas/compare/v3.3.0...v3.3.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **dashboard:** detect upgrades via version poll + force-refresh escape hatch ([#176](https://github.com/paulmeier/kasas/issues/176)) ([a6677be](https://github.com/paulmeier/kasas/commit/a6677bef0588340d1f173350779655bc990b5bcd))
+
 ## [3.3.0](https://github.com/paulmeier/kasas/compare/v3.2.1...v3.3.0) (2026-07-09)
 
 
