@@ -127,13 +127,18 @@ func (s *Server) MCPServer() *mcp.Server {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "delete_rule",
-		Description: "Delete a rule by id. Does not remove labels or extensions already applied to transactions.",
+		Description: "Delete a rule by id. Does not remove labels or extensions already applied to transactions — use unapply_rule first to clean those up.",
 	}, s.mcpDeleteRule)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "run_rules",
 		Description: "Run rules over all existing transactions, applying labels and extensions to matches. Pass an id to run a single rule (even if disabled); omit it to run every enabled rule. Returns how many transactions matched and how many were updated.",
 	}, s.mcpRunRules)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "unapply_rule",
+		Description: "Remove the labels and schema extensions a rule applied from every existing transaction it currently matches (even if the rule is disabled) — the inverse of run_rules, for cleaning up before delete_rule. Removes a label or extension only where the current value still equals what the rule sets, so a value changed by hand or overwritten by another rule is kept; it cannot restore a value the rule overwrote. Returns how many transactions matched and how many a label or extension was removed from.",
+	}, s.mcpUnapplyRule)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_events",
@@ -490,6 +495,15 @@ type runRulesInput struct {
 type runRulesOutput struct {
 	Matched int `json:"matched"` // transactions matched by at least one rule
 	Updated int `json:"updated"` // transactions whose labels and/or extensions actually changed
+}
+
+type unapplyRuleInput struct {
+	ID int64 `json:"id" jsonschema:"the id of the rule whose applied labels and extensions to remove from matching transactions (runs even if the rule is disabled)"`
+}
+
+type unapplyRuleOutput struct {
+	Matched int `json:"matched"` // transactions matched by the rule
+	Removed int `json:"removed"` // transactions a label or extension was actually removed from
 }
 
 type listEventsInput struct {
@@ -857,6 +871,28 @@ func (s *Server) mcpRunRules(ctx context.Context, _ *mcp.CallToolRequest, in run
 		return nil, runRulesOutput{}, err
 	}
 	return &mcp.CallToolResult{}, runRulesOutput{Matched: matched, Updated: updated}, nil
+}
+
+func (s *Server) mcpUnapplyRule(ctx context.Context, _ *mcp.CallToolRequest, in unapplyRuleInput) (*mcp.CallToolResult, unapplyRuleOutput, error) {
+	if in.ID <= 0 {
+		return nil, unapplyRuleOutput{}, fmt.Errorf("a rule id is required")
+	}
+	rule, err := s.store.GetRule(ctx, in.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, unapplyRuleOutput{}, fmt.Errorf("rule %d not found", in.ID)
+	}
+	if err != nil {
+		return nil, unapplyRuleOutput{}, err
+	}
+	compiled, err := rules.Compile(ruleFromDB(rule))
+	if err != nil {
+		return nil, unapplyRuleOutput{}, err
+	}
+	matched, removed, err := s.unapplyRule(ctx, []rules.Compiled{compiled}, in.ID)
+	if err != nil {
+		return nil, unapplyRuleOutput{}, err
+	}
+	return &mcp.CallToolResult{}, unapplyRuleOutput{Matched: matched, Removed: removed}, nil
 }
 
 func (s *Server) mcpListEvents(ctx context.Context, _ *mcp.CallToolRequest, in listEventsInput) (*mcp.CallToolResult, listEventsOutput, error) {

@@ -340,6 +340,7 @@ func (s *Server) Router() http.Handler {
 				r.Put("/rules/{id}", s.handleUpdateRule)
 				r.Delete("/rules/{id}", s.handleDeleteRule)
 				r.Post("/rules/{id}/run", s.handleRunRule)
+				r.Post("/rules/{id}/unapply", s.handleUnapplyRule)
 
 				r.Post("/sync", s.handleTriggerSync)
 

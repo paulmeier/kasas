@@ -391,6 +391,40 @@ func (v *rulesView) onRunAll(ctx app.Context, _ app.Event) {
 	})
 }
 
+// onUnapply removes the labels and extensions a rule applied from every
+// transaction it currently matches — the inverse of onRun. It confirms first (a
+// mass, irreversible change) and reuses the shared run banner for feedback.
+func (v *rulesView) onUnapply(ctx app.Context, r rule) {
+	if v.running {
+		return
+	}
+	name := ruleLabel(r)
+	msg := fmt.Sprintf("Remove every label and extension %q applied, from all transactions it currently matches? Only values still equal to what the rule sets are removed — anything you changed by hand is kept. This can't be undone.", name)
+	if !app.Window().Call("confirm", msg).Bool() {
+		return
+	}
+	v.running = true
+	v.runMsg = "Removing applied labels…"
+	v.errMsg = ""
+	ctx.Update()
+
+	id := r.ID
+	ctx.Async(func() {
+		res, err := v.client.unapplyRule(context.Background(), id)
+		ctx.Dispatch(func(ctx app.Context) {
+			v.running = false
+			if err != nil {
+				v.runMsg = ""
+				v.errMsg = "Remove failed: " + err.Error()
+				ctx.Update()
+				return
+			}
+			v.runMsg = fmt.Sprintf("Removed %q's labels and extensions from %d of %d matching transactions.", name, res.Removed, res.Matched)
+			ctx.Update()
+		})
+	})
+}
+
 func (v *rulesView) onDelete(ctx app.Context, r rule) {
 	msg := fmt.Sprintf("Delete the rule %q? Labels and extensions already applied to transactions are kept.", ruleLabel(r))
 	if !app.Window().Call("confirm", msg).Bool() {
@@ -420,6 +454,16 @@ func (v *rulesView) toggleHelp(ctx app.Context, _ app.Event) { v.showHelp = !v.s
 func (v *rulesView) closeHelp(ctx app.Context, _ app.Event)  { v.showHelp = false; ctx.Update() }
 
 // --- list mutation helpers ---
+
+// ruleByID returns the loaded rule with the given id.
+func (v *rulesView) ruleByID(id int64) (rule, bool) {
+	for _, r := range v.rules {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return rule{}, false
+}
 
 // upsertRule replaces the rule with a matching id, or appends it, keeping the
 // list ordered by id (matching the server).
@@ -584,6 +628,34 @@ func (v *rulesView) renderForm() app.UI {
 			app.Button().Class("btn btn-primary").Text(saveLabel(v.saving)).Disabled(v.saving).OnClick(v.onSave),
 			app.Button().Class("btn").Text("Cancel").OnClick(v.onCancel),
 		),
+		v.renderFormDangerZone(),
+	)
+}
+
+// renderFormDangerZone shows the "remove what this rule applied" action while
+// editing an existing rule — the inverse of Run, for cleaning up a rule's effect
+// before deleting it. It is kept off the per-row actions (which stay uncluttered)
+// and out of the create form, and is hidden for a rule that applies nothing. It
+// acts on the SAVED rule (the server unapplies the stored definition), so unsaved
+// form edits do not affect what is removed.
+func (v *rulesView) renderFormDangerZone() app.UI {
+	if v.editID <= 0 {
+		return app.Text("")
+	}
+	r, ok := v.ruleByID(v.editID)
+	if !ok || (len(r.Labels) == 0 && len(r.Extensions) == 0) {
+		return app.Text("")
+	}
+	return app.Div().Class("rule-form-danger").Body(
+		app.Div().Class("rule-danger-text").Body(
+			app.Span().Class("rule-danger-title").Text("Remove this rule's effect"),
+			app.Span().Class("empty-hint").Text(
+				"Delete the labels and extensions this rule applied from every transaction it currently matches. Only values still equal to what the rule sets are removed."),
+		),
+		app.Button().Type("button").Class("btn btn-danger").
+			Text("Remove applied labels & extensions").
+			Disabled(v.running).
+			OnClick(func(ctx app.Context, _ app.Event) { v.onUnapply(ctx, r) }),
 	)
 }
 

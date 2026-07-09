@@ -92,21 +92,55 @@ how many actually changed (the difference is rows that already had the labels an
 extensions). A single-rule run works even if the rule is disabled; the bulk run
 applies only enabled rules.
 
+## Undoing a rule
+
+Ran a rule that mass-labeled the wrong transactions? **Unapply** removes what a
+rule applied — the inverse of run — from every transaction it currently matches,
+so you can clean up before deleting the rule:
+
+```sh
+curl -X POST "localhost:8080/api/v1/rules/$id/unapply"  # -> {"matched":42,"removed":42}
+```
+
+`unapply` reports `{matched, removed}` — how many transactions the rule matched
+and how many it actually removed a label or extension from. Like a single-rule
+run, it works even if the rule is disabled (the intended flow is *unapply, then
+delete*).
+
+Because kasas stores no record of *which* rule set which label (labels and
+extensions are merged flat onto the transaction — the [lean data
+model](../adr/index.md)), "the labels this rule applied" is defined as **the keys
+the rule declares, on the transactions it matches now**. Two consequences:
+
+- **Only exact matches are removed.** A key is removed only where the current
+  value still equals what the rule sets, so a value you edited by hand — or one a
+  different rule overwrote — is left alone. Unapply cannot restore a value the
+  rule overwrote.
+- **It matches the rule's *current* query.** Editing a rule's query and then
+  unapplying removes from whatever it matches now, exactly as running it would
+  apply to whatever it matches now.
+
+Each removal emits the same granular `label.removed` / `extension.removed`
+[events](event-stream.md) and records `labeled` / `extended`
+[history](transaction-history.md) snapshots as any other edit, and the operation
+emits one `rule.reverted` summary.
+
 ## Managing rules
 
 Full CRUD + run parity across every surface:
 
 | Surface | Operations |
 | --- | --- |
-| REST | `GET/POST/PUT/DELETE /api/v1/rules`, `POST /api/v1/rules/{id}/run`, `POST /api/v1/rules/run` |
-| MCP | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `run_rules` (pass `id` for one, omit for all enabled) |
-| Dashboard | The **Rules** page: create, edit, enable/disable, delete inline, and a **Run** button per rule or for all |
+| REST | `GET/POST/PUT/DELETE /api/v1/rules`, `POST /api/v1/rules/{id}/run`, `POST /api/v1/rules/run`, `POST /api/v1/rules/{id}/unapply` |
+| MCP | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `run_rules` (pass `id` for one, omit for all enabled), `unapply_rule` |
+| Dashboard | The **Rules** page: create, edit, enable/disable, delete inline, a **Run** button per rule or for all, and **Remove applied labels & extensions** in a rule's edit form |
 
 Creating or updating a rule **validates the query** — an invalid
 [search](search.md) expression is rejected with `400` rather than stored to fail
 later — and requires the action to apply at least one label or extension. Rule
-lifecycle and runs emit `rule.created` / `rule.updated` / `rule.deleted` /
-`rule.executed` [events](event-stream.md), and applied labels and extensions emit
-the same `label.applied` / `extension.set` events as any other change. New
-transactions modified by a rule (labeled and/or extended) are metered as
-`kasas_rules_applied_total`.
+lifecycle, runs, and unapplies emit `rule.created` / `rule.updated` /
+`rule.deleted` / `rule.executed` / `rule.reverted` [events](event-stream.md), and
+applied or removed labels and extensions emit the same `label.applied` /
+`label.removed` / `extension.set` / `extension.removed` events as any other
+change. New transactions modified by a rule (labeled and/or extended) are metered
+as `kasas_rules_applied_total`.

@@ -82,6 +82,11 @@ const (
 	TypeRuleUpdated  = "rule.updated"
 	TypeRuleDeleted  = "rule.deleted"
 	TypeRuleExecuted = "rule.executed"
+	// TypeRuleReverted fires when a rule is unapplied: the labels and extensions it
+	// applied are removed from the transactions it currently matches (the inverse of
+	// rule.executed). Its payload reports how many transactions matched and how many
+	// a label or extension was removed from.
+	TypeRuleReverted = "rule.reverted"
 
 	TypeSyncCompleted = "sync.completed"
 

@@ -9,7 +9,9 @@
 // to each newly synced transaction) and behind the REST/MCP "run over existing
 // transactions" endpoints. Callers adapt their stored rule rows into a [Rule],
 // [Compile] them once, and ask [Apply]/[ApplyExtensions] to merge the matching
-// rules' labels and extensions into a transaction.
+// rules' labels and extensions into a transaction. [Unapply]/[UnapplyExtensions]
+// are the inverse: they remove what a rule applied (used to clean up a rule's
+// effect over existing transactions before deleting it).
 package rules
 
 import (
@@ -127,6 +129,70 @@ func ApplyExtensions(compiled []Compiled, rec search.Record, current map[string]
 		}
 	}
 	normalized := extensions.Normalize(merged)
+	if maps.EqualFunc(normalized, current, func(a, b json.RawMessage) bool { return bytes.Equal(a, b) }) {
+		return current, false
+	}
+	return normalized, true
+}
+
+// Unapply is the inverse of [Apply]: it removes from a copy of current every label
+// a matching rule applied. It is the safe undo of a rule's effect — a key the rule
+// declares is removed only where current's value still equals what the rule would
+// set, so a value a user hand-edited or a later rule overwrote is preserved (there
+// is no per-transaction record of which rule set which label, so exact-value match
+// is how "the labels this rule applied" is identified). Like [Apply] it does NOT
+// filter by Rule.Enabled — the caller decides which rules to include — and it
+// evaluates each rule's current query, so it removes from whatever the rule matches
+// now (symmetric with running the rule).
+//
+// The reduced set is normalized and compared against current; when nothing was
+// removed it returns current unchanged so callers can skip the write.
+func Unapply(compiled []Compiled, rec search.Record, current map[string]string) (map[string]string, bool) {
+	reduced := maps.Clone(current)
+	if reduced == nil {
+		reduced = map[string]string{}
+	}
+	for _, c := range compiled {
+		if !c.Matches(rec) {
+			continue
+		}
+		for k, v := range c.Rule.Labels {
+			if reduced[k] == v { // only remove the exact pair this rule applied
+				delete(reduced, k)
+			}
+		}
+	}
+	normalized := labels.Normalize(reduced)
+	if maps.Equal(normalized, current) {
+		return current, false
+	}
+	return normalized, true
+}
+
+// UnapplyExtensions is the schema-extensions counterpart to [Unapply] and the
+// inverse of [ApplyExtensions]: it removes from a copy of current every extension a
+// matching rule applied, but only where current's raw-JSON value still equals what
+// the rule would set (compared by bytes.Equal, since stored values are compacted).
+// Like Unapply it ignores Rule.Enabled and evaluates the rule's current query.
+//
+// The reduced set is normalized and compared against current by raw JSON bytes;
+// when nothing was removed it returns current unchanged so callers can skip the write.
+func UnapplyExtensions(compiled []Compiled, rec search.Record, current map[string]json.RawMessage) (map[string]json.RawMessage, bool) {
+	reduced := maps.Clone(current)
+	if reduced == nil {
+		reduced = map[string]json.RawMessage{}
+	}
+	for _, c := range compiled {
+		if !c.Matches(rec) {
+			continue
+		}
+		for k, v := range c.Rule.Extensions {
+			if bytes.Equal(reduced[k], v) { // only remove the exact pair this rule applied
+				delete(reduced, k)
+			}
+		}
+	}
+	normalized := extensions.Normalize(reduced)
 	if maps.EqualFunc(normalized, current, func(a, b json.RawMessage) bool { return bytes.Equal(a, b) }) {
 		return current, false
 	}
