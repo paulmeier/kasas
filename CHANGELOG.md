@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.1](https://github.com/paulmeier/kasas/compare/v3.2.0...v3.2.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **dashboard:** auto-detect new builds so an open tab isn't stuck on stale WASM ([#172](https://github.com/paulmeier/kasas/issues/172)) ([73523c0](https://github.com/paulmeier/kasas/commit/73523c085e9406fad4047d6f074f15d7d17925df))
+
 ## [3.2.0](https://github.com/paulmeier/kasas/compare/v3.1.4...v3.2.0) (2026-07-08)
 
 
