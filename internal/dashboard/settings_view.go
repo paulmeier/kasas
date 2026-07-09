@@ -237,8 +237,43 @@ func (v *settingsView) Render() app.UI {
 		v.renderApiKeys(),
 		v.renderSettingSections(),
 		v.renderMigratePostgres(),
+		v.renderAppRefresh(),
 		v.renderConfig(),
 	)
+}
+
+// renderAppRefresh is the manual "force refresh" control. The dashboard is a
+// service-worker PWA that caches its compiled WASM, so it loads fast and works
+// offline; it detects new builds on its own (a periodic check plus a version poll
+// raise the reload banner up top). This is the escape hatch for a tab still wedged
+// on an old build after the server was upgraded: forceRefresh deletes the
+// service-worker caches, unregisters the worker, and reloads, guaranteeing the
+// latest UI even when the worker's own update path did not fire.
+func (v *settingsView) renderAppRefresh() app.UI {
+	body := []app.UI{
+		app.Div().Class("settings-section-head").Body(
+			app.H2().Class("settings-title").Text("Refresh dashboard"),
+		),
+		app.P().Class("settings-help").Text(
+			"The dashboard runs from a cached copy of its app, so it loads fast and keeps working " +
+				"offline. It checks for new builds automatically after kasas is upgraded, but if this tab " +
+				"is still showing an old version, force a refresh to clear the cached app and reload the " +
+				"latest UI from the server."),
+	}
+	if v.version != "" {
+		body = append(body, app.P().Class("settings-help").Body(
+			app.Text("Current build: "),
+			app.Code().Text(v.version),
+		))
+	}
+	body = append(body,
+		app.Button().
+			Type("button").
+			Class("btn btn-primary").
+			Text("Force refresh").
+			OnClick(func(_ app.Context, _ app.Event) { forceRefresh() }),
+	)
+	return app.Section().Class("card settings-section").Body(body...)
 }
 
 // renderMigratePostgres renders the "Migrate to Postgres" panel, shown only on

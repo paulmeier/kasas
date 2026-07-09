@@ -84,6 +84,7 @@ func (c *chrome) loadChrome(ctx app.Context) {
 	c.loadVersion(ctx)
 	c.loadAuth(ctx)
 	c.loadPluginPages(ctx)
+	rememberUpdateCtx(ctx)
 	startUpdateChecks()
 }
 
@@ -102,10 +103,13 @@ func (c *chrome) loadPluginPages(ctx app.Context) {
 	})
 }
 
-// appUpdateReady records that a newer build's service worker has activated. It is
-// package-level rather than a chrome field so the prompt survives client-side
-// navigation: OnAppUpdate fires once, on whichever view is mounted at activation,
-// but each route mounts a fresh view — per-view state would be lost on the next
+// appUpdateReady records that a newer build is available and the shell should
+// show its reload banner. It is raised by two independent paths: OnAppUpdate
+// (go-app's service-worker-activated hook) and the background version poll (see
+// startUpdateChecks / newBuildDetected), so a stale tab still notices an upgrade
+// even when the service-worker update path does not fire. It is package-level
+// rather than a chrome field so the prompt survives client-side navigation:
+// each route mounts a fresh view, so per-view state would be lost on the next
 // nav. One running WASM instance per tab makes a package var the right scope, and
 // it naturally resets to false on the reload that applies the update.
 var appUpdateReady bool
@@ -124,41 +128,175 @@ func (c *chrome) OnAppUpdate(ctx app.Context) {
 	ctx.Update()
 }
 
-// updateCheckInterval is how often an open dashboard tab asks the browser to look
-// for a newer build. Browsers only re-check the service worker on a full page
-// navigation or roughly once a day, but the dashboard is a long-lived SPA whose
-// route changes are client-side, not navigations — so on their own OnAppUpdate
-// and its refresh banner never fire while a tab stays open, and the tab serves
-// the service worker's cached (old) WASM indefinitely after the server is
-// upgraded. This is exactly the "I updated the container but the dashboard still
-// shows the old version" symptom.
+// updateCheckInterval is how often an open dashboard tab checks for a newer build.
+// Browsers only re-check the service worker on a full page navigation or roughly
+// once a day, but the dashboard is a long-lived SPA whose route changes are
+// client-side, not navigations — so left alone a tab serves the service worker's
+// cached (old) WASM indefinitely after the server is upgraded. This is exactly the
+// "I updated the container but the dashboard still shows the old version" symptom.
 const updateCheckInterval = time.Minute
 
-// updateChecksOnce guards the single per-tab update-check loop.
-var updateChecksOnce sync.Once
+var (
+	// updateChecksOnce guards the single per-tab update-check loop.
+	updateChecksOnce sync.Once
 
-// startUpdateChecks arms, once per tab, a loop that periodically asks the browser
-// to re-check for a newer service worker. app.TryUpdate() calls the worker's
-// registration.update(); when a new build is deployed go-app installs and
-// activates the new worker (its skipWaiting + clients.claim purge the old cache)
-// and fires OnAppUpdate, which raises the refresh banner — so the stale tab now
-// notices the upgrade on its own. A plain package goroutine (not a
-// component-scoped ctx.After, which would die on the next client-side navigation)
-// keeps it running for the tab's whole lifetime; sync.Once keeps it a singleton
-// despite chrome being recreated on every route. Inert off-browser: app.IsClient
-// is false, and app.TryUpdate() is itself a no-op there.
+	// updateStateMu guards the fields below, written from both the UI goroutine
+	// (loadVersion's dispatch) and the background checker goroutine.
+	updateStateMu sync.Mutex
+	// bootVersion is the build version this tab first loaded on. A server whose
+	// /web/version later differs has been upgraded under the open tab.
+	bootVersion string
+	// updateCtx is the freshest mounted view's context, used by the background
+	// checker to repaint the UI from outside any component (see markUpdateReady).
+	updateCtx    app.Context
+	updateCtxSet bool
+)
+
+// rememberUpdateCtx records the freshest mounted view's context so the background
+// update checker can repaint the shell from its detached goroutine. Every view
+// calls loadChrome on mount, so this stays pointed at a live, mounted view for the
+// tab's lifetime; a Dispatch through it is dropped only while nothing is mounted
+// (a transient mid-navigation gap the next check recovers from).
+func rememberUpdateCtx(ctx app.Context) {
+	updateStateMu.Lock()
+	updateCtx = ctx
+	updateCtxSet = true
+	updateStateMu.Unlock()
+}
+
+// newBuildDetected records the build version the server reports and returns
+// whether it differs from the version this tab booted on — i.e. the server was
+// upgraded while the tab stayed open. The first non-empty version latches the
+// boot version; an empty version (a failed fetch) is ignored.
+func newBuildDetected(ver string) bool {
+	if ver == "" {
+		return false
+	}
+	updateStateMu.Lock()
+	defer updateStateMu.Unlock()
+	if bootVersion == "" {
+		bootVersion = ver
+		return false
+	}
+	return ver != bootVersion
+}
+
+// markUpdateReady raises the reload banner from the background checker. It sets the
+// package flag (read by renderShell on the next render) and nudges the UI to
+// repaint now through the freshest mounted view's context, so an idle tab surfaces
+// the banner without waiting for the user to navigate. If nothing is mounted the
+// Update is a no-op, but the flag persists and the next render shows the banner.
+func markUpdateReady() {
+	appUpdateReady = true
+	updateStateMu.Lock()
+	ctx, ok := updateCtx, updateCtxSet
+	updateStateMu.Unlock()
+	if ok {
+		ctx.Update()
+	}
+}
+
+// startUpdateChecks arms, once per tab, a loop that periodically checks for a newer
+// build two ways, because neither alone is reliable after a container upgrade:
+//
+//   - app.TryUpdate() calls the service worker's registration.update(); when it
+//     works, go-app installs and activates the new worker (skipWaiting +
+//     clients.claim purge the old cache) and fires OnAppUpdate, raising the banner.
+//   - Independently, it polls /web/version — which bypasses the service-worker
+//     cache — and compares it to the version the tab booted on. This notices an
+//     upgraded server even when the worker update path never fires (a wedged
+//     worker, an intermediary that caches app-worker.js), the failure mode that
+//     leaves a tab stuck on the old UI with no way to notice.
+//
+// A plain package goroutine (not a component-scoped ctx.After, which would die on
+// the next client-side navigation) keeps it running for the tab's whole lifetime;
+// sync.Once keeps it a singleton despite chrome being recreated on every route.
+// Inert off-browser: app.IsClient is false, and app.TryUpdate() is a no-op there.
 func startUpdateChecks() {
 	if !app.IsClient {
 		return
 	}
 	updateChecksOnce.Do(func() {
 		go func() {
+			client := newAPIClient(originURL(), "")
 			for {
 				time.Sleep(updateCheckInterval)
 				app.TryUpdate()
+				if ver, err := client.buildVersion(context.Background()); err == nil && newBuildDetected(ver) {
+					markUpdateReady()
+				}
 			}
 		}()
 	})
+}
+
+// forceRefresh purges the dashboard's cached build and reloads it from the
+// network. go-app's service worker is cache-first — it answers every request from
+// its cache before touching the network — so once a tab is controlled by an old
+// worker, a plain reload keeps serving the stale UI until a new worker happens to
+// activate. Deleting every CacheStorage bucket and unregistering the worker makes
+// the reload fetch fresh bytes from the origin and install a brand-new worker: the
+// manual escape hatch for a tab wedged on an old build. A no-op off the browser.
+//
+// Ordering is load-bearing: the reload must happen ONLY after every cache-delete
+// and worker-unregister has settled. caches.delete() and registration.unregister()
+// are async jobs, and the reload is served through the still-controlling cache-
+// first worker — so a reload that out-races the cleanup would just be handed the
+// old cached build again, and the escape hatch would appear to do nothing. We
+// therefore collect every cleanup promise and reload from a single
+// Promise.all(...).finally so a rejected job still reloads rather than wedging.
+func forceRefresh() {
+	if !app.IsClient {
+		return
+	}
+	win := app.Window()
+	reload := func() { win.Get("location").Call("reload") }
+
+	caches := win.Get("caches")
+	var sw app.Value
+	if nav := win.Get("navigator"); nav.Truthy() {
+		sw = nav.Get("serviceWorker")
+	}
+	hasSW := sw != nil && sw.Truthy()
+	if !caches.Truthy() && !hasSW {
+		reload() // nothing to purge (old browser) — a plain reload is all we can do
+		return
+	}
+
+	jobs := win.Get("Array").New()
+	// reloadWhenDone reloads only after all queued cleanup promises settle.
+	reloadWhenDone := func() {
+		win.Get("Promise").Call("all", jobs).
+			Call("finally", app.FuncOf(func(app.Value, []app.Value) any {
+				reload()
+				return nil
+			}))
+	}
+	// gatherWorkers queues the unregister promises, then triggers the reload.
+	gatherWorkers := func() {
+		if !hasSW {
+			reloadWhenDone()
+			return
+		}
+		sw.Call("getRegistrations").Then(func(regs app.Value) {
+			for i := 0; i < regs.Length(); i++ {
+				jobs.Call("push", regs.Index(i).Call("unregister"))
+			}
+			reloadWhenDone()
+		})
+	}
+	// Queue the cache-delete promises first, then the workers, then reload — the
+	// stages are chained so jobs holds every promise before Promise.all runs.
+	if caches.Truthy() {
+		caches.Call("keys").Then(func(keys app.Value) {
+			for i := 0; i < keys.Length(); i++ {
+				jobs.Call("push", caches.Call("delete", keys.Index(i)))
+			}
+			gatherWorkers()
+		})
+		return
+	}
+	gatherWorkers()
 }
 
 // Every route view embeds chrome, so OnAppUpdate is promoted onto each. Asserting
@@ -274,6 +412,13 @@ func (c *chrome) loadVersion(ctx app.Context) {
 				return
 			}
 			c.version = ver
+			// A version differing from the one this tab booted on means the server
+			// was upgraded under the open tab — surface the reload banner (also
+			// caught by the background poll, but this makes navigation reveal it at
+			// once). newBuildDetected latches the boot version on the first call.
+			if newBuildDetected(ver) {
+				appUpdateReady = true
+			}
 			ctx.Update()
 		})
 	})
@@ -319,16 +464,19 @@ func (c *chrome) renderShell(active navItem, content ...app.UI) app.UI {
 	)
 }
 
-// renderReloadBanner prompts the user to reload once OnAppUpdate reports a newer
-// build is cached and ready. It is distinct from transactionsView's
-// renderUpdateBanner, which offers to self-update the server *binary*; this is
-// purely about swapping the browser's cached UI for the one already downloaded.
+// renderReloadBanner prompts the user to reload once a newer build is detected
+// (OnAppUpdate or the background version poll). It is distinct from
+// transactionsView's renderUpdateBanner, which offers to self-update the server
+// *binary*; this is purely about swapping the browser's cached UI for the newer
+// one. Refresh runs forceRefresh rather than a plain reload: the service worker is
+// cache-first, so a plain reload can keep serving the old cached WASM when the
+// worker has not swapped itself out — forceRefresh clears the cache first.
 func (c *chrome) renderReloadBanner() app.UI {
 	return app.Div().Class("reload-banner").Body(
 		app.Span().Class("reload-text").Text("A new version of kasas is ready."),
 		app.Button().Type("button").Class("btn reload-refresh").
 			Text("Refresh").
-			OnClick(func(ctx app.Context, _ app.Event) { ctx.Reload() }),
+			OnClick(func(ctx app.Context, _ app.Event) { forceRefresh() }),
 	)
 }
 

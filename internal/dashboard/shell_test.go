@@ -111,3 +111,75 @@ func TestStartUpdateChecksSafeOffBrowser(t *testing.T) {
 	startUpdateChecks()
 	startUpdateChecks() // idempotent; must not panic or start work
 }
+
+// resetUpdateState clears the package-level update-detection state so a test can
+// exercise newBuildDetected/markUpdateReady from a known baseline. The dashboard
+// runs single-threaded in the browser, so no locking is needed here.
+func resetUpdateState(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		bootVersion = ""
+		appUpdateReady = false
+		updateCtx = app.Context{}
+		updateCtxSet = false
+	})
+	bootVersion = ""
+	appUpdateReady = false
+	updateCtx = app.Context{}
+	updateCtxSet = false
+}
+
+// TestNewBuildDetected checks the version-poll comparison at the heart of the
+// auto-detect fix: the first version latches the boot version and reports no
+// change, an unchanged version reports no change, and a differing version (the
+// server was upgraded under an open tab) reports a new build. This path is
+// independent of the service worker, so it catches an upgrade even when go-app's
+// OnAppUpdate never fires.
+func TestNewBuildDetected(t *testing.T) {
+	resetUpdateState(t)
+
+	if newBuildDetected("") {
+		t.Fatal("an empty version (failed fetch) must not be treated as a new build")
+	}
+	if newBuildDetected("3.3.0-abc123") {
+		t.Fatal("the first observed version must latch as the boot version, not signal an update")
+	}
+	if newBuildDetected("3.3.0-abc123") {
+		t.Fatal("the same version must not signal an update")
+	}
+	if !newBuildDetected("3.4.0-def456") {
+		t.Fatal("a version differing from the boot version must signal a new build")
+	}
+}
+
+// TestMarkUpdateReadySafeWithoutCtx checks the background checker can raise the
+// banner flag even before any view has registered a context (no mounted view to
+// repaint yet): it sets appUpdateReady and does not panic on the nil context.
+func TestMarkUpdateReadySafeWithoutCtx(t *testing.T) {
+	resetUpdateState(t)
+
+	markUpdateReady()
+	if !appUpdateReady {
+		t.Fatal("markUpdateReady must set appUpdateReady so the next render shows the banner")
+	}
+}
+
+// TestForceRefreshSafeOffBrowser checks the manual escape hatch is an inert no-op
+// off-browser, so it never touches window/serviceWorker in tests or on the server.
+func TestForceRefreshSafeOffBrowser(t *testing.T) {
+	if app.IsClient {
+		t.Skip("meaningful only off-browser")
+	}
+	forceRefresh() // must not panic
+}
+
+// TestSettingsForceRefreshControl checks the Settings page offers the manual
+// force-refresh escape hatch described in the auto-detect fix.
+func TestSettingsForceRefreshControl(t *testing.T) {
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, (&settingsView{}).renderAppRefresh())
+	html := buf.String()
+	if !strings.Contains(html, "Force refresh") {
+		t.Fatalf("settings must offer a Force refresh control\nHTML:\n%s", html)
+	}
+}
