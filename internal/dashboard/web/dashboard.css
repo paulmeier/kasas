@@ -441,12 +441,12 @@ html, body {
 /* Lives in the sidebar footer (hidden when collapsed). */
 .version-badge {
   color: var(--muted);
+  cursor: pointer; /* click to check for updates */
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   opacity: 0.6;
   padding: 0 10px;
   word-break: break-all;
-  user-select: all; /* easy to select/copy when reporting an issue */
   transition: opacity 0.15s ease;
 }
 .version-badge:hover { opacity: 0.9; }

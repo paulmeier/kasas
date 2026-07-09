@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/maxence-charriere/go-app/v10/pkg/app"
 )
@@ -82,6 +84,7 @@ func (c *chrome) loadChrome(ctx app.Context) {
 	c.loadVersion(ctx)
 	c.loadAuth(ctx)
 	c.loadPluginPages(ctx)
+	startUpdateChecks()
 }
 
 // loadPluginPages fetches the sidebar entries contributed by loaded plugins.
@@ -119,6 +122,43 @@ var appUpdateReady bool
 func (c *chrome) OnAppUpdate(ctx app.Context) {
 	appUpdateReady = ctx.AppUpdateAvailable()
 	ctx.Update()
+}
+
+// updateCheckInterval is how often an open dashboard tab asks the browser to look
+// for a newer build. Browsers only re-check the service worker on a full page
+// navigation or roughly once a day, but the dashboard is a long-lived SPA whose
+// route changes are client-side, not navigations — so on their own OnAppUpdate
+// and its refresh banner never fire while a tab stays open, and the tab serves
+// the service worker's cached (old) WASM indefinitely after the server is
+// upgraded. This is exactly the "I updated the container but the dashboard still
+// shows the old version" symptom.
+const updateCheckInterval = time.Minute
+
+// updateChecksOnce guards the single per-tab update-check loop.
+var updateChecksOnce sync.Once
+
+// startUpdateChecks arms, once per tab, a loop that periodically asks the browser
+// to re-check for a newer service worker. app.TryUpdate() calls the worker's
+// registration.update(); when a new build is deployed go-app installs and
+// activates the new worker (its skipWaiting + clients.claim purge the old cache)
+// and fires OnAppUpdate, which raises the refresh banner — so the stale tab now
+// notices the upgrade on its own. A plain package goroutine (not a
+// component-scoped ctx.After, which would die on the next client-side navigation)
+// keeps it running for the tab's whole lifetime; sync.Once keeps it a singleton
+// despite chrome being recreated on every route. Inert off-browser: app.IsClient
+// is false, and app.TryUpdate() is itself a no-op there.
+func startUpdateChecks() {
+	if !app.IsClient {
+		return
+	}
+	updateChecksOnce.Do(func() {
+		go func() {
+			for {
+				time.Sleep(updateCheckInterval)
+				app.TryUpdate()
+			}
+		}()
+	})
 }
 
 // Every route view embeds chrome, so OnAppUpdate is promoted onto each. Asserting
@@ -441,14 +481,18 @@ func navLink(href, label string, icon app.UI, active bool) app.UI {
 // renderVersion shows the build version in the sidebar footer. The value is
 // go-app's GOAPP_VERSION (binary version + a hash of the served UI, the
 // service-worker cache key), so a changed badge confirms the browser is running a
-// fresh build rather than a cached one.
+// fresh build rather than a cached one. Clicking it forces an immediate
+// check-for-updates (app.TryUpdate), so an operator who just upgraded the server
+// can pull the new UI on demand instead of waiting for the periodic check — if a
+// newer build is live, the refresh banner appears within moments.
 func (c *chrome) renderVersion() app.UI {
 	if c.version == "" {
 		return app.Text("")
 	}
 	return app.Div().Class("version-badge").
-		Title("kasas build version (service-worker cache key)").
-		Text(c.version)
+		Title("kasas build version (service-worker cache key) — click to check for updates").
+		Text(c.version).
+		OnClick(func(ctx app.Context, _ app.Event) { app.TryUpdate() })
 }
 
 // Sidebar icons are inline SVGs (stroke = currentColor) so CSS controls their

@@ -83,3 +83,31 @@ func TestReloadBannerOnUpdate(t *testing.T) {
 		t.Fatalf("reload banner must not show without a pending update\nHTML:\n%s", off)
 	}
 }
+
+// TestVersionBadgeManualCheck checks the build badge renders the version and is a
+// manual "check for updates" control (its title hints the click), so an operator
+// who just upgraded the server can pull the new UI without waiting for the
+// periodic check.
+func TestVersionBadgeManualCheck(t *testing.T) {
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, (&chrome{version: "v1.2.3-abcdef012345"}).renderVersion())
+	html := buf.String()
+	if !strings.Contains(html, "v1.2.3-abcdef012345") {
+		t.Fatalf("version badge must show the build version\nHTML:\n%s", html)
+	}
+	if !strings.Contains(html, "check for updates") {
+		t.Fatalf("version badge title must hint the check-for-updates click\nHTML:\n%s", html)
+	}
+}
+
+// TestStartUpdateChecksSafeOffBrowser checks the periodic update-check loop is an
+// inert no-op off-browser (app.IsClient is false), so it never spawns a lingering
+// goroutine in tests or on the server, and is safe to call repeatedly from every
+// view's OnMount.
+func TestStartUpdateChecksSafeOffBrowser(t *testing.T) {
+	if app.IsClient {
+		t.Skip("meaningful only off-browser")
+	}
+	startUpdateChecks()
+	startUpdateChecks() // idempotent; must not panic or start work
+}
