@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/paulmeier/kasas/compare/v3.2.1...v3.3.0) (2026-07-09)
+
+
+### Features
+
+* **rules:** remove the labels & extensions a rule applied (unapply) ([#174](https://github.com/paulmeier/kasas/issues/174)) ([f33053e](https://github.com/paulmeier/kasas/commit/f33053e7b31e78a82408920b224c3516357e58db))
+
 ## [3.2.1](https://github.com/paulmeier/kasas/compare/v3.2.0...v3.2.1) (2026-07-09)
 
 
