@@ -21,6 +21,12 @@ type runResp struct {
 	Updated int `json:"updated"`
 }
 
+// unapplyResp mirrors the rule-unapply response.
+type unapplyResp struct {
+	Matched int `json:"matched"`
+	Removed int `json:"removed"`
+}
+
 type rulesList struct {
 	Rules []api.RuleDTO `json:"rules"`
 }
@@ -299,6 +305,108 @@ func TestRunRuleNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, postJSON(t, srv, "/api/v1/rules/9999/run", nil, nil))
 }
 
+func TestUnapplyRuleRemovesLabels(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	var rule api.RuleDTO
+	require.Equal(t, http.StatusCreated, postJSON(t, srv, "/api/v1/rules", map[string]any{
+		"query":  "amount:<0",
+		"labels": map[string]string{"flow": "out"},
+	}, &rule))
+
+	// Run applies flow:out to the two outflows.
+	var run runResp
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &run))
+	require.Equal(t, 2, run.Updated)
+
+	// Unapply removes it from both.
+	var res unapplyResp
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/unapply", rule.ID), nil, &res))
+	assert.Equal(t, 2, res.Matched)
+	assert.Equal(t, 2, res.Removed)
+
+	var tx api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx))
+	_, has := tx.Labels["flow"]
+	assert.False(t, has, "the rule's label was removed")
+
+	// Idempotent: a second unapply still matches but removes nothing.
+	res = unapplyResp{}
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/unapply", rule.ID), nil, &res))
+	assert.Equal(t, 2, res.Matched)
+	assert.Equal(t, 0, res.Removed)
+}
+
+func TestUnapplyRulePreservesDivergedValue(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+
+	var rule api.RuleDTO
+	require.Equal(t, http.StatusCreated, postJSON(t, srv, "/api/v1/rules", map[string]any{
+		"query":  "amount:<0",
+		"labels": map[string]string{"flow": "out"},
+	}, &rule))
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &runResp{}))
+
+	// A user changes tx-1's value by hand after the rule ran.
+	require.Equal(t, http.StatusOK, putJSON(t, srv, "/api/v1/transactions/tx-1/labels", map[string]any{
+		"labels": map[string]string{"flow": "kept"},
+	}, nil))
+
+	// Unapply removes only the still-matching value (tx-2); tx-1's diverged value stays.
+	var res unapplyResp
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/unapply", rule.ID), nil, &res))
+	assert.Equal(t, 2, res.Matched)
+	assert.Equal(t, 1, res.Removed)
+
+	var tx1 api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx1))
+	assert.Equal(t, "kept", tx1.Labels["flow"], "a hand-edited value is preserved")
+
+	var tx2 api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-2", &tx2))
+	_, has := tx2.Labels["flow"]
+	assert.False(t, has, "the unchanged rule value was removed")
+}
+
+func TestUnapplyRuleRemovesExtensionsAndEmitsEvents(t *testing.T) {
+	srv, _ := newEventsServer(t) // emitter enabled so versions/events are recorded
+
+	var rule api.RuleDTO
+	require.Equal(t, http.StatusCreated, postJSON(t, srv, "/api/v1/rules", map[string]any{
+		"query":      "id:tx-1",
+		"labels":     map[string]string{"flow": "out"},
+		"extensions": map[string]any{"tax.category": "expense"},
+	}, &rule))
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/run", rule.ID), nil, &runResp{}))
+
+	var res unapplyResp
+	require.Equal(t, http.StatusOK, postJSON(t, srv, fmt.Sprintf("/api/v1/rules/%d/unapply", rule.ID), nil, &res))
+	assert.Equal(t, 1, res.Matched)
+	assert.Equal(t, 1, res.Removed)
+
+	var tx api.TransactionDTO
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/transactions/tx-1", &tx))
+	assert.NotContains(t, tx.Labels, "flow")
+	assert.NotContains(t, tx.Extensions, "tax.category")
+
+	// The removals fired granular per-key events plus one rule.reverted summary.
+	var removed eventsResponse
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/events?type=label.removed", &removed))
+	assert.Len(t, removed.Events, 1)
+	var extRemoved eventsResponse
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/events?type=extension.removed", &extRemoved))
+	assert.Len(t, extRemoved.Events, 1)
+	var reverted eventsResponse
+	require.Equal(t, http.StatusOK, getJSON(t, srv, "/api/v1/events?type=rule.reverted", &reverted))
+	require.Len(t, reverted.Events, 1)
+	assert.Equal(t, "rule", reverted.Events[0].EntityType)
+}
+
+func TestUnapplyRuleNotFound(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	require.Equal(t, http.StatusNotFound, postJSON(t, srv, "/api/v1/rules/9999/unapply", nil, nil))
+}
+
 // --- MCP parity ---
 
 func TestMCPRulesTools(t *testing.T) {
@@ -322,6 +430,12 @@ func TestMCPRulesTools(t *testing.T) {
 	var run runResp
 	callTool(t, session, "run_rules", map[string]any{"id": created.ID}, &run)
 	assert.Equal(t, 1, run.Updated)
+
+	// unapply_rule removes what that rule applied from the matching transaction.
+	var unapply unapplyResp
+	callTool(t, session, "unapply_rule", map[string]any{"id": created.ID}, &unapply)
+	assert.Equal(t, 1, unapply.Matched)
+	assert.Equal(t, 1, unapply.Removed)
 
 	var del struct {
 		Deleted bool `json:"deleted"`

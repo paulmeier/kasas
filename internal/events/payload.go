@@ -150,6 +150,16 @@ type RuleExecutedPayload struct {
 	Updated int   `json:"updated"`
 }
 
+// RuleRevertedPayload is the data for a rule.reverted event: how many transactions
+// the unapply matched and how many a label or extension was actually removed from
+// (a match still carrying none of the rule's exact pairs is matched but not
+// removed). RuleID is the rule that was unapplied.
+type RuleRevertedPayload struct {
+	RuleID  int64 `json:"rule_id,omitempty"`
+	Matched int   `json:"matched"`
+	Removed int   `json:"removed"`
+}
+
 // SyncCompletedPayload is the data for a sync.completed event.
 type SyncCompletedPayload struct {
 	Accounts            int    `json:"accounts"`

@@ -192,3 +192,90 @@ func TestApplyExtensionsLabelsOnlyRuleIsNoop(t *testing.T) {
 		t.Fatalf("got %v, changed=%v; want no extension change", got, changed)
 	}
 }
+
+func TestUnapplyRemovesAppliedLabel(t *testing.T) {
+	// The inverse of Apply: a matching rule's label is removed, leaving other labels.
+	c := compile(t, 1, "amount:>50", map[string]string{"status": "review"})
+	current := map[string]string{"status": "review", "category": "food"}
+	got, changed := rules.Unapply([]rules.Compiled{c}, rec(75, "acme", current), current)
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	want := map[string]string{"category": "food"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestUnapplyNoMatchUnchanged(t *testing.T) {
+	// A rule whose query no longer matches removes nothing.
+	c := compile(t, 1, "amount:>50", map[string]string{"status": "review"})
+	current := map[string]string{"status": "review"}
+	got, changed := rules.Unapply([]rules.Compiled{c}, rec(10, "acme", current), current)
+	if changed {
+		t.Fatalf("expected changed=false, got %v", got)
+	}
+	if !reflect.DeepEqual(got, current) {
+		t.Fatalf("got %v, want %v", got, current)
+	}
+}
+
+func TestUnapplyPreservesDivergedValue(t *testing.T) {
+	// The safe-undo contract: a key whose current value differs from what the rule
+	// would set (a later hand-edit, or another rule) is NOT removed.
+	c := compile(t, 1, "amount:>0", map[string]string{"status": "review"})
+	current := map[string]string{"status": "done"} // user changed it after the rule ran
+	got, changed := rules.Unapply([]rules.Compiled{c}, rec(5, "acme", current), current)
+	if changed {
+		t.Fatalf("expected changed=false (diverged value preserved), got %v", got)
+	}
+	if got["status"] != "done" {
+		t.Fatalf("status = %q, want it preserved as done", got["status"])
+	}
+}
+
+func TestUnapplyOnlyRemovesMatchingRulesKeys(t *testing.T) {
+	// Two matching rules; unapplying only rule 1 removes only its key.
+	c1 := compile(t, 1, "amount:>0", map[string]string{"a": "1"})
+	current := map[string]string{"a": "1", "b": "2"}
+	got, changed := rules.Unapply([]rules.Compiled{c1}, rec(5, "acme", current), current)
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	if !reflect.DeepEqual(got, map[string]string{"b": "2"}) {
+		t.Fatalf("got %v, want only b:2 remaining", got)
+	}
+}
+
+func TestUnapplyEmptyRuleSetUnchanged(t *testing.T) {
+	got, changed := rules.Unapply(nil, rec(5, "acme", map[string]string{"a": "1"}), map[string]string{"a": "1"})
+	if changed {
+		t.Fatalf("got %v, changed=%v; want no change", got, changed)
+	}
+}
+
+func TestUnapplyExtensionsRemovesAppliedExtension(t *testing.T) {
+	c := compileFull(t, 1, "amount:>50", nil, ext("tax.category", `"meal"`))
+	current := ext("tax.category", `"meal"`, "keep.me", `"v"`)
+	got, changed := rules.UnapplyExtensions([]rules.Compiled{c}, rec(75, "acme", nil), current)
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	want := ext("keep.me", `"v"`)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestUnapplyExtensionsPreservesDivergedValue(t *testing.T) {
+	// An extension whose current raw JSON differs from the rule's is preserved.
+	c := compileFull(t, 1, "amount:>0", nil, ext("x.score", `1`))
+	current := ext("x.score", `2`) // diverged since the rule applied
+	got, changed := rules.UnapplyExtensions([]rules.Compiled{c}, rec(5, "acme", nil), current)
+	if changed {
+		t.Fatalf("expected changed=false (diverged value preserved), got %v", got)
+	}
+	if string(got["x.score"]) != `2` {
+		t.Fatalf("x.score = %s, want it preserved as 2", got["x.score"])
+	}
+}

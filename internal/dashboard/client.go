@@ -302,6 +302,13 @@ type runResult struct {
 	Updated int `json:"updated"`
 }
 
+// unapplyResult is the rule-unapply response: how many transactions matched and how
+// many a label or extension was actually removed from.
+type unapplyResult struct {
+	Matched int `json:"matched"`
+	Removed int `json:"removed"`
+}
+
 func (c *apiClient) listRules(ctx context.Context) ([]rule, error) {
 	var out struct {
 		Rules []rule `json:"rules"`
@@ -369,6 +376,29 @@ func (c *apiClient) runRule(ctx context.Context, id int64) (runResult, error) {
 
 func (c *apiClient) runAllRules(ctx context.Context) (runResult, error) {
 	return c.postRun(ctx, "/api/v1/rules/run")
+}
+
+// unapplyRule removes the labels and extensions a rule applied from the
+// transactions it currently matches (the inverse of runRule).
+func (c *apiClient) unapplyRule(ctx context.Context, id int64) (unapplyResult, error) {
+	path := "/api/v1/rules/" + strconv.FormatInt(id, 10) + "/unapply"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, nil)
+	if err != nil {
+		return unapplyResult{}, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return unapplyResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return unapplyResult{}, decodeAPIError(resp, "remove applied labels")
+	}
+	var out unapplyResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return unapplyResult{}, err
+	}
+	return out, nil
 }
 
 func (c *apiClient) postRun(ctx context.Context, path string) (runResult, error) {

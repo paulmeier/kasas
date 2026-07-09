@@ -908,6 +908,23 @@ html, body {
 .rule-form-actions { margin-top: 4px; }
 .rules-run-msg { margin: 0 0 16px; }
 
+/* Edit-form "danger zone": remove what a rule applied, before deleting it. */
+.rule-form-danger {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(248, 81, 73, 0.30);
+  border-radius: 10px;
+  background: rgba(248, 81, 73, 0.06);
+}
+.rule-form-danger .rule-danger-text { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 240px; }
+.rule-form-danger .rule-danger-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.rule-form-danger .btn-danger { white-space: nowrap; }
+
 /* Webhook event-type picker: a wrapping grid of checkbox labels. */
 .webhook-types {
   display: flex;

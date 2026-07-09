@@ -58,6 +58,36 @@ func TestRuleFormRenders(t *testing.T) {
 	}
 }
 
+// TestRuleFormDangerZone checks the "remove applied labels & extensions" action
+// appears only when editing an existing rule that actually applies something, and
+// stays out of the create form (reveal-on-interaction: not a per-row button).
+func TestRuleFormDangerZone(t *testing.T) {
+	applied := rule{ID: 7, Name: "Coffee", Query: "description:coffee", Labels: map[string]string{"category": "coffee"}, Enabled: true}
+
+	// Editing a rule that applies a label: the action is shown.
+	v := &rulesView{editing: true, editID: 7, formEnabled: true, rules: []rule{applied}}
+	var buf bytes.Buffer
+	app.PrintHTML(&buf, v.renderForm())
+	if html := buf.String(); !strings.Contains(html, "Remove applied labels") {
+		t.Fatalf("expected the danger zone when editing an applying rule, got:\n%s", html)
+	}
+
+	// The create form (editID 0) never shows it.
+	buf.Reset()
+	app.PrintHTML(&buf, (&rulesView{editing: true, editID: 0}).renderForm())
+	if html := buf.String(); strings.Contains(html, "Remove applied labels") {
+		t.Fatalf("did not expect the danger zone in the create form:\n%s", html)
+	}
+
+	// A rule that applies nothing has nothing to remove.
+	empty := rule{ID: 9, Query: "amount:<0"}
+	buf.Reset()
+	app.PrintHTML(&buf, (&rulesView{editing: true, editID: 9, rules: []rule{empty}}).renderForm())
+	if html := buf.String(); strings.Contains(html, "Remove applied labels") {
+		t.Fatalf("did not expect the danger zone for a rule that applies nothing:\n%s", html)
+	}
+}
+
 func TestRuleFormParseError(t *testing.T) {
 	var buf bytes.Buffer
 	app.PrintHTML(&buf, (&rulesView{parseErr: "missing ')'"}).renderParseError())

@@ -129,7 +129,7 @@ delivery queue** — the durable event table *is* the queue.
 | `account.deleted` | A [manual account](manual-entry.md) is deleted (its transactions emit `transaction.deleted` first). |
 | `label.applied` / `label.removed` | A transaction's [labels](labels.md) change (granular, per key). |
 | `extension.set` / `extension.removed` | A transaction's [extensions](schema-extensions.md) change (granular, per key). |
-| `rule.created` / `rule.updated` / `rule.deleted` / `rule.executed` | [Rule](rules.md) lifecycle and runs. |
+| `rule.created` / `rule.updated` / `rule.deleted` / `rule.executed` / `rule.reverted` | [Rule](rules.md) lifecycle, runs, and unapplies. |
 | `sync.completed` | A [sync run](sync.md) finishes. |
 
 !!! note "Granular vs. coarse"

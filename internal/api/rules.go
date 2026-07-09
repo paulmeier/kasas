@@ -228,6 +228,40 @@ func (s *Server) handleRunAllRules(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"matched": matched, "updated": updated})
 }
 
+// handleUnapplyRule removes from every existing transaction the labels and
+// extensions this rule applied — the inverse of handleRunRule. It removes a label
+// or extension only where the transaction's current value still equals what the
+// rule sets, so a value edited by hand (or overwritten by another rule) is kept.
+// Like run, a rule is unapplied by id even if it is disabled; the intended flow is
+// to clean up a rule's effect before deleting it.
+func (s *Server) handleUnapplyRule(w http.ResponseWriter, r *http.Request) {
+	id, err := ruleIDParam(r)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid rule id")
+		return
+	}
+	rule, err := s.store.GetRule(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		s.writeError(w, http.StatusNotFound, "rule not found")
+		return
+	}
+	if err != nil {
+		s.serverError(w, "get rule", err)
+		return
+	}
+	compiled, err := rules.Compile(ruleFromDB(rule))
+	if err != nil {
+		s.serverError(w, "compile rule", err)
+		return
+	}
+	matched, removed, err := s.unapplyRule(r.Context(), []rules.Compiled{compiled}, id)
+	if err != nil {
+		s.serverError(w, "unapply rule", err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"matched": matched, "removed": removed})
+}
+
 // --- shared service helpers (reused by the MCP tools) ---
 
 var errRuleNotFound = errors.New("rule not found")
@@ -440,6 +474,109 @@ func (s *Server) applyRules(ctx context.Context, compiled []rules.Compiled, rule
 		return 0, 0, err
 	}
 	return matched, updated, nil
+}
+
+// unapplyRule removes from every stored transaction the labels and extensions the
+// compiled rules applied — the inverse of applyRules. A label or extension is
+// removed only where the transaction's current value still equals what a matching
+// rule sets (there is no record of which rule set which key, so exact-value match
+// identifies "the pairs this rule applied"; a value the user changed by hand or a
+// later rule overwrote is preserved). All writes happen in one transaction; like
+// applyRules it records a version per changed seam (labeled, then extended) and
+// emits the per-key label.removed / extension.removed events, then one rule.reverted.
+// It returns the number of transactions matched by at least one rule and the number
+// a label or extension was actually removed from (a match still carrying none of the
+// rule's exact pairs is matched but not removed).
+func (s *Server) unapplyRule(ctx context.Context, compiled []rules.Compiled, ruleID int64) (matched, removed int, err error) {
+	if len(compiled) == 0 {
+		return 0, 0, nil
+	}
+
+	accounts, err := s.store.ListAccounts(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	names := make(map[string]string, len(accounts))
+	for _, a := range accounts {
+		names[a.ID] = a.Name
+	}
+
+	txns, err := s.allTransactions(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	err = s.emitter.Record(ctx, s.store, func(q db.Querier, rec *events.Recorder) error {
+		for _, t := range txns {
+			sr := toSearchRecord(t, names[t.AccountID])
+			if anyMatch(compiled, sr) {
+				matched++
+			}
+
+			oldLabels := decodeLabels(t.Labels)
+			reducedLabels, labelsChanged := rules.Unapply(compiled, sr, oldLabels)
+			oldExt := decodeExtensionsRaw(t.Extensions)
+			reducedExt, extChanged := rules.UnapplyExtensions(compiled, sr, oldExt)
+			if !labelsChanged && !extChanged {
+				continue
+			}
+
+			// Mirror applyRules' two independent seams exactly: write each that
+			// changed and record a version per seam (labeled, then extended). next
+			// accumulates the removals so each version's diff-on-read isolates that
+			// seam's change; VersionChange synthesizes a v1 baseline for a transaction
+			// predating history the first time it is touched.
+			next := t
+			if labelsChanged {
+				encoded, eerr := encodeLabels(reducedLabels)
+				if eerr != nil {
+					return eerr
+				}
+				if _, eerr := q.UpdateTransactionLabels(ctx, db.UpdateTransactionLabelsParams{ID: t.ID, Labels: encoded}); eerr != nil {
+					return eerr
+				}
+				if eerr := rec.EmitLabelDiff(ctx, q, t.ID, oldLabels, reducedLabels); eerr != nil {
+					return eerr
+				}
+				next.Labels = encoded
+				if eerr := rec.VersionChange(ctx, q, t.ID, events.TransactionSnapshot(t), events.TransactionSnapshot(next), events.ChangeLabeled); eerr != nil {
+					return eerr
+				}
+			}
+			if extChanged {
+				beforeExt := events.TransactionSnapshot(next) // state before this extension change
+				encoded, eerr := encodeExtensions(reducedExt)
+				if eerr != nil {
+					return eerr
+				}
+				if _, eerr := q.UpdateTransactionExtensions(ctx, db.UpdateTransactionExtensionsParams{ID: t.ID, Extensions: encoded}); eerr != nil {
+					return eerr
+				}
+				if eerr := rec.EmitExtensionDiff(ctx, q, t.ID, oldExt, reducedExt); eerr != nil {
+					return eerr
+				}
+				next.Extensions = encoded
+				if eerr := rec.VersionChange(ctx, q, t.ID, beforeExt, events.TransactionSnapshot(next), events.ChangeExtended); eerr != nil {
+					return eerr
+				}
+			}
+			removed++
+		}
+		// One rule.reverted summarizes the unapply.
+		entityID := ""
+		if ruleID > 0 {
+			entityID = events.EntityID(ruleID)
+		}
+		return rec.Emit(ctx, q, events.TypeRuleReverted, events.EntityRule, entityID, events.RuleRevertedPayload{
+			RuleID:  ruleID,
+			Matched: matched,
+			Removed: removed,
+		})
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return matched, removed, nil
 }
 
 // enabledCompiledRules loads and compiles every enabled rule, skipping (and

@@ -40,6 +40,7 @@ var knownEventTypes = map[string]bool{
 	events.TypeRuleUpdated:         true,
 	events.TypeRuleDeleted:         true,
 	events.TypeRuleExecuted:        true,
+	events.TypeRuleReverted:        true,
 	events.TypeSyncCompleted:       true,
 }
 
