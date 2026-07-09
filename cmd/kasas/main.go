@@ -340,6 +340,11 @@ func serve(cfg *config.Config, logger *slog.Logger, engine *poller.Engine, srv *
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Log the running build first thing, before anything can fail — so "which
+	// version is this container?" is always answerable from the startup logs,
+	// even when the server refuses to start (e.g. the exposure check below).
+	logger.Info("starting kasas", "version", version)
+
 	if err := checkUnauthenticatedExposure(guard.Required(), cfg.Server.Addr, cfg.Server.AllowUnauthenticated); err != nil {
 		return err
 	}
