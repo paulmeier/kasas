@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           # Pin to a stable release with wheels for all deps (avoid bleeding-edge
           # 3.x). No pip cache: we install a single pinned package inline, and
