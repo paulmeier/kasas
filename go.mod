@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/dop251/goja v0.0.0-20260607120635-348e6bea910d
-	github.com/evanw/esbuild v0.28.1
+	github.com/evanw/esbuild v0.28.2
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-co-op/gocron/v2 v2.22.0
 	github.com/google/uuid v1.6.0
