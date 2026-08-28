@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage ----
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 
 # ca-certificates are copied into the runtime image so outbound TLS (SimpleFIN
 # bridge, Vault) works.
