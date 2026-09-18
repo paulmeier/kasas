@@ -11,7 +11,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/maxence-charriere/go-app/v10 v10.1.11
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/prometheus/client_golang v1.24.1
