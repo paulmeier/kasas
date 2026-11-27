@@ -6,7 +6,7 @@ require (
 	github.com/dop251/goja v0.0.0-20260607120635-348e6bea910d
 	github.com/evanw/esbuild v0.28.2
 	github.com/go-chi/chi/v5 v5.5.0
-	github.com/go-co-op/gocron/v2 v2.23.1
+	github.com/go-co-op/gocron/v2 v2.23.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/jackc/pgx/v5 v5.13.0
@@ -22,7 +22,7 @@ require (
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/time v0.16.0
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
